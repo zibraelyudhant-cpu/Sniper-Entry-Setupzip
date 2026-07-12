@@ -156,6 +156,15 @@ export default function ScreenerScreen() {
     router.push({ pathname: '/(tabs)/sniper', params: { symbol: coin.symbol } });
   }, []);
 
+  const handleManualScan = useCallback(() => {
+    if (!search.trim()) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const raw = search.trim().toUpperCase();
+    const symbol = raw.endsWith('USDT') ? raw : `${raw}USDT`;
+    setSearch('');
+    router.push({ pathname: '/(tabs)/sniper', params: { symbol } });
+  }, [search]);
+
   const filteredCoins = (data?.coins ?? []).filter((c) =>
     c.symbol.toLowerCase().includes(search.toLowerCase())
   );
@@ -202,6 +211,31 @@ export default function ScreenerScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* Manual scan button */}
+        {search.trim().length > 0 && (
+          <Pressable
+            onPress={handleManualScan}
+            style={({ pressed }) => [
+              styles.manualScanBtn,
+              {
+                backgroundColor: pressed ? `${colors.primary}cc` : colors.primary,
+                marginBottom: 10,
+              },
+            ]}
+          >
+            <Feather name="crosshair" size={14} color={colors.primaryForeground} />
+            <Text style={[styles.manualScanText, { color: colors.primaryForeground }]}>
+              Scan{' '}
+              <Text style={{ fontFamily: 'Inter_700Bold' }}>
+                {search.trim().toUpperCase().endsWith('USDT')
+                  ? search.trim().toUpperCase()
+                  : `${search.trim().toUpperCase()}USDT`}
+              </Text>
+            </Text>
+            <Feather name="arrow-right" size={14} color={colors.primaryForeground} style={{ marginLeft: 'auto' }} />
+          </Pressable>
+        )}
 
         {/* Column labels */}
         <View style={styles.colLabels}>
@@ -433,5 +467,18 @@ const styles = StyleSheet.create({
   retryText: {
     fontSize: 15,
     fontFamily: 'Inter_600SemiBold',
+  },
+  manualScanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 8,
+  },
+  manualScanText: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    flex: 1,
   },
 });
