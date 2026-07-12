@@ -194,6 +194,8 @@ components:
           type: number
         rsiDivergence:
           type: boolean
+        chochDetected:
+          type: boolean
         oiChange:
           type: number
         fundingRate:

@@ -67,6 +67,7 @@ export const GetSmcAnalysisResponse = zod.object({
   "confirmationCandle": zod.string().optional(),
   "rsi": zod.number().optional(),
   "rsiDivergence": zod.boolean().optional(),
+  "chochDetected": zod.boolean().optional(),
   "oiChange": zod.number().optional(),
   "fundingRate": zod.number().optional(),
   "setupValidHours": zod.number().optional(),

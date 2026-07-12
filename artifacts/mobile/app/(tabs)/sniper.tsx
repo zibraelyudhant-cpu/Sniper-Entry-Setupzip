@@ -156,8 +156,16 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
   const oiColor =
     (data.oiChange ?? 0) > 0 ? colors.bullish : colors.bearish;
 
+  const chochColor = data.chochDetected ? colors.bearish : colors.bullish;
+
   return (
     <Section title="KONDISI PASAR">
+      <Row
+        label="CHoCH H1"
+        value={data.chochDetected ? 'Terbentuk ⚠' : 'Belum terbentuk ✓'}
+        valueColor={chochColor}
+      />
+      <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <Row
         label="RSI H1"
         value={`${(data.rsi ?? 0).toFixed(1)}${data.rsiDivergence ? ' ⚠ divergence' : ' ✓'}`}

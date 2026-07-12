@@ -106,6 +106,7 @@ export interface SkipConditions {
   reasons: string[];
   rsi: number;
   rsiDivergence: boolean;
+  chochDetected: boolean;
   oiChange: number;
   fundingRate: number;
 }
@@ -129,6 +130,7 @@ export interface SniperResult {
   confirmationCandle?: string;
   rsi?: number;
   rsiDivergence?: boolean;
+  chochDetected?: boolean;
   oiChange?: number;
   fundingRate?: number;
   setupValidHours?: number;
@@ -934,14 +936,35 @@ export function calcSniperLevels(
 
 // ─── Step 6: Skip Conditions ──────────────────────────────────────────────────
 
+// CHoCH: detects if H1 has broken structure against the bias (change of character)
+// Bullish: close breaks below most recent swing low → CHoCH formed → skip
+// Bearish: close breaks above most recent swing high → CHoCH formed → skip
+function detectCHoCH(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  bias: "bullish" | "bearish"
+): boolean {
+  const lastClose = closes[closes.length - 1];
+  if (bias === "bullish") {
+    const swingLows = findSwingLows(lows, 5);
+    if (swingLows.length < 1) return false;
+    const recentHL = swingLows[swingLows.length - 1];
+    return lastClose < recentHL;
+  } else {
+    const swingHighs = findSwingHighs(highs, 5);
+    if (swingHighs.length < 1) return false;
+    const recentLH = swingHighs[swingHighs.length - 1];
+    return lastClose > recentLH;
+  }
+}
+
 export async function checkSkipConditions(
   symbol: string,
   bias: "bullish" | "bearish",
   h1Closes: number[],
   h1Highs: number[],
   h1Lows: number[],
-  h1Volumes: number[],
-  h4Volumes: number[]
 ): Promise<SkipConditions> {
   const reasons: string[] = [];
   let shouldSkip = false;
@@ -977,7 +1000,14 @@ export async function checkSkipConditions(
     }
   }
 
-  // 2. OI (approximated from volume delta)
+  // 2. CHoCH on H1
+  const chochDetected = detectCHoCH(h1Highs, h1Lows, h1Closes, bias);
+  if (chochDetected) {
+    reasons.push("CHoCH terbentuk di H1 — struktur H1 sudah berbalik arah");
+    shouldSkip = true;
+  }
+
+  // 3. OI (approximated from volume delta)
   let oiChange = 0;
   try {
     const oiUrl = `${BINANCE_FUTURES_BASE}/fapi/v1/openInterest?symbol=${symbol}`;
@@ -1020,7 +1050,7 @@ export async function checkSkipConditions(
     }
   } catch { /* Funding rate check failed silently */ }
 
-  return { shouldSkip, reasons, rsi, rsiDivergence, oiChange, fundingRate };
+  return { shouldSkip, reasons, rsi, rsiDivergence, chochDetected, oiChange, fundingRate };
 }
 
 // ─── Main Analysis Function ───────────────────────────────────────────────────
@@ -1092,7 +1122,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     // STEP 3: Check skip conditions (after zone found)
     const skipConds = await checkSkipConditions(
       symbol, bias,
-      h1.closes, h1.highs, h1.lows, h1.volumes, h4.volumes
+      h1.closes, h1.highs, h1.lows
     );
 
     if (skipConds.shouldSkip) {
@@ -1107,6 +1137,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         zoneType: selectedZone.zoneType,
         rsi: skipConds.rsi,
         rsiDivergence: skipConds.rsiDivergence,
+        chochDetected: skipConds.chochDetected,
         oiChange: skipConds.oiChange,
         fundingRate: skipConds.fundingRate,
         skipReasons: skipConds.reasons,
@@ -1165,6 +1196,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       confirmationCandle: confirmation.candleType,
       rsi: skipConds.rsi,
       rsiDivergence: skipConds.rsiDivergence,
+      chochDetected: skipConds.chochDetected,
       oiChange: skipConds.oiChange,
       fundingRate: skipConds.fundingRate,
       setupValidHours: sniperLevels.setupValidHours,

@@ -29,6 +29,7 @@ export interface SniperResult {
   confirmationCandle?: string;
   rsi?: number;
   rsiDivergence?: boolean;
+  chochDetected?: boolean;
   oiChange?: number;
   fundingRate?: number;
   setupValidHours?: number;
