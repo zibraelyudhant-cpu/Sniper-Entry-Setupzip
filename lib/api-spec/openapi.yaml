@@ -194,9 +194,6 @@ components:
           type: number
         rsiDivergence:
           type: boolean
-        volumeTrend:
-          type: string
-          enum: [increasing, decreasing, neutral]
         oiChange:
           type: number
         fundingRate:

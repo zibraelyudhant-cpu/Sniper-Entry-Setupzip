@@ -16,7 +16,6 @@ export * from './screenerResponse';
 export * from './sniperResult';
 export * from './sniperResultBias';
 export * from './sniperResultStatus';
-export * from './sniperResultVolumeTrend';
 export * from './trendInfo';
 export * from './trendInfoBias';
 export * from './trendInfoStrength';

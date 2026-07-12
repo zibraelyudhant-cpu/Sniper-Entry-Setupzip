@@ -151,8 +151,6 @@ function TrendSection({ data, colors }: { data: SniperResult; colors: ReturnType
 function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   const rsiColor =
     (data.rsi ?? 50) > 70 ? colors.bearish : (data.rsi ?? 50) < 30 ? colors.bullish : colors.foreground;
-  const volColor =
-    data.volumeTrend === 'increasing' ? colors.bullish : data.volumeTrend === 'decreasing' ? colors.bearish : colors.foreground;
   const frColor =
     (data.fundingRate ?? 0) > 0.05 ? colors.bearish : (data.fundingRate ?? 0) < -0.05 ? colors.bullish : colors.foreground;
   const oiColor =
@@ -164,16 +162,6 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
         label="RSI H1"
         value={`${(data.rsi ?? 0).toFixed(1)}${data.rsiDivergence ? ' ⚠ divergence' : ' ✓'}`}
         valueColor={data.rsiDivergence ? colors.warning : rsiColor}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="Volume H1"
-        value={
-          data.volumeTrend === 'increasing' ? 'Meningkat ✓'
-          : data.volumeTrend === 'decreasing' ? 'Menurun ⚠'
-          : 'Netral'
-        }
-        valueColor={volColor}
       />
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <Row

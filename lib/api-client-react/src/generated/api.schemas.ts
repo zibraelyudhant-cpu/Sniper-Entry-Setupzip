@@ -92,15 +92,6 @@ export const SniperResultBias = {
   bearish: 'bearish',
 } as const;
 
-export type SniperResultVolumeTrend = typeof SniperResultVolumeTrend[keyof typeof SniperResultVolumeTrend];
-
-
-export const SniperResultVolumeTrend = {
-  increasing: 'increasing',
-  decreasing: 'decreasing',
-  neutral: 'neutral',
-} as const;
-
 export interface SniperResult {
   status: SniperResultStatus;
   message: string;
@@ -120,7 +111,6 @@ export interface SniperResult {
   confirmationCandle?: string;
   rsi?: number;
   rsiDivergence?: boolean;
-  volumeTrend?: SniperResultVolumeTrend;
   oiChange?: number;
   fundingRate?: number;
   setupValidHours?: number;

@@ -106,7 +106,6 @@ export interface SkipConditions {
   reasons: string[];
   rsi: number;
   rsiDivergence: boolean;
-  volumeTrend: "increasing" | "decreasing" | "neutral";
   oiChange: number;
   fundingRate: number;
 }
@@ -130,7 +129,6 @@ export interface SniperResult {
   confirmationCandle?: string;
   rsi?: number;
   rsiDivergence?: boolean;
-  volumeTrend?: string;
   oiChange?: number;
   fundingRate?: number;
   setupValidHours?: number;
@@ -979,21 +977,7 @@ export async function checkSkipConditions(
     }
   }
 
-  // 2. Volume trend
-  const recentVols = h1Volumes.slice(-5);
-  const prevVols = h1Volumes.slice(-10, -5);
-  const avgRecentVol = recentVols.reduce((a, b) => a + b, 0) / recentVols.length;
-  const avgPrevVol = prevVols.reduce((a, b) => a + b, 0) / prevVols.length;
-
-  let volumeTrend: "increasing" | "decreasing" | "neutral" = "neutral";
-  if (avgRecentVol > avgPrevVol * 1.1) volumeTrend = "increasing";
-  else if (avgRecentVol < avgPrevVol * 0.9) {
-    volumeTrend = "decreasing";
-    reasons.push("Volume H1 menurun saat harga bergerak searah tren");
-    shouldSkip = true;
-  }
-
-  // 3. OI (approximated from volume delta)
+  // 2. OI (approximated from volume delta)
   let oiChange = 0;
   try {
     const oiUrl = `${BINANCE_FUTURES_BASE}/fapi/v1/openInterest?symbol=${symbol}`;
@@ -1036,7 +1020,7 @@ export async function checkSkipConditions(
     }
   } catch { /* Funding rate check failed silently */ }
 
-  return { shouldSkip, reasons, rsi, rsiDivergence, volumeTrend, oiChange, fundingRate };
+  return { shouldSkip, reasons, rsi, rsiDivergence, oiChange, fundingRate };
 }
 
 // ─── Main Analysis Function ───────────────────────────────────────────────────
@@ -1123,7 +1107,6 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         zoneType: selectedZone.zoneType,
         rsi: skipConds.rsi,
         rsiDivergence: skipConds.rsiDivergence,
-        volumeTrend: skipConds.volumeTrend,
         oiChange: skipConds.oiChange,
         fundingRate: skipConds.fundingRate,
         skipReasons: skipConds.reasons,
@@ -1182,7 +1165,6 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       confirmationCandle: confirmation.candleType,
       rsi: skipConds.rsi,
       rsiDivergence: skipConds.rsiDivergence,
-      volumeTrend: skipConds.volumeTrend,
       oiChange: skipConds.oiChange,
       fundingRate: skipConds.fundingRate,
       setupValidHours: sniperLevels.setupValidHours,

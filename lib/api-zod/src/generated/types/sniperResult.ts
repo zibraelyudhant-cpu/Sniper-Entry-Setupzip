@@ -7,7 +7,6 @@
  */
 import type { SniperResultBias } from './sniperResultBias';
 import type { SniperResultStatus } from './sniperResultStatus';
-import type { SniperResultVolumeTrend } from './sniperResultVolumeTrend';
 import type { TrendInfo } from './trendInfo';
 import type { ZoneRange } from './zoneRange';
 
@@ -30,7 +29,6 @@ export interface SniperResult {
   confirmationCandle?: string;
   rsi?: number;
   rsiDivergence?: boolean;
-  volumeTrend?: SniperResultVolumeTrend;
   oiChange?: number;
   fundingRate?: number;
   setupValidHours?: number;
