@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: screener
+    description: Crypto screener operations
+  - name: smc-analysis
+    description: SMC sniper entry analysis
 paths:
   /healthz:
     get:
@@ -24,6 +28,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /screener:
+    get:
+      operationId: getScreener
+      tags: [screener]
+      summary: Get top crypto futures coins
+      description: Returns top futures coins sorted by volume with bias analysis
+      responses:
+        "200":
+          description: Screener results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreenerResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /smc-analysis:
+    get:
+      operationId: getSmcAnalysis
+      tags: [smc-analysis]
+      summary: Run SMC sniper entry analysis
+      description: Full top-down SMC analysis for a given symbol
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Futures symbol e.g. BTCUSDT"
+      responses:
+        "200":
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SniperResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +88,136 @@ components:
           type: string
       required:
         - status
-
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    ScreenerCoin:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+        change24h:
+          type: number
+        volume24h:
+          type: number
+        bias:
+          type: string
+          enum: [bullish, bearish, ranging]
+        strength:
+          type: string
+          enum: [strong, weak, neutral]
+      required:
+        - symbol
+        - price
+        - change24h
+        - volume24h
+        - bias
+        - strength
+    ScreenerResponse:
+      type: object
+      properties:
+        coins:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScreenerCoin"
+        fetchedAt:
+          type: number
+      required:
+        - coins
+        - fetchedAt
+    TrendInfo:
+      type: object
+      properties:
+        bias:
+          type: string
+          enum: [bullish, bearish, ranging]
+        strength:
+          type: string
+          enum: [strong, weak, neutral]
+      required:
+        - bias
+        - strength
+    ZoneRange:
+      type: object
+      properties:
+        low:
+          type: number
+        high:
+          type: number
+      required:
+        - low
+        - high
+    SniperResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, no_trend, no_zone, skip_conditions, error]
+        message:
+          type: string
+        symbol:
+          type: string
+        currentPrice:
+          type: number
+        timestamp:
+          type: number
+        bias:
+          type: string
+          enum: [bullish, bearish]
+        entryPrice:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit1:
+          type: number
+        takeProfit2:
+          type: number
+        d1:
+          $ref: "#/components/schemas/TrendInfo"
+        h4:
+          $ref: "#/components/schemas/TrendInfo"
+        zoneType:
+          type: string
+        zoneRange:
+          $ref: "#/components/schemas/ZoneRange"
+        refinedZoneType:
+          type: string
+        entryConfirmed:
+          type: boolean
+        confirmationCandle:
+          type: string
+        rsi:
+          type: number
+        rsiDivergence:
+          type: boolean
+        volumeTrend:
+          type: string
+          enum: [increasing, decreasing, neutral]
+        oiChange:
+          type: number
+        fundingRate:
+          type: number
+        setupValidHours:
+          type: number
+        estimatedHitHours:
+          type: number
+        expiryHours:
+          type: number
+        skipReasons:
+          type: array
+          items:
+            type: string
+        reasoning:
+          type: string
+      required:
+        - status
+        - message
+        - symbol
+        - currentPrice
+        - timestamp
