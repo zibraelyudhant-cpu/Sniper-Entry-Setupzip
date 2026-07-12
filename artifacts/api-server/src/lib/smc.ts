@@ -1,5 +1,5 @@
 // SMC (Smart Money Concepts) Analysis Library
-// Implements top-down analysis: D1 → H4 → H1 → 15M → 5M
+// Implements top-down analysis: H4 → H1 → 15M → 5M
 
 const BINANCE_FUTURES_BASE = "https://fapi.binance.com";
 
@@ -122,7 +122,6 @@ export interface SniperResult {
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
-  d1?: { bias: string; strength: string };
   h4?: { bias: string; strength: string };
   zoneType?: string;
   zoneRange?: { low: number; high: number };
@@ -1047,8 +1046,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
   try {
     // Fetch all data in parallel
-    const [d1, h4, h1, m15, m5, currentTickerRes] = await Promise.all([
-      fetchKlines(symbol, "1d", 60),
+    const [h4, h1, m15, m5, currentTickerRes] = await Promise.all([
       fetchKlines(symbol, "4h", 100),
       fetchKlines(symbol, "1h", 200),
       fetchKlines(symbol, "15m", 100),
@@ -1064,35 +1062,21 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       currentPrice = h1.closes[h1.closes.length - 1];
     }
 
-    // STEP 1: Confirm trend D1 + H4
-    const structD1 = analyzePriceActionStructure(d1.highs, d1.lows, d1.closes);
+    // STEP 1: Confirm trend H4
     const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
 
-    if (structD1.bias === "ranging" || structH4.bias === "ranging") {
+    if (structH4.bias === "ranging") {
       return {
         status: "no_trend",
-        message: `Struktur D1/H4 ranging, tidak ada trend jelas untuk ${symbol}`,
+        message: `Struktur H4 ranging, tidak ada trend jelas untuk ${symbol}`,
         symbol,
         currentPrice,
         timestamp,
-        d1: { bias: structD1.bias, strength: structD1.strength },
         h4: { bias: structH4.bias, strength: structH4.strength },
       };
     }
 
-    if (structD1.bias !== structH4.bias) {
-      return {
-        status: "no_trend",
-        message: `D1 (${structD1.bias}) dan H4 (${structH4.bias}) berbeda arah, trend tidak valid`,
-        symbol,
-        currentPrice,
-        timestamp,
-        d1: { bias: structD1.bias, strength: structD1.strength },
-        h4: { bias: structH4.bias, strength: structH4.strength },
-      };
-    }
-
-    const bias = structD1.bias as "bullish" | "bearish";
+    const bias = structH4.bias as "bullish" | "bearish";
 
     // STEP 2: Detect zones at H1
     const [obs, fvgs, unfilledOrders] = await Promise.all([
@@ -1103,7 +1087,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     const srLevels = detectSRLevels(h1.highs, h1.lows, h1.closes);
     const sndZones = detectSnDZones(h1.opens, h1.highs, h1.lows, h1.closes);
-    const fibLevels = calcFibonacci(d1.highs, d1.lows, d1.closes);
+    const fibLevels = calcFibonacci(h4.highs, h4.lows, h4.closes);
 
     const selectedZone = selectBestZoneH1(
       obs, fvgs, unfilledOrders, srLevels, sndZones, fibLevels, bias, currentPrice
@@ -1112,12 +1096,11 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     if (!selectedZone) {
       return {
         status: "no_zone",
-        message: `Trend valid (D1/H4 ${bias}) tapi belum ada zona OB/FVG/S&R yang cukup kuat di H1`,
+        message: `Trend H4 valid (${bias}) tapi belum ada zona OB/FVG/S&R yang cukup kuat di H1`,
         symbol,
         currentPrice,
         timestamp,
         bias,
-        d1: { bias: structD1.bias, strength: structD1.strength },
         h4: { bias: structH4.bias, strength: structH4.strength },
       };
     }
@@ -1136,7 +1119,6 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         currentPrice,
         timestamp,
         bias,
-        d1: { bias: structD1.bias, strength: structD1.strength },
         h4: { bias: structH4.bias, strength: structH4.strength },
         zoneType: selectedZone.zoneType,
         rsi: skipConds.rsi,
@@ -1192,7 +1174,6 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       stopLoss: sniperLevels.stopLoss,
       takeProfit1: sniperLevels.takeProfit1,
       takeProfit2: sniperLevels.takeProfit2,
-      d1: { bias: structD1.bias, strength: structD1.strength },
       h4: { bias: structH4.bias, strength: structH4.strength },
       zoneType: selectedZone.zoneType,
       zoneRange: { low: selectedZone.low, high: selectedZone.high },

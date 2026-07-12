@@ -178,8 +178,6 @@ components:
           type: number
         takeProfit2:
           type: number
-        d1:
-          $ref: "#/components/schemas/TrendInfo"
         h4:
           $ref: "#/components/schemas/TrendInfo"
         zoneType:

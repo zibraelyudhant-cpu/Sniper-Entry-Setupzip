@@ -72,7 +72,6 @@ function NoTrendScreen({ data, colors }: { data: SniperResult; colors: ReturnTyp
         <Text style={[styles.statusTitle, { color: colors.warning }]}>Tidak Ada Trend Jelas</Text>
         <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
         <View style={styles.trendRow}>
-          <TrendBadge label="D1" bias={data.d1?.bias ?? 'ranging'} strength={data.d1?.strength ?? 'neutral'} colors={colors} />
           <TrendBadge label="H4" bias={data.h4?.bias ?? 'ranging'} strength={data.h4?.strength ?? 'neutral'} colors={colors} />
         </View>
       </View>
@@ -143,7 +142,6 @@ function TrendSection({ data, colors }: { data: SniperResult; colors: ReturnType
   return (
     <Section title="TREND">
       <View style={styles.trendRow}>
-        {data.d1 && <TrendBadge label="D1" bias={data.d1.bias} strength={data.d1.strength} colors={colors} />}
         {data.h4 && <TrendBadge label="H4" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
       </View>
     </Section>
@@ -425,7 +423,7 @@ export default function SniperScreen() {
             Menganalisa {formatSymbolClean(querySymbol)}
           </Text>
           <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-            D1 → H4 → H1 → 15M → 5M...
+            H4 → H1 → 15M → 5M...
           </Text>
         </View>
       ) : isError ? (

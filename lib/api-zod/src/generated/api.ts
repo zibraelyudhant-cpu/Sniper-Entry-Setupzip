@@ -53,10 +53,6 @@ export const GetSmcAnalysisResponse = zod.object({
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "takeProfit2": zod.number().optional(),
-  "d1": zod.object({
-  "bias": zod.enum(['bullish', 'bearish', 'ranging']),
-  "strength": zod.enum(['strong', 'weak', 'neutral'])
-}).optional(),
   "h4": zod.object({
   "bias": zod.enum(['bullish', 'bearish', 'ranging']),
   "strength": zod.enum(['strong', 'weak', 'neutral'])

@@ -112,7 +112,6 @@ export interface SniperResult {
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
-  d1?: TrendInfo;
   h4?: TrendInfo;
   zoneType?: string;
   zoneRange?: ZoneRange;
