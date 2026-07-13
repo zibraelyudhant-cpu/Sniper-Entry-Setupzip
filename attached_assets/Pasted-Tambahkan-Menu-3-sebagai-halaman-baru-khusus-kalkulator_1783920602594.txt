@@ -1,0 +1,135 @@
+Tambahkan Menu 3 sebagai halaman baru khusus kalkulator PnL futures.
+
+=== 1. BUAT FILE BARU ===
+artifacts/mobile/app/(tabs)/calculator.tsx
+
+Halaman ini menerima params dari URL:
+- entryPrice: number
+- stopLoss: number
+- takeProfit1: number
+- takeProfit2: number
+- symbol: string
+- direction: 'bullish' | 'bearish'
+
+=== 2. LOGIKA KALKULASI (semua di frontend, tidak ada API call) ===
+
+Formula Binance Futures:
+
+// Ukuran posisi
+// Kalau input USDT:
+contracts = (modalUsdt * leverage) / entryPrice
+
+// Kalau input contracts/lot:
+modalUsdt = (contracts * entryPrice) / leverage
+
+// Initial Margin
+initialMargin = (contracts * entryPrice) / leverage
+
+// PnL per level
+direction = bias === 'bullish' ? 1 : -1
+pnlSL  = contracts * (stopLoss - entryPrice) * direction
+pnlTP1 = contracts * (takeProfit1 - entryPrice) * direction
+pnlTP2 = contracts * (takeProfit2 - entryPrice) * direction
+
+// ROE%
+roeSL  = pnlSL  / initialMargin * 100
+roeTP1 = pnlTP1 / initialMargin * 100
+roeTP2 = pnlTP2 / initialMargin * 100
+
+// Liquidation Price
+// Cross margin:
+liqCross = bias === 'bullish'
+  ? entryPrice * (1 - 1/leverage)
+  : entryPrice * (1 + 1/leverage)
+
+// Isolated margin (maintenance margin rate 0.5%):
+mmRate = 0.005
+liqIsolated = bias === 'bullish'
+  ? entryPrice * (1 - (1/leverage) + mmRate)
+  : entryPrice * (1 + (1/leverage) - mmRate)
+
+=== 3. TAMPILAN MENU 3 ===
+
+Header: "Kalkulator PnL"
+Sub: symbol yang sedang dianalisa (dari params)
+
+INPUT SECTION:
+┌─────────────────────────────────────────┐
+│ Modal        [_________] USDT           │
+│ atau                                    │
+│ Ukuran Posisi [________] lot/contracts  │
+│                                         │
+│ (isi salah satu, yang lain auto)        │
+│                                         │
+│ Leverage     [___________] x            │
+│                                         │
+│ Mode Margin  [Cross]  [Isolated]        │
+└─────────────────────────────────────────┘
+
+HARGA SECTION (read-only, dari Menu 2):
+┌─────────────────────────────────────────┐
+│ Entry    : [harga dari Menu 2]          │
+│ Stop Loss: [harga dari Menu 2]          │
+│ TP1      : [harga dari Menu 2]          │
+│ TP2      : [harga dari Menu 2]          │
+└─────────────────────────────────────────┘
+
+HASIL SECTION:
+┌─────────────────────────────────────────┐
+│ Ukuran Posisi : 0.0156 BTC             │
+│ Initial Margin: 50.00 USDT             │
+│                                         │
+│ Liq. Price    : 61,234  ← kuning/merah │
+│                                         │
+│ STOP LOSS  -25.00 USDT  (-50.00%) 🔴  │
+│ TAKE PROFIT 1  +37.50 USDT (+75.00%) 🟢│
+│ TAKE PROFIT 2  +75.00 USDT (+150.00%) 🟢│
+└─────────────────────────────────────────┘
+
+Warna liq price:
+- Hijau: jarak > 20% dari entry (aman)
+- Kuning: jarak 10-20% (perhatikan)
+- Merah: jarak < 10% (berbahaya)
+
+Format harga: pakai koma sebagai desimal,
+tanpa tanda $, presisi mengikuti symbol
+(sama dengan fungsi formatPrice yang sudah
+ada di sniper.tsx)
+
+=== 4. TOMBOL DI MENU 2 (sniper.tsx) ===
+
+Di bawah section Trade Parameters (setelah TP2),
+tambahkan tombol:
+
+[🧮 Kalkulator PnL →]
+
+Warna: outline/secondary (bukan primary)
+Klik → navigate ke /calculator dengan params:
+  entryPrice, stopLoss, takeProfit1, takeProfit2,
+  symbol, direction
+
+Tombol hanya muncul kalau status === 'ready'
+(hasil analisa sudah ada)
+
+=== 5. NAVBAR BAWAH (_layout.tsx) ===
+
+Tambahkan tab ketiga di navbar:
+- Icon: calculator (dari expo/vector-icons)
+- Label: "Kalkulator"
+- Route: /calculator
+
+=== 6. VALIDASI INPUT ===
+
+- Modal dan leverage harus angka positif
+- Leverage minimum 1, maksimum 125
+- Kalau input modal USDT berubah → hitung ulang contracts
+- Kalau input contracts berubah → hitung ulang modal USDT
+- Kalau leverage berubah → hitung ulang semua
+- Tampilkan warning kalau leverage > 20x:
+  "⚠ Leverage tinggi meningkatkan risiko likuidasi"
+
+=== YANG TIDAK BOLEH DIUBAH ===
+- Semua logika di sniper.tsx kecuali tambah tombol
+- Semua logika di smc-analysis.ts
+- index.tsx (Menu 1)
+- Fungsi formatPrice yang sudah ada

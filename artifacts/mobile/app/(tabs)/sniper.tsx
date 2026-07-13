@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useGetSmcAnalysis } from '@workspace/api-client-react';
 import type { SniperResult } from '@workspace/api-client-react';
@@ -232,6 +232,37 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <LevelRow label="TAKE PROFIT 2" price={data.takeProfit2 ?? 0} color={colors.gold} colors={colors} sub="R:R 1:3" />
         </View>
+
+        {/* Kalkulator PnL button */}
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({
+              pathname: '/(tabs)/calculator',
+              params: {
+                entryPrice: String(data.entryPrice ?? 0),
+                stopLoss: String(data.stopLoss ?? 0),
+                takeProfit1: String(data.takeProfit1 ?? 0),
+                takeProfit2: String(data.takeProfit2 ?? 0),
+                symbol: data.symbol,
+                direction: data.bias ?? 'bullish',
+              },
+            });
+          }}
+          style={({ pressed }) => [
+            styles.calcBtn,
+            {
+              borderColor: colors.mutedForeground,
+              backgroundColor: pressed ? `${colors.mutedForeground}15` : 'transparent',
+            },
+          ]}
+        >
+          <Feather name="percent" size={15} color={colors.mutedForeground} />
+          <Text style={[styles.calcBtnText, { color: colors.mutedForeground }]}>
+            Kalkulator PnL
+          </Text>
+          <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
+        </Pressable>
 
         {/* Zone info */}
         <View style={styles.metaGrid}>
@@ -655,4 +686,15 @@ const styles = StyleSheet.create({
   reasoningLabel: { fontSize: 10, fontFamily: 'Inter_500Medium', letterSpacing: 0.5, marginBottom: 4 },
   reasoningText: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 20 },
   disclaimer: { fontSize: 10, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: 4 },
+  calcBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  calcBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
 });
