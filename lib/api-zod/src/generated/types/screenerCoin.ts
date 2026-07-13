@@ -6,13 +6,23 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ScreenerCoinBias } from './screenerCoinBias';
-import type { ScreenerCoinStrength } from './screenerCoinStrength';
 
 export interface ScreenerCoin {
   symbol: string;
+  bias: ScreenerCoinBias;
+  score: number;
+  confidence: 'HIGH' | 'MODERATE' | 'LOW';
   price: number;
   change24h: number;
   volume24h: number;
-  bias: ScreenerCoinBias;
-  strength: ScreenerCoinStrength;
+  rsiH4: number;
+  rsiH1: number;
+  macdValidH4: boolean;
+  macdValidH1: boolean;
+  atrH4: number;
+  atrH4Pct: number;
+  adxH4: number;
+  volumeValid: boolean;
+  oiDirection: 'up' | 'down' | 'neutral';
+  fundingRate: number;
 }

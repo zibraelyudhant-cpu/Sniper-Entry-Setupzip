@@ -23,13 +23,24 @@ export const HealthCheckResponse = zod.object({
  */
 export const GetScreenerResponse = zod.object({
   "coins": zod.array(zod.object({
-  "symbol": zod.string(),
-  "price": zod.number(),
-  "change24h": zod.number(),
-  "volume24h": zod.number(),
-  "bias": zod.enum(['bullish', 'bearish', 'ranging']),
-  "strength": zod.enum(['strong', 'weak', 'neutral'])
-})),
+    "symbol": zod.string(),
+    "bias": zod.enum(['bullish', 'bearish']),
+    "score": zod.number(),
+    "confidence": zod.enum(['HIGH', 'MODERATE', 'LOW']),
+    "price": zod.number(),
+    "change24h": zod.number(),
+    "volume24h": zod.number(),
+    "rsiH4": zod.number(),
+    "rsiH1": zod.number(),
+    "macdValidH4": zod.boolean(),
+    "macdValidH1": zod.boolean(),
+    "atrH4": zod.number(),
+    "atrH4Pct": zod.number(),
+    "adxH4": zod.number(),
+    "volumeValid": zod.boolean(),
+    "oiDirection": zod.enum(['up', 'down', 'neutral']),
+    "fundingRate": zod.number(),
+  })),
   "fetchedAt": zod.number()
 })
 
@@ -54,14 +65,14 @@ export const GetSmcAnalysisResponse = zod.object({
   "takeProfit1": zod.number().optional(),
   "takeProfit2": zod.number().optional(),
   "h4": zod.object({
-  "bias": zod.enum(['bullish', 'bearish', 'ranging']),
-  "strength": zod.enum(['strong', 'weak', 'neutral'])
-}).optional(),
+    "bias": zod.enum(['bullish', 'bearish', 'ranging']),
+    "strength": zod.enum(['strong', 'weak', 'neutral'])
+  }).optional(),
   "zoneType": zod.string().optional(),
   "zoneRange": zod.object({
-  "low": zod.number(),
-  "high": zod.number()
-}).optional(),
+    "low": zod.number(),
+    "high": zod.number()
+  }).optional(),
   "refinedZoneType": zod.string().optional(),
   "entryConfirmed": zod.boolean().optional(),
   "confirmationCandle": zod.string().optional(),
@@ -74,7 +85,5 @@ export const GetSmcAnalysisResponse = zod.object({
   "estimatedHitHours": zod.number().optional(),
   "expiryHours": zod.number().optional(),
   "skipReasons": zod.array(zod.string()).optional(),
-  "reasoning": zod.string().optional()
+  "reasoning": zod.string().optional(),
 })
-
-

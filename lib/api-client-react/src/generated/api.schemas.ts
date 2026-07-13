@@ -19,25 +19,35 @@ export type ScreenerCoinBias = typeof ScreenerCoinBias[keyof typeof ScreenerCoin
 export const ScreenerCoinBias = {
   bullish: 'bullish',
   bearish: 'bearish',
-  ranging: 'ranging',
 } as const;
 
-export type ScreenerCoinStrength = typeof ScreenerCoinStrength[keyof typeof ScreenerCoinStrength];
+export type ScreenerCoinConfidence = typeof ScreenerCoinConfidence[keyof typeof ScreenerCoinConfidence];
 
 
-export const ScreenerCoinStrength = {
-  strong: 'strong',
-  weak: 'weak',
-  neutral: 'neutral',
+export const ScreenerCoinConfidence = {
+  HIGH: 'HIGH',
+  MODERATE: 'MODERATE',
+  LOW: 'LOW',
 } as const;
 
 export interface ScreenerCoin {
   symbol: string;
+  bias: ScreenerCoinBias;
+  score: number;
+  confidence: ScreenerCoinConfidence;
   price: number;
   change24h: number;
   volume24h: number;
-  bias: ScreenerCoinBias;
-  strength: ScreenerCoinStrength;
+  rsiH4: number;
+  rsiH1: number;
+  macdValidH4: boolean;
+  macdValidH1: boolean;
+  atrH4: number;
+  atrH4Pct: number;
+  adxH4: number;
+  volumeValid: boolean;
+  oiDirection: 'up' | 'down' | 'neutral';
+  fundingRate: number;
 }
 
 export interface ScreenerResponse {
@@ -127,4 +137,3 @@ export type GetSmcAnalysisParams = {
  */
 symbol: string;
 };
-

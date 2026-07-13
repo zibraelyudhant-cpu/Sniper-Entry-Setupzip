@@ -12,5 +12,4 @@ export type ScreenerCoinBias = typeof ScreenerCoinBias[keyof typeof ScreenerCoin
 export const ScreenerCoinBias = {
   bullish: 'bullish',
   bearish: 'bearish',
-  ranging: 'ranging',
 } as const;
