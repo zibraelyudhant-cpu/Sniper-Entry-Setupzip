@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "CoVYrMt6qFfJqWlcVNl9L"
+uri = "file://sniper-source.zip"
+type = "unspecified"
+title = "sniper-source.zip"
