@@ -5,15 +5,6 @@ const router = Router();
 
 const BINANCE_FUTURES_BASE = "https://fapi.binance.com";
 
-// Top symbols to screen (major futures pairs)
-const TOP_SYMBOLS = [
-  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-  "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
-  "MATICUSDT", "NEARUSDT", "ATOMUSDT", "UNIUSDT", "LTCUSDT",
-  "BCHUSDT", "AAVEUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
-  "SUIUSDT", "SEIUSDT", "TIAUSDT", "INJUSDT", "WLDUSDT",
-];
-
 router.get("/screener", async (req, res) => {
   try {
     // Fetch 24h tickers for all symbols in one call
@@ -32,12 +23,10 @@ router.get("/screener", async (req, res) => {
       quoteVolume: string;
     }> = await tickersRes.json();
 
-    // Filter to our symbol list
+    // Take top 20 USDT perpetual futures by 24h quote volume (live, not hardcoded)
     const tickers = allTickers
-      .filter((t) => TOP_SYMBOLS.includes(t.symbol))
-      .sort(
-        (a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)
-      )
+      .filter((t) => t.symbol.endsWith("USDT") && !t.symbol.includes("_"))
+      .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
       .slice(0, 20);
 
     // Run D1 analysis for each symbol in parallel (batched to avoid rate limits)
