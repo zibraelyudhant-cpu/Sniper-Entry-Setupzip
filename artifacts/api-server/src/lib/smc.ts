@@ -1535,6 +1535,8 @@ export interface BreakoutResult {
   volumeRatio?: number;
   retestZone?: RetestZone;
   retestConfirmed?: boolean;
+  patternConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  confirmingPatterns?: string[];
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
@@ -1618,8 +1620,54 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
         breakoutType: breakout.type, brokenLevel: breakout.brokenLevel, volumeRatio: breakout.volumeRatio };
 
     const inZone = retestZone.isReached;
+
+    // ─── OPSI A: Cek pattern di H4/H1/M30 yang searah (confidence boost) ─────
+    const bullishContinuation = ['Bull Flag', 'Ascending Triangle', 'Pennant', 'Symmetrical Triangle'];
+    const bullishReversal = ['Double Bottom', 'Inverse H&S', 'Falling Wedge'];
+    const bearishContinuation = ['Bear Flag', 'Descending Triangle', 'Pennant', 'Symmetrical Triangle'];
+    const bearishReversal = ['Double Top', 'Head & Shoulders', 'Rising Wedge'];
+    const validBullish = [...bullishContinuation, ...bullishReversal];
+    const validBearish = [...bearishContinuation, ...bearishReversal];
+
+    const detectAllPatterns = (kline: KlineData): PatternResult[] => {
+      const { highs: h, lows: l, closes: c, volumes: v } = kline;
+      const results: PatternResult[] = [];
+      const checks = [
+        detectBullFlag(h, l, c, v), detectBearFlag(h, l, c, v),
+        detectAscendingTriangle(h, l, c), detectDescendingTriangle(h, l, c),
+        detectSymmetricalTriangle(h, l, c), detectPennant(h, l, c, v),
+        detectDoubleTop(h, l, c), detectDoubleBottom(h, l, c),
+        detectHeadAndShoulders(h, l, c), detectInverseHS(h, l, c),
+        detectRisingWedge(h, l, c), detectFallingWedge(h, l, c),
+      ];
+      for (const r of checks) { if (r) results.push(r); }
+      return results;
+    };
+
+    // Cek pattern di H4, H1, M30
+    const validList = bias === 'bullish' ? validBullish : validBearish;
+    const h4Patterns = detectAllPatterns(h4).filter(p => validList.includes(p.name));
+    const h1Patterns = detectAllPatterns(h1).filter(p => validList.includes(p.name));
+    const m30Patterns = detectAllPatterns(m30).filter(p => validList.includes(p.name));
+    const allConfirmingPatterns = [
+      ...h4Patterns.map(p => `H4: ${p.name}`),
+      ...h1Patterns.map(p => `H1: ${p.name}`),
+      ...m30Patterns.map(p => `M30: ${p.name}`),
+    ];
+    const patternCount = allConfirmingPatterns.length;
+    const patternConfidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' =
+      patternCount >= 2 ? 'HIGH' : patternCount === 1 ? 'MEDIUM' : 'LOW';
+
+    // ─── OPSI B: Cek pattern 15M untuk konfirmasi zona retest ─────────────────
+    const bullishReversalShort = ['Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Bull Flag'];
+    const bearishReversalShort = ['Double Top', 'Head & Shoulders', 'Rising Wedge', 'Bear Flag'];
+    const validZoneList = bias === 'bullish' ? bullishReversalShort : bearishReversalShort;
+
     let retestConfirmed = false;
+    let zonePatternConfirmed = false;
+
     if (inZone) {
+      // Rejection candle di 15M
       const last = m15.closes.length - 1;
       for (let i = last; i >= Math.max(0, last - 2); i--) {
         const body = Math.abs(m15.closes[i] - m15.opens[i]);
@@ -1628,7 +1676,15 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
           : m15.highs[i] - Math.max(m15.opens[i], m15.closes[i]);
         if (body > 0 && wick > body * 1.5) { retestConfirmed = true; break; }
       }
+
+      // Pattern konfirmasi di 15M
+      const m15Patterns = detectAllPatterns(m15).filter(p => validZoneList.includes(p.name));
+      zonePatternConfirmed = m15Patterns.length > 0;
     }
+
+    // Status: ready hanya kalau rejection + (pattern 15M ATAU pattern H1/M30 HIGH)
+    const isReady = inZone && retestConfirmed && (zonePatternConfirmed || patternConfidence === 'HIGH');
+    const status = isReady ? 'ready' : inZone ? 'in_zone' : 'approaching';
 
     const entryPrice = retestZone.price;
     const dir = bias === 'bullish' ? 1 : -1;
@@ -1637,7 +1693,6 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
     const m4SwingHighs = findSwingHighs(h1.highs, 20);
     const m4SwingLows = findSwingLows(h1.lows, 20);
     const m4Buffer = atrH1 * 0.2;
-    // atrH2 sudah dideklarasikan di atas dari M30 klines
 
     let stopLoss: number;
     if (bias === 'bullish') {
@@ -1662,14 +1717,20 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
     const takeProfit2 = entryPrice + risk * 3.0 * dir;
     const takeProfit3 = breakout.volumeRatio >= 2.0 ? entryPrice + risk * 5.0 * dir : undefined;
 
+    const reasonParts = [`${retestZone.type} (Tier ${retestZone.tier}) — ${retestZone.reason}`];
+    if (allConfirmingPatterns.length > 0)
+      reasonParts.push(`Pattern: ${allConfirmingPatterns.join(', ')}`);
+
     return {
-      status: inZone && retestConfirmed ? 'ready' : inZone ? 'in_zone' : 'approaching',
+      status,
       symbol, bias, currentPrice, timestamp,
       breakoutType: breakout.type, brokenLevel: breakout.brokenLevel, volumeRatio: breakout.volumeRatio,
       retestZone, retestConfirmed,
+      patternConfidence,
+      confirmingPatterns: allConfirmingPatterns,
       entryPrice, stopLoss, takeProfit1, takeProfit2, takeProfit3,
       fundingRate, setupExpiryHours: 8,
-      reason: `${retestZone.type} (Tier ${retestZone.tier}) — ${retestZone.reason}`,
+      reason: reasonParts.join(' | '),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

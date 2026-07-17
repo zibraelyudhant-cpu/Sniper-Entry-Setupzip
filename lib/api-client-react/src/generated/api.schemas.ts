@@ -167,6 +167,8 @@ export interface BreakoutResult {
   volumeRatio?: number;
   retestZone?: RetestZoneInfo;
   retestConfirmed?: boolean;
+  patternConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  confirmingPatterns?: string[];
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;

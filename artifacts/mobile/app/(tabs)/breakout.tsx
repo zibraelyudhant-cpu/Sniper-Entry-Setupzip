@@ -62,6 +62,32 @@ function StatusBadge({ status, colors }: { status: string; colors: ReturnType<ty
   );
 }
 
+function PatternConfidenceBadge({ confidence, patterns, colors }: {
+  confidence: string;
+  patterns: string[];
+  colors: ReturnType<typeof useColors>;
+}) {
+  const map: Record<string, { label: string; color: string }> = {
+    HIGH: { label: '🔥 PATTERN HIGH', color: colors.bullish },
+    MEDIUM: { label: '📊 PATTERN MED', color: colors.gold },
+    LOW: { label: '⚠ PATTERN LOW', color: colors.mutedForeground },
+    NONE: { label: '— NO PATTERN', color: colors.mutedForeground },
+  };
+  const item = map[confidence] ?? { label: confidence, color: colors.mutedForeground };
+  return (
+    <View style={{ gap: 4 }}>
+      <View style={[styles.statusBadge, { borderColor: item.color, backgroundColor: `${item.color}18` }]}>
+        <Text style={[styles.statusBadgeText, { color: item.color }]}>{item.label}</Text>
+      </View>
+      {patterns.length > 0 && (
+        <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: 'Inter_400Regular' }}>
+          {patterns.join(' · ')}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 // ─── Coin Card ────────────────────────────────────────────────────────────────
 
 function CoinCard({ coin, onPress, colors }: { coin: BreakoutResult; onPress: () => void; colors: ReturnType<typeof useColors> }) {
@@ -83,6 +109,13 @@ function CoinCard({ coin, onPress, colors }: { coin: BreakoutResult; onPress: ()
             <View style={[styles.volBadge, { borderColor: colors.border }]}>
               <Text style={[styles.volText, { color: colors.mutedForeground }]}>Vol {coin.volumeRatio?.toFixed(1)}x</Text>
             </View>
+            {coin.patternConfidence && coin.patternConfidence !== 'LOW' && coin.patternConfidence !== 'NONE' && (
+              <View style={[styles.volBadge, { borderColor: coin.patternConfidence === 'HIGH' ? colors.bullish : colors.gold }]}>
+                <Text style={[styles.volText, { color: coin.patternConfidence === 'HIGH' ? colors.bullish : colors.gold }]}>
+                  {coin.patternConfidence === 'HIGH' ? '🔥 PATTERN HIGH' : '📊 PATTERN MED'}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -305,6 +338,15 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
                   {data.breakoutType && <BreakoutTypeBadge type={data.breakoutType} colors={colors} />}
                   <StatusBadge status={data.status} colors={colors} />
                 </View>
+                {data.patternConfidence && (
+                  <View style={{ marginBottom: 12 }}>
+                    <PatternConfidenceBadge
+                      confidence={data.patternConfidence}
+                      patterns={data.confirmingPatterns ?? []}
+                      colors={colors}
+                    />
+                  </View>
+                )}
                 <View style={styles.infoRow}>
                   <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias H4</Text>
                   <Text style={[styles.infoValue, { color: biasColor }]}>{data.bias?.toUpperCase()}</Text>
@@ -362,6 +404,11 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER</Text>
                   <View style={[styles.levelCard, { backgroundColor: `${biasColor}10`, borderColor: biasColor }]}>
+                    <View style={[styles.buySellBadge, { backgroundColor: biasColor }]}>
+                      <Text style={styles.buySellText}>
+                        {data.bias === 'bullish' ? '▲ BUY LIMIT' : '▼ SELL LIMIT'}
+                      </Text>
+                    </View>
                     <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
                     <Text style={[styles.levelCardPrice, { color: biasColor }]}>{formatPrice(data.entryPrice)}</Text>
                   </View>
@@ -546,6 +593,8 @@ const styles = StyleSheet.create({
   reasonBox: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 8, marginTop: 10, borderRadius: 4 },
   reasonText: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 18 },
   levelCard: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 12, alignItems: 'center' },
+  buySellBadge: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 5, marginBottom: 10 },
+  buySellText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff', letterSpacing: 0.5 },
   levelCardLabel: { fontSize: 10, fontFamily: 'Inter_500Medium', letterSpacing: 1, marginBottom: 4 },
   levelCardPrice: { fontSize: 24, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
   calcBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12 },
