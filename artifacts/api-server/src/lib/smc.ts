@@ -957,18 +957,36 @@ export function checkEntryConfirmation5M(
     refinedZone: RefinedZone,
     atrSl: number,
     atrH4: number,
-    bias: "bullish" | "bearish"
+    bias: "bullish" | "bearish",
+    h1Highs: number[],
+    h1Lows: number[],
+    atrH1: number,
 ): SniperLevels {
     let stopLoss: number;
 
+    // SL berdasarkan swing high/low H1 terdekat (20 candle lookback)
+    const swingHighs = findSwingHighs(h1Highs, 20);
+    const swingLows = findSwingLows(h1Lows, 20);
+    const buffer = atrH1 * 0.2;
+
     if (bias === "bullish") {
-      // SL = zone_low - ATR_H2 * 0.5 (lebih longgar dari H1, tahan stop hunt)
-      const rawSl = refinedZone.low - atrSl * 0.5;
-      // Minimal SL = 1x ATR H2 dari entry
+      // Cari swing low H1 terdekat di bawah entry
+      const relevantLows = swingLows.filter(l => l < entryPrice);
+      const nearestSwingLow = relevantLows.length > 0
+        ? Math.max(...relevantLows)
+        : Math.min(...h1Lows.slice(-20));
+      const rawSl = nearestSwingLow - buffer;
+      // Minimum SL = 1x ATR H2 dari entry
       const minSl = entryPrice - atrSl;
       stopLoss = Math.min(rawSl, minSl);
     } else {
-      const rawSl = refinedZone.high + atrSl * 0.5;
+      // Cari swing high H1 terdekat di atas entry
+      const relevantHighs = swingHighs.filter(h => h > entryPrice);
+      const nearestSwingHigh = relevantHighs.length > 0
+        ? Math.min(...relevantHighs)
+        : Math.max(...h1Highs.slice(-20));
+      const rawSl = nearestSwingHigh + buffer;
+      // Minimum SL = 1x ATR H2 dari entry
       const minSl = entryPrice + atrSl;
       stopLoss = Math.max(rawSl, minSl);
     }
@@ -1237,7 +1255,8 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
 
     const sniperLevels = calcSniperLevels(
-      confirmation.entryPrice, refinedZone, atrH2, atrH4, bias
+      confirmation.entryPrice, refinedZone, atrH2, atrH4, bias,
+      h1.highs, h1.lows, atrH1
     );
 
     // Estimate time to hit entry
@@ -1420,23 +1439,24 @@ export function findRetestZone(
   breakout: BreakoutInfo,
   currentPrice: number,
   atrH1: number,
-  bias: 'bullish' | 'bearish'
+  bias: 'bullish' | 'bearish',
+  atrH2: number,
 ): RetestZone | null {
   const candidates: RetestZone[] = [];
 
-  // TIER 1: Role Reversal
+  // TIER 1: Role Reversal — buffer pakai ATR H2 × 0.3
   const rrPrice = breakout.brokenLevel;
   candidates.push({
     price: rrPrice,
-    zoneLow: rrPrice - atrH1 * 0.3,
-    zoneHigh: rrPrice + atrH1 * 0.3,
+    zoneLow: rrPrice - atrH2 * 0.3,
+    zoneHigh: rrPrice + atrH2 * 0.3,
     type: 'Role Reversal',
     tier: 1,
     reason: `Level ${rrPrice.toFixed(4)} ditembus — jadi ${bias === 'bullish' ? 'support' : 'resistance'} baru`,
     distancePct: Math.abs(currentPrice - rrPrice) / currentPrice * 100,
     isReached: bias === 'bullish'
-      ? currentPrice <= rrPrice + atrH1 * 0.3
-      : currentPrice >= rrPrice - atrH1 * 0.3,
+      ? currentPrice <= rrPrice + atrH2 * 0.3
+      : currentPrice >= rrPrice - atrH2 * 0.3,
   });
 
   // TIER 2: OB pre-breakout
@@ -1533,9 +1553,10 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
   }) + ' WIB';
 
   try {
-    const [h4, h1, m15, tickerRes, frRes] = await Promise.all([
+    const [h4, h1, m30, m15, tickerRes, frRes] = await Promise.all([
       fetchKlines(symbol, '4h', 100),
       fetchKlines(symbol, '1h', 100),
+      fetchKlines(symbol, '30m', 100),
       fetchKlines(symbol, '15m', 100),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
       fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=1`),
@@ -1562,17 +1583,33 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
     if (bias === 'bearish' && fundingRate > 0.1)
       return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat positif', fundingRate };
 
-    const breakout = detectBreakoutH1(h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes, bias);
+    // Deteksi breakout di H1 dan M30 — ambil yang paling kuat (volume ratio tertinggi)
+    const breakoutH1 = detectBreakoutH1(h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes, bias);
+    const breakoutM30 = detectBreakoutH1(m30.opens, m30.highs, m30.lows, m30.closes, m30.volumes, bias);
+
+    let breakout = breakoutH1;
+    let breakoutTf = 'H1';
+    if (!breakoutH1 && breakoutM30) {
+      breakout = breakoutM30;
+      breakoutTf = 'M30';
+    } else if (breakoutH1 && breakoutM30 && breakoutM30.volumeRatio > breakoutH1.volumeRatio) {
+      breakout = breakoutM30;
+      breakoutTf = 'M30';
+    }
+
     if (!breakout)
-      return { status: 'no_breakout', symbol, bias, currentPrice, timestamp, message: 'Tidak ada breakout valid di H1' };
+      return { status: 'no_breakout', symbol, bias, currentPrice, timestamp, message: 'Tidak ada breakout valid di H1/M30' };
 
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
+    const atrH2 = calcATR(m30.highs, m30.lows, m30.closes); // M30 ≈ H2
     const atr15m = calcATR(m15.highs, m15.lows, m15.closes);
 
+    // Gunakan data TF yang terdeteksi breakout untuk findRetestZone
+    const brkData = breakoutTf === 'M30' ? m30 : h1;
     const retestZone = findRetestZone(
-      h1.highs, h1.lows, h1.closes, h1.opens, h1.volumes,
+      brkData.highs, brkData.lows, brkData.closes, brkData.opens, brkData.volumes,
       m15.highs, m15.lows, m15.closes,
-      breakout, currentPrice, atrH1, bias
+      breakout, currentPrice, atrH1, bias, atrH2
     );
 
     if (!retestZone)
@@ -1595,11 +1632,31 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
 
     const entryPrice = retestZone.price;
     const dir = bias === 'bullish' ? 1 : -1;
-    const rawSl = bias === 'bullish'
-      ? retestZone.zoneLow - atr15m * 0.5
-      : retestZone.zoneHigh + atr15m * 0.5;
-    const minSl = bias === 'bullish' ? entryPrice - atr15m : entryPrice + atr15m;
-    const stopLoss = bias === 'bullish' ? Math.min(rawSl, minSl) : Math.max(rawSl, minSl);
+
+    // SL berdasarkan swing high/low H1 terdekat (20 candle lookback)
+    const m4SwingHighs = findSwingHighs(h1.highs, 20);
+    const m4SwingLows = findSwingLows(h1.lows, 20);
+    const m4Buffer = atrH1 * 0.2;
+    // atrH2 sudah dideklarasikan di atas dari M30 klines
+
+    let stopLoss: number;
+    if (bias === 'bullish') {
+      const relevantLows = m4SwingLows.filter(l => l < entryPrice);
+      const nearestSwingLow = relevantLows.length > 0
+        ? Math.max(...relevantLows)
+        : Math.min(...h1.lows.slice(-20));
+      const rawSl = nearestSwingLow - m4Buffer;
+      const minSl = entryPrice - atrH2;
+      stopLoss = Math.min(rawSl, minSl);
+    } else {
+      const relevantHighs = m4SwingHighs.filter(h => h > entryPrice);
+      const nearestSwingHigh = relevantHighs.length > 0
+        ? Math.min(...relevantHighs)
+        : Math.max(...h1.highs.slice(-20));
+      const rawSl = nearestSwingHigh + m4Buffer;
+      const minSl = entryPrice + atrH2;
+      stopLoss = Math.max(rawSl, minSl);
+    }
     const risk = Math.abs(entryPrice - stopLoss);
     const takeProfit1 = entryPrice + risk * 1.5 * dir;
     const takeProfit2 = entryPrice + risk * 3.0 * dir;
