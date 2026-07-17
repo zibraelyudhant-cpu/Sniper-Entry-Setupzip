@@ -988,7 +988,7 @@ export function checkEntryConfirmation5M(
   // Timing estimates
     const setupValidHours = Math.round((atrH4 / atrSl) * 2);
   const distanceToEntry = Math.abs(entryPrice - 0); // placeholder - calculated per call
-  const estimatedHitHours = Math.round((Math.abs(entryPrice) / atrH1) * 1);
+    const estimatedHitHours = Math.round((atrSl > 0 ? Math.abs(entryPrice) / atrSl : 1) * 1);
   const expiryHours = setupValidHours + 4;
 
   return {

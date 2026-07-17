@@ -126,7 +126,7 @@ function PatternDetail({
     <View style={[styles.detailOverlay]}>
       <Pressable style={styles.detailBackdrop} onPress={onClose} />
       <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+          <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={{ padding: 20, gap: 12 }}>
         {/* Header */}
         <View style={styles.detailHeader}>
           <View style={{ flex: 1 }}>
@@ -387,24 +387,27 @@ export default function PatternsScreen() {
         <ScrollView
           contentContainerStyle={{ paddingBottom: bottomPadding }}
           showsVerticalScrollIndicator={false}
-          horizontal={false}
         >
           <Legend colors={colors} />
 
-          {/* Column headers (sticky feel) */}
-          <View style={[styles.columnHeaders, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-            <View style={styles.patternNameCell}>
-              <Text style={[styles.colHeaderText, { color: colors.mutedForeground }]}>PATTERN</Text>
-            </View>
-            {TIMEFRAMES.map(tf => (
-              <View key={tf} style={styles.cellWrapper}>
-                <Text style={[styles.colHeaderText, { color: colors.mutedForeground, textAlign: 'center' }]}>{tf}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+            <View>
+              {/* Column headers */}
+              <View style={[styles.columnHeaders, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+                <View style={styles.patternNameCell}>
+                  <Text style={[styles.colHeaderText, { color: colors.mutedForeground }]}>PATTERN</Text>
+                </View>
+                {TIMEFRAMES.map(tf => (
+                  <View key={tf} style={styles.cellWrapper}>
+                    <Text style={[styles.colHeaderText, { color: colors.mutedForeground, textAlign: 'center' }]}>{tf}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
 
-          {renderGroup(continuationPatterns, 'CONTINUATION')}
-          {renderGroup(reversalPatterns, 'REVERSAL')}
+              {renderGroup(continuationPatterns, 'CONTINUATION')}
+              {renderGroup(reversalPatterns, 'REVERSAL')}
+            </View>
+          </ScrollView>
 
           {totalPatterns === 0 && (
             <View style={styles.noPatternBox}>
@@ -534,15 +537,14 @@ const styles = StyleSheet.create({
   noPatternText: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
 
   // Detail overlay
-  detailOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', zIndex: 100 },
+  detailOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', zIndex: 100 },
   detailBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
   detailCard: {
     margin: 16,
     borderRadius: 16,
     borderWidth: 1,
-    padding: 20,
-    gap: 12,
     maxHeight: '80%',
+    overflow: 'hidden',
   },
   detailHeader: { flexDirection: 'row', alignItems: 'flex-start' },
   detailName: { fontSize: 18, fontFamily: 'Inter_700Bold', letterSpacing: -0.3 },

@@ -69,14 +69,26 @@ export default function CalculatorScreen() {
     direction?: string;
   }>();
 
-  const entryPrice = parseFloat(params.entryPrice ?? '0') || 0;
-  const stopLoss = parseFloat(params.stopLoss ?? '0') || 0;
-  const takeProfit1 = parseFloat(params.takeProfit1 ?? '0') || 0;
-  const takeProfit2 = parseFloat(params.takeProfit2 ?? '0') || 0;
+  const roundParam = (val: string | undefined): string => {
+    const n = parseFloat(val ?? '');
+    if (isNaN(n)) return '';
+    if (n >= 10000) return n.toFixed(2);
+    if (n >= 100) return n.toFixed(2);
+    if (n >= 1) return n.toFixed(4);
+    return n.toFixed(6);
+  };
+  const [entryStr, setEntryStr] = useState(() => roundParam(params.entryPrice));
+  const [slStr, setSlStr] = useState(() => roundParam(params.stopLoss));
+  const [tp1Str, setTp1Str] = useState(() => roundParam(params.takeProfit1));
+  const [tp2Str, setTp2Str] = useState(() => roundParam(params.takeProfit2));
+  const entryPrice = parseFloat(entryStr) || 0;
+  const stopLoss = parseFloat(slStr) || 0;
+  const takeProfit1 = parseFloat(tp1Str) || 0;
+  const takeProfit2 = parseFloat(tp2Str) || 0;
   const symbol = params.symbol ?? '';
   const bias = (params.direction === 'bearish' ? 'bearish' : 'bullish') as 'bullish' | 'bearish';
   const base = symbol.replace('USDT', '') || 'Coin';
-  const hasPrices = entryPrice > 0;
+  const hasPrices = entryPrice > 0 && stopLoss > 0 && takeProfit1 > 0;
 
   // ─── Input state ────────────────────────────────────────────────────────────
   const [modalStr, setModalStr] = useState('100');
@@ -316,26 +328,67 @@ export default function CalculatorScreen() {
           </View>
         </Section>
 
-        {/* ── HARGA (read-only) ──────────────────────────────────────────── */}
+        {/* ── HARGA (editable) ───────────────────────────────────────────── */}
         <Section title="HARGA">
-          {hasPrices ? (
-            <>
-              <Row label="Entry" value={formatPrice(entryPrice)} mono />
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <Row label="Stop Loss" value={formatPrice(stopLoss)} valueColor={colors.bearish} mono />
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <Row label="Take Profit 1" value={formatPrice(takeProfit1)} valueColor={colors.bullish} mono />
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <Row label="Take Profit 2" value={formatPrice(takeProfit2)} valueColor={colors.gold} mono />
-            </>
-          ) : (
-            <View style={styles.noPriceBox}>
-              <Feather name="info" size={18} color={colors.mutedForeground} />
-              <Text style={[styles.noPriceText, { color: colors.mutedForeground }]}>
-                Buka kalkulator dari halaman Sniper untuk mengisi harga otomatis
-              </Text>
+          <View style={[styles.inputRow, { borderColor: colors.border }]}>
+            <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Entry</Text>
+            <View style={styles.inputRight}>
+              <TextInput
+                style={[styles.inputField, { color: colors.foreground }]}
+                keyboardType="decimal-pad"
+                value={entryStr}
+                onChangeText={setEntryStr}
+                placeholder="0"
+                placeholderTextColor={colors.mutedForeground}
+                selectTextOnFocus
+              />
             </View>
-          )}
+          </View>
+          <View style={[styles.inputRow, { borderColor: colors.border }]}>
+            <Text style={[styles.inputLabel, { color: colors.bearish }]}>Stop Loss</Text>
+            <View style={styles.inputRight}>
+              <TextInput
+                style={[styles.inputField, { color: colors.bearish }]}
+                keyboardType="decimal-pad"
+                value={slStr}
+                onChangeText={setSlStr}
+                placeholder="0"
+                placeholderTextColor={colors.mutedForeground}
+                selectTextOnFocus
+              />
+            </View>
+          </View>
+          <View style={[styles.inputRow, { borderColor: colors.border }]}>
+            <Text style={[styles.inputLabel, { color: colors.bullish }]}>Take Profit 1</Text>
+            <View style={styles.inputRight}>
+              <TextInput
+                style={[styles.inputField, { color: colors.bullish }]}
+                keyboardType="decimal-pad"
+                value={tp1Str}
+                onChangeText={setTp1Str}
+                placeholder="0"
+                placeholderTextColor={colors.mutedForeground}
+                selectTextOnFocus
+              />
+            </View>
+          </View>
+          <View style={[styles.inputRow, { borderColor: colors.border }]}>
+            <Text style={[styles.inputLabel, { color: colors.gold }]}>Take Profit 2</Text>
+            <View style={styles.inputRight}>
+              <TextInput
+                style={[styles.inputField, { color: colors.gold }]}
+                keyboardType="decimal-pad"
+                value={tp2Str}
+                onChangeText={setTp2Str}
+                placeholder="0"
+                placeholderTextColor={colors.mutedForeground}
+                selectTextOnFocus
+              />
+            </View>
+          </View>
+          <Text style={[styles.inputHint, { color: colors.mutedForeground }]}>
+            Edit manual untuk simulasi skenario berbeda
+          </Text>
         </Section>
 
         {/* ── HASIL ──────────────────────────────────────────────────────── */}
