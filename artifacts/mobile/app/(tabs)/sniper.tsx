@@ -19,11 +19,19 @@ import type { SniperResult } from '@workspace/api-client-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
-function formatPrice(price: number): string {
-  if (price >= 10000) return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (price >= 100) return price.toFixed(2);
-  if (price >= 1) return price.toFixed(4);
-  return price.toFixed(6);
+function formatPrice(price: number, decimals?: number): string {
+  let d = decimals;
+  if (d === undefined) {
+    if (price >= 10000) d = 0;
+    else if (price >= 1000) d = 1;
+    else if (price >= 100) d = 2;
+    else if (price >= 10) d = 3;
+    else if (price >= 1) d = 4;
+    else if (price >= 0.1) d = 4;
+    else if (price >= 0.01) d = 5;
+    else d = 6;
+  }
+  return price.toFixed(d).replace('.', ',');
 }
 
 function formatSymbolClean(symbol: string): string {
@@ -202,7 +210,7 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           <View style={styles.entryHeaderRow}>
             <Text style={[styles.entryLabel, { color: colors.mutedForeground }]}>Harga Saat Ini</Text>
             <Text style={[styles.entryCurrentPrice, { color: colors.foreground }]}>
-              ${formatPrice(data.currentPrice)}
+              {formatPrice(data.currentPrice)}
             </Text>
           </View>
           <Text style={[styles.entryTime, { color: colors.mutedForeground }]}>
@@ -264,13 +272,37 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
         </Pressable>
 
+        {/* Chart Pattern button */}
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({
+              pathname: '/(tabs)/patterns',
+              params: { symbol: data.symbol },
+            });
+          }}
+          style={({ pressed }) => [
+            styles.calcBtn,
+            {
+              borderColor: colors.mutedForeground,
+              backgroundColor: pressed ? `${colors.mutedForeground}15` : 'transparent',
+            },
+          ]}
+        >
+          <Feather name="activity" size={15} color={colors.mutedForeground} />
+          <Text style={[styles.calcBtnText, { color: colors.mutedForeground }]}>
+            Chart Pattern
+          </Text>
+          <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
+        </Pressable>
+
         {/* Zone info */}
         <View style={styles.metaGrid}>
           <MetaItem label="Zona Entry" value={data.zoneType ?? ''} colors={colors} />
           {data.zoneRange && (
             <MetaItem
               label="Range Zona"
-              value={`$${formatPrice(data.zoneRange.low)} – $${formatPrice(data.zoneRange.high)}`}
+              value={`${formatPrice(data.zoneRange.low)} – ${formatPrice(data.zoneRange.high)}`}
               colors={colors}
             />
           )}
@@ -329,7 +361,7 @@ function LevelRow({ label, price, color, colors, sub, big }: LevelRowProps) {
         {sub && <Text style={[styles.levelSub, { color: colors.mutedForeground }]}>{sub}</Text>}
       </View>
       <Text style={[styles.levelPrice, { color, fontSize: big ? 20 : 16, fontFamily: big ? 'Inter_700Bold' : 'Inter_600SemiBold' }]}>
-        ${formatPrice(price)}
+        {formatPrice(price)}
       </Text>
     </View>
   );

@@ -2,11 +2,15 @@ import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import screenerRouter from "./screener";
 import smcAnalysisRouter from "./smc-analysis";
+import breakoutRouter from "./breakout";
+import patternsRouter from "./patterns";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(screenerRouter);
 router.use(smcAnalysisRouter);
+router.use(breakoutRouter);
+router.use(patternsRouter);
 
 export default router;

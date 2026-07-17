@@ -116,7 +116,7 @@ export interface SniperResult {
   message: string;
   symbol: string;
   currentPrice: number;
-  timestamp: number;
+  timestamp: string;
   bias?: "bullish" | "bearish";
   entryPrice?: number;
   stopLoss?: number;
@@ -163,6 +163,75 @@ export async function fetchKlines(
 
 // ─── Utility Calculations ─────────────────────────────────────────────────────
 
+export function calcMACD(
+  closes: number[],
+  fast = 12,
+  slow = 26,
+  signal = 9
+): { macdLine: number; signalLine: number; histogram: number } {
+  const ema = (data: number[], period: number): number[] => {
+    const k = 2 / (period + 1);
+    let e = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    const result = [e];
+    for (let i = period; i < data.length; i++) {
+      e = data[i] * k + e * (1 - k);
+      result.push(e);
+    }
+    return result;
+  };
+  if (closes.length < slow + signal) {
+    return { macdLine: 0, signalLine: 0, histogram: 0 };
+  }
+  const ef = ema(closes, fast);
+  const es = ema(closes, slow);
+  const diff = ef.length - es.length;
+  const macdSeries = ef.slice(diff).map((v, i) => v - es[i]);
+  const signalSeries = ema(macdSeries, signal);
+  const ml = macdSeries[macdSeries.length - 1];
+  const sl = signalSeries[signalSeries.length - 1];
+  return { macdLine: ml, signalLine: sl, histogram: ml - sl };
+}
+
+export function calcADX(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period = 14
+): number {
+  const n = closes.length;
+  if (n < period * 2) return 0;
+  const trs: number[] = [];
+  const plusDMs: number[] = [];
+  const minusDMs: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const hl = highs[i] - lows[i];
+    const hc = Math.abs(highs[i] - closes[i - 1]);
+    const lc = Math.abs(lows[i] - closes[i - 1]);
+    trs.push(Math.max(hl, hc, lc));
+    const upMove = highs[i] - highs[i - 1];
+    const downMove = lows[i - 1] - lows[i];
+    plusDMs.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDMs.push(downMove > upMove && downMove > 0 ? downMove : 0);
+  }
+  const smooth = (arr: number[]): number[] => {
+    let val = arr.slice(0, period).reduce((a, b) => a + b, 0);
+    const result = [val];
+    for (let i = period; i < arr.length; i++) {
+      val = val - val / period + arr[i];
+      result.push(val);
+    }
+    return result;
+  };
+  const atr14 = smooth(trs);
+  const plusDI = smooth(plusDMs).map((v, i) => (v / atr14[i]) * 100);
+  const minusDI = smooth(minusDMs).map((v, i) => (v / atr14[i]) * 100);
+  const dx = plusDI.map((p, i) => {
+    const sum = p + minusDI[i];
+    return sum === 0 ? 0 : (Math.abs(p - minusDI[i]) / sum) * 100;
+  });
+  const adxSeries = smooth(dx);
+  return adxSeries[adxSeries.length - 1] ?? 0;
+}
 function calcATR(
   highs: number[],
   lows: number[],
@@ -883,26 +952,26 @@ export function checkEntryConfirmation5M(
 
 // ─── Step 5: Calculate SL, TP, Timing ────────────────────────────────────────
 
-export function calcSniperLevels(
-  entryPrice: number,
-  refinedZone: RefinedZone,
-  atrH1: number,
-  atrH4: number,
-  bias: "bullish" | "bearish"
+  export function calcSniperLevels(
+    entryPrice: number,
+    refinedZone: RefinedZone,
+    atrSl: number,
+    atrH4: number,
+    bias: "bullish" | "bearish"
 ): SniperLevels {
-  let stopLoss: number;
+    let stopLoss: number;
 
-  if (bias === "bullish") {
-    // SL = zone_low - ATR_H1 * 0.5
-    const rawSl = refinedZone.low - atrH1 * 0.5;
-    // Minimal SL = 1x ATR H1 from entry
-    const minSl = entryPrice - atrH1;
-    stopLoss = Math.min(rawSl, minSl);
-  } else {
-    const rawSl = refinedZone.high + atrH1 * 0.5;
-    const minSl = entryPrice + atrH1;
-    stopLoss = Math.max(rawSl, minSl);
-  }
+    if (bias === "bullish") {
+      // SL = zone_low - ATR_H2 * 0.5 (lebih longgar dari H1, tahan stop hunt)
+      const rawSl = refinedZone.low - atrSl * 0.5;
+      // Minimal SL = 1x ATR H2 dari entry
+      const minSl = entryPrice - atrSl;
+      stopLoss = Math.min(rawSl, minSl);
+    } else {
+      const rawSl = refinedZone.high + atrSl * 0.5;
+      const minSl = entryPrice + atrSl;
+      stopLoss = Math.max(rawSl, minSl);
+    }
 
   const riskAmount = Math.abs(entryPrice - stopLoss);
 
@@ -917,7 +986,7 @@ export function calcSniperLevels(
       : entryPrice - riskAmount * 3;
 
   // Timing estimates
-  const setupValidHours = Math.round((atrH4 / atrH1) * 2);
+    const setupValidHours = Math.round((atrH4 / atrSl) * 2);
   const distanceToEntry = Math.abs(entryPrice - 0); // placeholder - calculated per call
   const estimatedHitHours = Math.round((Math.abs(entryPrice) / atrH1) * 1);
   const expiryHours = setupValidHours + 4;
@@ -1056,12 +1125,20 @@ export async function checkSkipConditions(
 // ─── Main Analysis Function ───────────────────────────────────────────────────
 
 export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> {
-  const timestamp = Date.now();
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }) + ' WIB';
 
   try {
     // Fetch all data in parallel
-    const [h4, h1, m15, m5, currentTickerRes] = await Promise.all([
+    const [h4, h2, h1, m15, m5, currentTickerRes] = await Promise.all([
       fetchKlines(symbol, "4h", 100),
+      fetchKlines(symbol, "2h", 50),
       fetchKlines(symbol, "1h", 200),
       fetchKlines(symbol, "15m", 100),
       fetchKlines(symbol, "5m", 50),
@@ -1156,15 +1233,16 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // STEP 5: Calculate SL/TP
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
+    const atrH2 = calcATR(h2.highs, h2.lows, h2.closes);
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
 
     const sniperLevels = calcSniperLevels(
-      confirmation.entryPrice, refinedZone, atrH1, atrH4, bias
+      confirmation.entryPrice, refinedZone, atrH2, atrH4, bias
     );
 
     // Estimate time to hit entry
     const distanceToEntry = Math.abs(currentPrice - sniperLevels.entryPrice);
-    const estimatedHitHours = Math.max(1, Math.round(distanceToEntry / atrH1));
+    const estimatedHitHours = Math.max(1, Math.round(distanceToEntry / atrH2));
 
     // Build reasoning
     const reasoning = [
@@ -1214,4 +1292,567 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       timestamp,
     };
   }
+}
+// ─── Menu 4: Breakout Detection ───────────────────────────────────────────────
+
+export interface BreakoutInfo {
+  type: 'sr_horizontal' | 'structure_hh' | 'range_squeeze';
+  direction: 'bullish' | 'bearish';
+  brokenLevel: number;
+  breakoutCandleIdx: number;
+  impulseHigh: number;
+  impulseLow: number;
+  volumeRatio: number;
+  isValid: boolean;
+}
+
+export function detectBreakoutH1(
+  opens: number[],
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  volumes: number[],
+  bias: 'bullish' | 'bearish'
+): BreakoutInfo | null {
+  const n = closes.length;
+  const avgVol = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
+  const atrRecent = calcATR(highs.slice(-20), lows.slice(-20), closes.slice(-20));
+
+  for (let i = n - 1; i >= Math.max(n - 10, 5); i--) {
+    const body = Math.abs(closes[i] - opens[i]);
+    const range = highs[i] - lows[i];
+    if (range === 0) continue;
+    if (body < range * 0.3) continue;
+    const volRatio = avgVol > 0 ? volumes[i] / avgVol : 0;
+    if (volRatio < 1.5) continue;
+
+    // TIPE 1: S/R Horizontal
+    const lookbackHighs = highs.slice(Math.max(0, i - 50), i);
+    const lookbackLows = lows.slice(Math.max(0, i - 50), i);
+    const priceRange = (Math.max(...lookbackHighs) - Math.min(...lookbackLows)) * 0.005;
+    const srLevels: number[] = [];
+    for (let j = 2; j < lookbackHighs.length - 2; j++) {
+      if (lookbackHighs[j] > lookbackHighs[j-1] && lookbackHighs[j] > lookbackHighs[j+1])
+        srLevels.push(lookbackHighs[j]);
+      if (lookbackLows[j] < lookbackLows[j-1] && lookbackLows[j] < lookbackLows[j+1])
+        srLevels.push(lookbackLows[j]);
+    }
+    for (const lvl of srLevels) {
+      const touches = srLevels.filter(l => Math.abs(l - lvl) < priceRange).length;
+      if (touches < 2) continue;
+      if (bias === 'bullish' && closes[i] > lvl && lows[i] < lvl) {
+        return { type: 'sr_horizontal', direction: 'bullish', brokenLevel: lvl,
+          breakoutCandleIdx: i, impulseHigh: Math.max(...highs.slice(i)),
+          impulseLow: Math.min(...lows.slice(i)), volumeRatio: volRatio, isValid: true };
+      }
+      if (bias === 'bearish' && closes[i] < lvl && highs[i] > lvl) {
+        return { type: 'sr_horizontal', direction: 'bearish', brokenLevel: lvl,
+          breakoutCandleIdx: i, impulseHigh: Math.max(...highs.slice(i)),
+          impulseLow: Math.min(...lows.slice(i)), volumeRatio: volRatio, isValid: true };
+      }
+    }
+
+    // TIPE 2: Struktur HH/LL baru
+    if (i >= 3) {
+      const prev3Range = Math.max(highs[i-1]-lows[i-1], highs[i-2]-lows[i-2], highs[i-3]-lows[i-3]);
+      if (prev3Range < atrRecent * 0.5) {
+        const recentHighs = highs.slice(Math.max(0, i - 20), i);
+        const recentLows = lows.slice(Math.max(0, i - 20), i);
+        const swingHighs = findSwingHighs(recentHighs, 5);
+        const swingLows = findSwingLows(recentLows, 5);
+        if (bias === 'bullish' && swingHighs.length >= 1) {
+          const prevHH = swingHighs[swingHighs.length - 1];
+          if (closes[i] > prevHH) {
+            return { type: 'structure_hh', direction: 'bullish', brokenLevel: prevHH,
+              breakoutCandleIdx: i, impulseHigh: Math.max(...highs.slice(i)),
+              impulseLow: Math.min(...lows.slice(i)), volumeRatio: volRatio, isValid: true };
+          }
+        }
+        if (bias === 'bearish' && swingLows.length >= 1) {
+          const prevLL = swingLows[swingLows.length - 1];
+          if (closes[i] < prevLL) {
+            return { type: 'structure_hh', direction: 'bearish', brokenLevel: prevLL,
+              breakoutCandleIdx: i, impulseHigh: Math.max(...highs.slice(i)),
+              impulseLow: Math.min(...lows.slice(i)), volumeRatio: volRatio, isValid: true };
+          }
+        }
+      }
+    }
+
+    // TIPE 3: Range Squeeze
+    if (i >= 30) {
+      const atr10 = calcATR(highs.slice(i-10, i), lows.slice(i-10, i), closes.slice(i-10, i));
+      const atr20prev = calcATR(highs.slice(i-30, i-10), lows.slice(i-30, i-10), closes.slice(i-30, i-10));
+      if (atr20prev > 0 && atr10 <= atr20prev * 0.5 && body >= atrRecent * 1.5 && volRatio >= 2.0) {
+        const brokenLevel = bias === 'bullish'
+          ? Math.max(...highs.slice(i-10, i))
+          : Math.min(...lows.slice(i-10, i));
+        if (bias === 'bullish' && closes[i] > brokenLevel) {
+          return { type: 'range_squeeze', direction: 'bullish', brokenLevel,
+            breakoutCandleIdx: i, impulseHigh: Math.max(...highs.slice(i)),
+            impulseLow: Math.min(...lows.slice(i)), volumeRatio: volRatio, isValid: true };
+        }
+        if (bias === 'bearish' && closes[i] < brokenLevel) {
+          return { type: 'range_squeeze', direction: 'bearish', brokenLevel,
+            breakoutCandleIdx: i, impulseHigh: Math.max(...highs.slice(i)),
+            impulseLow: Math.min(...lows.slice(i)), volumeRatio: volRatio, isValid: true };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export interface RetestZone {
+  price: number;
+  zoneLow: number;
+  zoneHigh: number;
+  type: string;
+  tier: number;
+  reason: string;
+  distancePct: number;
+  isReached: boolean;
+}
+
+export function findRetestZone(
+  highs: number[], lows: number[], closes: number[], opens: number[], volumes: number[],
+  highs15m: number[], lows15m: number[], closes15m: number[],
+  breakout: BreakoutInfo,
+  currentPrice: number,
+  atrH1: number,
+  bias: 'bullish' | 'bearish'
+): RetestZone | null {
+  const candidates: RetestZone[] = [];
+
+  // TIER 1: Role Reversal
+  const rrPrice = breakout.brokenLevel;
+  candidates.push({
+    price: rrPrice,
+    zoneLow: rrPrice - atrH1 * 0.3,
+    zoneHigh: rrPrice + atrH1 * 0.3,
+    type: 'Role Reversal',
+    tier: 1,
+    reason: `Level ${rrPrice.toFixed(4)} ditembus — jadi ${bias === 'bullish' ? 'support' : 'resistance'} baru`,
+    distancePct: Math.abs(currentPrice - rrPrice) / currentPrice * 100,
+    isReached: bias === 'bullish'
+      ? currentPrice <= rrPrice + atrH1 * 0.3
+      : currentPrice >= rrPrice - atrH1 * 0.3,
+  });
+
+  // TIER 2: OB pre-breakout
+  const obIdx = breakout.breakoutCandleIdx - 1;
+  if (obIdx >= 0) {
+    const obHigh = highs[obIdx];
+    const obLow = lows[obIdx];
+    const obEntry = bias === 'bullish'
+      ? obLow + (obHigh - obLow) * 0.382
+      : obHigh - (obHigh - obLow) * 0.382;
+    candidates.push({
+      price: obEntry, zoneLow: obLow, zoneHigh: obHigh,
+      type: 'Order Block pre-breakout', tier: 2,
+      reason: `OB candle sebelum breakout (${obLow.toFixed(4)}–${obHigh.toFixed(4)})`,
+      distancePct: Math.abs(currentPrice - obEntry) / currentPrice * 100,
+      isReached: bias === 'bullish' ? currentPrice <= obHigh : currentPrice >= obLow,
+    });
+  }
+
+  // TIER 3: FVG dari impulse breakout
+  for (let i = breakout.breakoutCandleIdx + 2; i < closes.length; i++) {
+    if (bias === 'bullish' && highs[i-2] < lows[i]) {
+      const fvgLow = highs[i-2], fvgHigh = lows[i], fvgMid = (fvgLow + fvgHigh) / 2;
+      candidates.push({ price: fvgMid, zoneLow: fvgLow, zoneHigh: fvgHigh,
+        type: 'FVG impulse breakout', tier: 3,
+        reason: `Gap ${fvgLow.toFixed(4)}–${fvgHigh.toFixed(4)} terbentuk saat breakout`,
+        distancePct: Math.abs(currentPrice - fvgMid) / currentPrice * 100,
+        isReached: currentPrice <= fvgHigh });
+      break;
+    }
+    if (bias === 'bearish' && lows[i-2] > highs[i]) {
+      const fvgHigh = lows[i-2], fvgLow = highs[i], fvgMid = (fvgLow + fvgHigh) / 2;
+      candidates.push({ price: fvgMid, zoneLow: fvgLow, zoneHigh: fvgHigh,
+        type: 'FVG impulse breakout', tier: 3,
+        reason: `Gap ${fvgLow.toFixed(4)}–${fvgHigh.toFixed(4)} terbentuk saat breakout`,
+        distancePct: Math.abs(currentPrice - fvgMid) / currentPrice * 100,
+        isReached: currentPrice >= fvgLow });
+      break;
+    }
+  }
+
+  // TIER 4: Fibonacci dari impulse
+  const impulseRange = breakout.impulseHigh - breakout.impulseLow;
+  if (impulseRange > 0) {
+    for (const fib of [0.382, 0.5, 0.618]) {
+      const fibPrice = bias === 'bullish'
+        ? breakout.impulseHigh - impulseRange * fib
+        : breakout.impulseLow + impulseRange * fib;
+      candidates.push({
+        price: fibPrice, zoneLow: fibPrice - atrH1 * 0.2, zoneHigh: fibPrice + atrH1 * 0.2,
+        type: `Fibonacci ${(fib * 100).toFixed(1)}%`, tier: 4,
+        reason: `Retracement ${(fib * 100).toFixed(1)}% dari impulse breakout`,
+        distancePct: Math.abs(currentPrice - fibPrice) / currentPrice * 100,
+        isReached: bias === 'bullish'
+          ? currentPrice <= fibPrice + atrH1 * 0.2
+          : currentPrice >= fibPrice - atrH1 * 0.2,
+      });
+    }
+  }
+
+  const valid = candidates.filter(c => c.distancePct < 5.0);
+  if (valid.length === 0) return null;
+  valid.sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : a.distancePct - b.distancePct);
+  return valid[0];
+}
+
+export interface BreakoutResult {
+  status: 'ready' | 'in_zone' | 'approaching' | 'no_breakout' | 'no_zone' | 'no_trend' | 'skip' | 'error';
+  symbol: string;
+  bias?: 'bullish' | 'bearish';
+  currentPrice: number;
+  timestamp: string;
+  message?: string;
+  breakoutType?: 'sr_horizontal' | 'structure_hh' | 'range_squeeze';
+  brokenLevel?: number;
+  volumeRatio?: number;
+  retestZone?: RetestZone;
+  retestConfirmed?: boolean;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  takeProfit2?: number;
+  takeProfit3?: number;
+  fundingRate?: number;
+  setupExpiryHours?: number;
+  reason?: string;
+}
+
+export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResult> {
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'long', year: 'numeric',
+  }) + ' WIB';
+
+  try {
+    const [h4, h1, m15, tickerRes, frRes] = await Promise.all([
+      fetchKlines(symbol, '4h', 100),
+      fetchKlines(symbol, '1h', 100),
+      fetchKlines(symbol, '15m', 100),
+      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
+      fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=1`),
+    ]);
+
+    const currentPrice = tickerRes.ok
+      ? parseFloat((await tickerRes.json() as { price: string }).price)
+      : h1.closes[h1.closes.length - 1];
+
+    let fundingRate = 0;
+    if (frRes.ok) {
+      const frData = await frRes.json() as Array<{ fundingRate: string }>;
+      if (frData.length > 0) fundingRate = parseFloat(frData[0].fundingRate) * 100;
+    }
+
+    const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
+    if (structH4.bias === 'ranging')
+      return { status: 'no_trend', symbol, currentPrice, timestamp, message: 'H4 ranging' };
+
+    const bias = structH4.bias as 'bullish' | 'bearish';
+
+    if (bias === 'bullish' && fundingRate < -0.1)
+      return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat negatif', fundingRate };
+    if (bias === 'bearish' && fundingRate > 0.1)
+      return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat positif', fundingRate };
+
+    const breakout = detectBreakoutH1(h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes, bias);
+    if (!breakout)
+      return { status: 'no_breakout', symbol, bias, currentPrice, timestamp, message: 'Tidak ada breakout valid di H1' };
+
+    const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
+    const atr15m = calcATR(m15.highs, m15.lows, m15.closes);
+
+    const retestZone = findRetestZone(
+      h1.highs, h1.lows, h1.closes, h1.opens, h1.volumes,
+      m15.highs, m15.lows, m15.closes,
+      breakout, currentPrice, atrH1, bias
+    );
+
+    if (!retestZone)
+      return { status: 'no_zone', symbol, bias, currentPrice, timestamp,
+        message: 'Tidak ada zona retest valid',
+        breakoutType: breakout.type, brokenLevel: breakout.brokenLevel, volumeRatio: breakout.volumeRatio };
+
+    const inZone = retestZone.isReached;
+    let retestConfirmed = false;
+    if (inZone) {
+      const last = m15.closes.length - 1;
+      for (let i = last; i >= Math.max(0, last - 2); i--) {
+        const body = Math.abs(m15.closes[i] - m15.opens[i]);
+        const wick = bias === 'bullish'
+          ? Math.min(m15.opens[i], m15.closes[i]) - m15.lows[i]
+          : m15.highs[i] - Math.max(m15.opens[i], m15.closes[i]);
+        if (body > 0 && wick > body * 1.5) { retestConfirmed = true; break; }
+      }
+    }
+
+    const entryPrice = retestZone.price;
+    const dir = bias === 'bullish' ? 1 : -1;
+    const rawSl = bias === 'bullish'
+      ? retestZone.zoneLow - atr15m * 0.5
+      : retestZone.zoneHigh + atr15m * 0.5;
+    const minSl = bias === 'bullish' ? entryPrice - atr15m : entryPrice + atr15m;
+    const stopLoss = bias === 'bullish' ? Math.min(rawSl, minSl) : Math.max(rawSl, minSl);
+    const risk = Math.abs(entryPrice - stopLoss);
+    const takeProfit1 = entryPrice + risk * 1.5 * dir;
+    const takeProfit2 = entryPrice + risk * 3.0 * dir;
+    const takeProfit3 = breakout.volumeRatio >= 2.0 ? entryPrice + risk * 5.0 * dir : undefined;
+
+    return {
+      status: inZone && retestConfirmed ? 'ready' : inZone ? 'in_zone' : 'approaching',
+      symbol, bias, currentPrice, timestamp,
+      breakoutType: breakout.type, brokenLevel: breakout.brokenLevel, volumeRatio: breakout.volumeRatio,
+      retestZone, retestConfirmed,
+      entryPrice, stopLoss, takeProfit1, takeProfit2, takeProfit3,
+      fundingRate, setupExpiryHours: 8,
+      reason: `${retestZone.type} (Tier ${retestZone.tier}) — ${retestZone.reason}`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { status: 'error', symbol, currentPrice: 0, timestamp, message };
+  }
+}
+
+// ─── Menu 5: Chart Pattern Detection ─────────────────────────────────────────
+
+export interface PatternResult {
+  name: string;
+  category: 'continuation' | 'reversal';
+  direction: 'bullish' | 'bearish';
+  confidence: 'high' | 'medium' | 'low';
+  description: string;
+}
+
+export interface TFPatterns {
+  tf: string;
+  patterns: PatternResult[];
+}
+
+function detectBullFlag(highs: number[], lows: number[], closes: number[], volumes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 20) return null;
+  const poleStart = n - 20, poleEnd = n - 10;
+  const poleMove = (closes[poleEnd] - closes[poleStart]) / closes[poleStart] * 100;
+  if (poleMove < 3) return null;
+  const flagHighs = highs.slice(n - 8), flagLows = lows.slice(n - 8);
+  const flagRange = (Math.max(...flagHighs) - Math.min(...flagLows)) / closes[n - 8] * 100;
+  if (flagRange > 4) return null;
+  const flagDrift = (closes[n - 1] - closes[n - 8]) / closes[n - 8] * 100;
+  if (flagDrift > 1.5) return null;
+  const poleVol = volumes.slice(poleStart, poleEnd).reduce((a, b) => a + b, 0) / (poleEnd - poleStart);
+  const flagVol = volumes.slice(n - 8).reduce((a, b) => a + b, 0) / 8;
+  if (flagVol >= poleVol) return null;
+  return { name: 'Bull Flag', category: 'continuation', direction: 'bullish', confidence: poleMove > 6 ? 'high' : 'medium', description: `Pole +${poleMove.toFixed(1)}%, flag konsolidasi ${flagRange.toFixed(1)}%` };
+}
+
+function detectBearFlag(highs: number[], lows: number[], closes: number[], volumes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 20) return null;
+  const poleStart = n - 20, poleEnd = n - 10;
+  const poleMove = (closes[poleStart] - closes[poleEnd]) / closes[poleStart] * 100;
+  if (poleMove < 3) return null;
+  const flagHighs = highs.slice(n - 8), flagLows = lows.slice(n - 8);
+  const flagRange = (Math.max(...flagHighs) - Math.min(...flagLows)) / closes[n - 8] * 100;
+  if (flagRange > 4) return null;
+  const flagDrift = (closes[n - 1] - closes[n - 8]) / closes[n - 8] * 100;
+  if (flagDrift < -1.5) return null;
+  const poleVol = volumes.slice(poleStart, poleEnd).reduce((a, b) => a + b, 0) / (poleEnd - poleStart);
+  const flagVol = volumes.slice(n - 8).reduce((a, b) => a + b, 0) / 8;
+  if (flagVol >= poleVol) return null;
+  return { name: 'Bear Flag', category: 'continuation', direction: 'bearish', confidence: poleMove > 6 ? 'high' : 'medium', description: `Pole -${poleMove.toFixed(1)}%, flag konsolidasi ${flagRange.toFixed(1)}%` };
+}
+
+function detectAscendingTriangle(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 15) return null;
+  const swingH = findSwingHighs(highs.slice(n - 15), 3);
+  if (swingH.length < 2) return null;
+  const maxH = Math.max(...swingH), minH = Math.min(...swingH);
+  if ((maxH - minH) / minH * 100 > 1.5) return null;
+  const swingL = findSwingLows(lows.slice(n - 15), 3);
+  if (swingL.length < 2) return null;
+  if (swingL[swingL.length - 1] <= swingL[0]) return null;
+  return { name: 'Ascending Triangle', category: 'continuation', direction: 'bullish', confidence: 'medium', description: `Resistance flat di ${maxH.toFixed(4)}, support naik` };
+}
+
+function detectDescendingTriangle(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 15) return null;
+  const swingL = findSwingLows(lows.slice(n - 15), 3);
+  if (swingL.length < 2) return null;
+  const maxL = Math.max(...swingL), minL = Math.min(...swingL);
+  if ((maxL - minL) / minL * 100 > 1.5) return null;
+  const swingH = findSwingHighs(highs.slice(n - 15), 3);
+  if (swingH.length < 2) return null;
+  if (swingH[swingH.length - 1] >= swingH[0]) return null;
+  return { name: 'Descending Triangle', category: 'continuation', direction: 'bearish', confidence: 'medium', description: `Support flat di ${minL.toFixed(4)}, resistance turun` };
+}
+
+function detectSymmetricalTriangle(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 15) return null;
+  const swingH = findSwingHighs(highs.slice(n - 15), 3);
+  const swingL = findSwingLows(lows.slice(n - 15), 3);
+  if (swingH.length < 2 || swingL.length < 2) return null;
+  if (swingH[swingH.length - 1] >= swingH[0]) return null;
+  if (swingL[swingL.length - 1] <= swingL[0]) return null;
+  const bias = closes[n - 1] > closes[n - 8] ? 'bullish' : 'bearish';
+  return { name: 'Symmetrical Triangle', category: 'continuation', direction: bias as 'bullish' | 'bearish', confidence: 'low', description: `HH turun + HL naik, bias ${bias}` };
+}
+
+function detectPennant(highs: number[], lows: number[], closes: number[], volumes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 20) return null;
+  const poleStart = n - 20, poleEnd = n - 12;
+  const poleMove = Math.abs((closes[poleEnd] - closes[poleStart]) / closes[poleStart] * 100);
+  if (poleMove < 4) return null;
+  const dir = closes[poleEnd] > closes[poleStart] ? 'bullish' : 'bearish';
+  const swH = findSwingHighs(highs.slice(n - 10), 2);
+  const swL = findSwingLows(lows.slice(n - 10), 2);
+  if (swH.length < 2 || swL.length < 2) return null;
+  if (swH[swH.length - 1] >= swH[0]) return null;
+  if (swL[swL.length - 1] <= swL[0]) return null;
+  const poleVol = volumes.slice(poleStart, poleEnd).reduce((a, b) => a + b, 0) / (poleEnd - poleStart);
+  const pennantVol = volumes.slice(n - 10).reduce((a, b) => a + b, 0) / 10;
+  if (pennantVol >= poleVol) return null;
+  return { name: 'Pennant', category: 'continuation', direction: dir as 'bullish' | 'bearish', confidence: 'medium', description: `Pole ${dir === 'bullish' ? '+' : '-'}${poleMove.toFixed(1)}%, pennant konsolidasi volume turun` };
+}
+
+function detectDoubleTop(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 30) return null;
+  const swingH = findSwingHighs(highs.slice(n - 30), 5);
+  if (swingH.length < 2) return null;
+  const last = swingH[swingH.length - 1], prev = swingH[swingH.length - 2];
+  const diff = Math.abs(last - prev) / prev * 100;
+  if (diff > 1.5) return null;
+  const neckline = Math.min(...lows.slice(n - 30));
+  if (closes[n - 1] < neckline * 1.005) {
+    return { name: 'Double Top', category: 'reversal', direction: 'bearish', confidence: diff < 0.8 ? 'high' : 'medium', description: `Dua puncak di ~${((last + prev) / 2).toFixed(4)}, neckline ${neckline.toFixed(4)}` };
+  }
+  return null;
+}
+
+function detectDoubleBottom(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 30) return null;
+  const swingL = findSwingLows(lows.slice(n - 30), 5);
+  if (swingL.length < 2) return null;
+  const last = swingL[swingL.length - 1], prev = swingL[swingL.length - 2];
+  const diff = Math.abs(last - prev) / prev * 100;
+  if (diff > 1.5) return null;
+  const neckline = Math.max(...highs.slice(n - 30));
+  if (closes[n - 1] > neckline * 0.995) {
+    return { name: 'Double Bottom', category: 'reversal', direction: 'bullish', confidence: diff < 0.8 ? 'high' : 'medium', description: `Dua lembah di ~${((last + prev) / 2).toFixed(4)}, neckline ${neckline.toFixed(4)}` };
+  }
+  return null;
+}
+
+function detectHeadAndShoulders(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 40) return null;
+  const swingH = findSwingHighs(highs.slice(n - 40), 5);
+  if (swingH.length < 3) return null;
+  const [ls, head, rs] = swingH.slice(-3);
+  if (head <= ls || head <= rs) return null;
+  const shoulderDiff = Math.abs(ls - rs) / ls * 100;
+  if (shoulderDiff > 3) return null;
+  if (head < Math.max(ls, rs) * 1.01) return null;
+  return { name: 'Head & Shoulders', category: 'reversal', direction: 'bearish', confidence: shoulderDiff < 1.5 ? 'high' : 'medium', description: `LS ${ls.toFixed(4)}, Head ${head.toFixed(4)}, RS ${rs.toFixed(4)}` };
+}
+
+function detectInverseHS(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 40) return null;
+  const swingL = findSwingLows(lows.slice(n - 40), 5);
+  if (swingL.length < 3) return null;
+  const [ls, head, rs] = swingL.slice(-3);
+  if (head >= ls || head >= rs) return null;
+  const shoulderDiff = Math.abs(ls - rs) / ls * 100;
+  if (shoulderDiff > 3) return null;
+  if (head > Math.min(ls, rs) * 0.99) return null;
+  return { name: 'Inverse H&S', category: 'reversal', direction: 'bullish', confidence: shoulderDiff < 1.5 ? 'high' : 'medium', description: `LS ${ls.toFixed(4)}, Head ${head.toFixed(4)}, RS ${rs.toFixed(4)}` };
+}
+
+function detectRisingWedge(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 15) return null;
+  const swingH = findSwingHighs(highs.slice(n - 15), 3);
+  const swingL = findSwingLows(lows.slice(n - 15), 3);
+  if (swingH.length < 2 || swingL.length < 2) return null;
+  if (swingH[swingH.length - 1] <= swingH[0]) return null;
+  if (swingL[swingL.length - 1] <= swingL[0]) return null;
+  const slopeH = (swingH[swingH.length - 1] - swingH[0]) / swingH[0];
+  const slopeL = (swingL[swingL.length - 1] - swingL[0]) / swingL[0];
+  if (slopeL <= slopeH) return null;
+  return { name: 'Rising Wedge', category: 'reversal', direction: 'bearish', confidence: 'medium', description: `Support naik lebih cepat dari resistance — sinyal bearish reversal` };
+}
+
+function detectFallingWedge(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+  const n = closes.length;
+  if (n < 15) return null;
+  const swingH = findSwingHighs(highs.slice(n - 15), 3);
+  const swingL = findSwingLows(lows.slice(n - 15), 3);
+  if (swingH.length < 2 || swingL.length < 2) return null;
+  if (swingH[swingH.length - 1] >= swingH[0]) return null;
+  if (swingL[swingL.length - 1] >= swingL[0]) return null;
+  const slopeH = (swingH[0] - swingH[swingH.length - 1]) / swingH[0];
+  const slopeL = (swingL[0] - swingL[swingL.length - 1]) / swingL[0];
+  if (slopeL <= slopeH) return null;
+  return { name: 'Falling Wedge', category: 'reversal', direction: 'bullish', confidence: 'medium', description: `Resistance turun lebih cepat dari support — sinyal bullish reversal` };
+}
+
+export async function analyzeChartPatterns(symbol: string): Promise<{ symbol: string; timestamp: string; timeframes: TFPatterns[] }> {
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'long', year: 'numeric',
+  }) + ' WIB';
+
+  const [h4, h1, m30, m15, m5] = await Promise.all([
+    fetchKlines(symbol, '4h', 100),
+    fetchKlines(symbol, '1h', 100),
+    fetchKlines(symbol, '30m', 100),
+    fetchKlines(symbol, '15m', 100),
+    fetchKlines(symbol, '5m', 100),
+  ]);
+
+  const detect = (kline: KlineData): PatternResult[] => {
+    const { highs: h, lows: l, closes: c, volumes: v } = kline;
+    const results: PatternResult[] = [];
+    const checks = [
+      detectBullFlag(h, l, c, v),
+      detectBearFlag(h, l, c, v),
+      detectAscendingTriangle(h, l, c),
+      detectDescendingTriangle(h, l, c),
+      detectSymmetricalTriangle(h, l, c),
+      detectPennant(h, l, c, v),
+      detectDoubleTop(h, l, c),
+      detectDoubleBottom(h, l, c),
+      detectHeadAndShoulders(h, l, c),
+      detectInverseHS(h, l, c),
+      detectRisingWedge(h, l, c),
+      detectFallingWedge(h, l, c),
+    ];
+    for (const r of checks) { if (r) results.push(r); }
+    return results;
+  };
+
+  return {
+    symbol,
+    timestamp,
+    timeframes: [
+      { tf: 'H4', patterns: detect(h4) },
+      { tf: 'H1', patterns: detect(h1) },
+      { tf: 'M30', patterns: detect(m30) },
+      { tf: 'M15', patterns: detect(m15) },
+      { tf: 'M5', patterns: detect(m5) },
+    ],
+  };
 }

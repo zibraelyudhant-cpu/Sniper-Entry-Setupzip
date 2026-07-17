@@ -260,7 +260,7 @@ export default function ScreenerScreen() {
           <Feather name="search" size={15} color={colors.mutedForeground} />
           <TextInput
             style={[styles.searchInput, { color: colors.foreground }]}
-            placeholder="Cari pair..."
+            placeholder="Cari atau scan manual (contoh: BTC)"
             placeholderTextColor={colors.mutedForeground}
             value={search}
             onChangeText={setSearch}
@@ -273,28 +273,29 @@ export default function ScreenerScreen() {
           )}
         </View>
 
-        {/* Manual scan */}
-        {search.trim().length > 0 && (
-          <Pressable
-            onPress={handleManualScan}
-            style={({ pressed }) => [
-              styles.manualScanBtn,
-              { backgroundColor: pressed ? `${colors.primary}cc` : colors.primary, marginBottom: 8 },
-            ]}
-          >
-            <Feather name="crosshair" size={14} color={colors.primaryForeground} />
-            <Text style={[styles.manualScanText, { color: colors.primaryForeground }]}>
-              Scan{' '}
-              <Text style={{ fontFamily: 'Inter_700Bold' }}>
-                {search.trim().toUpperCase().endsWith('USDT')
-                  ? search.trim().toUpperCase()
-                  : `${search.trim().toUpperCase()}USDT`}
-              </Text>
-            </Text>
-            <Feather name="arrow-right" size={14} color={colors.primaryForeground} style={{ marginLeft: 'auto' }} />
-          </Pressable>
-        )}
       </View>
+
+      {/* Tombol scan manual — muncul di atas list saat user ketik */}
+      {search.trim().length >= 2 && (
+        <Pressable
+          onPress={handleManualScan}
+          style={({ pressed }) => [
+            styles.manualScanBtn,
+            { backgroundColor: pressed ? `${colors.primary}dd` : colors.primary },
+          ]}
+        >
+          <Feather name="crosshair" size={15} color={colors.primaryForeground} />
+          <Text style={[styles.manualScanText, { color: colors.primaryForeground }]}>
+            Scan{' '}
+            <Text style={{ fontFamily: 'Inter_700Bold' }}>
+              {search.trim().toUpperCase().endsWith('USDT')
+                ? search.trim().toUpperCase()
+                : `${search.trim().toUpperCase()}USDT`}
+            </Text>
+          </Text>
+          <Feather name="arrow-right" size={15} color={colors.primaryForeground} />
+        </Pressable>
+      )}
 
       {/* Content */}
       {isLoading ? (
@@ -407,8 +408,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 8,
+    paddingVertical: 12,
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
   },
   manualScanText: { fontSize: 14, fontFamily: 'Inter_500Medium', flex: 1 },
 

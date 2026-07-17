@@ -137,3 +137,70 @@ export type GetSmcAnalysisParams = {
  */
 symbol: string;
 };
+
+export interface RetestZoneInfo {
+  price: number;
+  zoneLow: number;
+  zoneHigh: number;
+  type: string;
+  tier: number;
+  reason: string;
+  distancePct: number;
+  isReached: boolean;
+}
+
+export type BreakoutResultStatus =
+  | 'ready' | 'in_zone' | 'approaching'
+  | 'no_breakout' | 'no_zone' | 'no_trend' | 'skip' | 'error';
+
+export type BreakoutType = 'sr_horizontal' | 'structure_hh' | 'range_squeeze';
+
+export interface BreakoutResult {
+  status: BreakoutResultStatus;
+  symbol: string;
+  bias?: 'bullish' | 'bearish';
+  currentPrice: number;
+  timestamp: string;
+  message?: string;
+  breakoutType?: BreakoutType;
+  brokenLevel?: number;
+  volumeRatio?: number;
+  retestZone?: RetestZoneInfo;
+  retestConfirmed?: boolean;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  takeProfit2?: number;
+  takeProfit3?: number;
+  fundingRate?: number;
+  setupExpiryHours?: number;
+  reason?: string;
+}
+
+export interface BreakoutScanResponse {
+  coins: BreakoutResult[];
+  fetchedAt: number;
+}
+
+export type GetBreakoutParams = { symbol: string };
+
+export interface PatternResult {
+  name: string;
+  category: 'continuation' | 'reversal';
+  direction: 'bullish' | 'bearish';
+  confidence: 'high' | 'medium' | 'low';
+  description: string;
+}
+
+export interface TFPatterns {
+  tf: string;
+  patterns: PatternResult[];
+}
+
+export interface ChartPatternResponse {
+  symbol: string;
+  timestamp: string;
+  timeframes: TFPatterns[];
+}
+
+export type GetPatternsParams = { symbol: string };

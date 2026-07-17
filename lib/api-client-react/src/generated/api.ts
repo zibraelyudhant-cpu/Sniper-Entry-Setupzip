@@ -291,3 +291,94 @@ export function useGetSmcAnalysis<TData = Awaited<ReturnType<typeof getSmcAnalys
 
 
 
+
+import type {
+  BreakoutResult,
+  BreakoutScanResponse,
+  GetBreakoutParams,
+  ChartPatternResponse,
+  GetPatternsParams,
+} from './api.schemas';
+
+export const getGetBreakoutUrl = (params: GetBreakoutParams) =>
+  `/api/breakout?symbol=${params.symbol}`;
+
+export const getBreakout = async (params: GetBreakoutParams, options?: RequestInit): Promise<BreakoutResult> =>
+  customFetch<BreakoutResult>(getGetBreakoutUrl(params), { ...options, method: 'GET' });
+
+export const getGetBreakoutQueryKey = (params?: GetBreakoutParams) =>
+  [`/api/breakout`, ...(params ? [params] : [])] as const;
+
+export const getGetBreakoutQueryOptions = <TData = Awaited<ReturnType<typeof getBreakout>>, TError = ErrorType<ErrorResponse>>(
+  params: GetBreakoutParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getBreakout>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetBreakoutQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBreakout>>> = ({ signal }) =>
+    getBreakout(params, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getBreakout>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetBreakout<TData = Awaited<ReturnType<typeof getBreakout>>, TError = ErrorType<ErrorResponse>>(
+  params: GetBreakoutParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getBreakout>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBreakoutQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGetBreakoutScanUrl = () => `/api/breakout/scan`;
+
+export const getBreakoutScan = async (options?: RequestInit): Promise<BreakoutScanResponse> =>
+  customFetch<BreakoutScanResponse>(getGetBreakoutScanUrl(), { ...options, method: 'GET' });
+
+export const getGetBreakoutScanQueryKey = () => [`/api/breakout/scan`] as const;
+
+export const getGetBreakoutScanQueryOptions = <TData = Awaited<ReturnType<typeof getBreakoutScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getBreakoutScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetBreakoutScanQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBreakoutScan>>> = ({ signal }) =>
+    getBreakoutScan({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getBreakoutScan>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetBreakoutScan<TData = Awaited<ReturnType<typeof getBreakoutScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getBreakoutScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBreakoutScanQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGetPatternsUrl = (params: GetPatternsParams) =>
+  `/api/patterns?symbol=${params.symbol}`;
+
+export const getPatterns = async (params: GetPatternsParams, options?: RequestInit): Promise<ChartPatternResponse> =>
+  customFetch<ChartPatternResponse>(getGetPatternsUrl(params), { ...options, method: 'GET' });
+
+export const getGetPatternsQueryKey = (params?: GetPatternsParams) =>
+  [`/api/patterns`, ...(params ? [params] : [])] as const;
+
+export const getGetPatternsQueryOptions = <TData = Awaited<ReturnType<typeof getPatterns>>, TError = ErrorType<ErrorResponse>>(
+  params: GetPatternsParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getPatterns>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetPatternsQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatterns>>> = ({ signal }) =>
+    getPatterns(params, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getPatterns>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetPatterns<TData = Awaited<ReturnType<typeof getPatterns>>, TError = ErrorType<ErrorResponse>>(
+  params: GetPatternsParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getPatterns>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPatternsQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}

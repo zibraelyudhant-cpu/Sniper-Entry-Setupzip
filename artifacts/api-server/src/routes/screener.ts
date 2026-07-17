@@ -328,3 +328,17 @@ router.get("/screener", async (req, res) => {
 });
 
 export default router;
+
+export async function getUniverse(): Promise<string[]> {
+  const [cryptoSymbols, tickersRes] = await Promise.all([
+    getCryptoPerpetualSymbols(),
+    fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr`),
+  ]);
+  if (!tickersRes.ok) throw new Error('Failed to fetch tickers');
+  const allTickers: Array<{ symbol: string; quoteVolume: string }> = await tickersRes.json();
+  return allTickers
+    .filter(t => cryptoSymbols.has(t.symbol))
+    .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+    .slice(0, 50)
+    .map(t => t.symbol);
+}

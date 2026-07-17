@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
-import { Feather } from '@expo/vector-icons';
+
 import { useLocalSearchParams } from 'expo-router';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -85,6 +85,7 @@ export default function CalculatorScreen() {
   const [marginMode, setMarginMode] = useState<'cross' | 'isolated'>('isolated');
   const [lastEdited, setLastEdited] = useState<'modal' | 'contracts'>('modal');
 
+  const [side, setSide] = useState<'long' | 'short'>(bias === 'bullish' ? 'long' : 'short');
   const leverage = Math.min(Math.max(parseFloat(leverageStr) || 1, 1), 125);
   const showLevWarning = leverage > 20;
 
@@ -132,7 +133,7 @@ export default function CalculatorScreen() {
 
     const contracts = (modal * leverage) / entryPrice;
     const initialMargin = modal; // = (contracts * entryPrice) / leverage
-    const dir = bias === 'bullish' ? 1 : -1;
+    const dir = side === 'long' ? 1 : -1;
     const mmRate = 0.005;
 
     const pnlSL  = contracts * (stopLoss - entryPrice) * dir;
@@ -162,13 +163,14 @@ export default function CalculatorScreen() {
     : colors.bearish;
 
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-  const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
+  const bottomPadding = insets.bottom + 80;
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+      <KeyboardAvoidingView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Kalkulator PnL</Text>
@@ -177,11 +179,72 @@ export default function CalculatorScreen() {
         </Text>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+        <ScrollView
+          contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1 }}
+        >
+        {/* ── LONG / SHORT TOGGLE ────────────────────────────────────────── */}
+        <View style={[styles.sideToggle, { borderColor: colors.border }]}>
+          <Pressable
+            onPress={() => setSide('long')}
+            style={[styles.sideBtn, side === 'long' && { backgroundColor: '#16A34A' }]}
+          >
+            <Text style={[styles.sideBtnText, { color: side === 'long' ? '#fff' : colors.mutedForeground }]}>
+              ↗ Long
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setSide('short')}
+            style={[styles.sideBtn, side === 'short' && { backgroundColor: '#DC2626' }]}
+          >
+            <Text style={[styles.sideBtnText, { color: side === 'short' ? '#fff' : colors.mutedForeground }]}>
+              ↘ Short
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* ── LEVERAGE ───────────────────────────────────────────────────── */}
+        <Section title="LEVERAGE">
+          <View style={styles.levRow}>
+            <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Leverage</Text>
+            <View style={styles.inputRight}>
+              <TextInput
+                style={[styles.inputField, { color: colors.foreground }]}
+                keyboardType="number-pad"
+                value={leverageStr}
+                onChangeText={handleLeverageChange}
+                placeholder="10"
+                placeholderTextColor={colors.mutedForeground}
+                selectTextOnFocus
+              />
+              <Text style={[styles.inputUnit, { color: colors.mutedForeground }]}>x</Text>
+            </View>
+          </View>
+          <View style={styles.presets}>
+            {[1, 5, 10, 20, 50, 125].map(p => (
+              <Pressable
+                key={p}
+                onPress={() => handleLeverageChange(String(p))}
+                style={[styles.presetBtn, {
+                  borderColor: colors.border,
+                  backgroundColor: leverage === p ? colors.primary : colors.background,
+                }]}
+              >
+                <Text style={[styles.presetText, { color: leverage === p ? '#fff' : colors.mutedForeground }]}>
+                  {p}x
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {showLevWarning && (
+            <Text style={{ fontSize: 12, color: '#F59E0B', marginTop: 8 }}>
+              ⚠ Leverage tinggi meningkatkan risiko likuidasi
+            </Text>
+          )}
+        </Section>
+
         {/* ── INPUT ─────────────────────────────────────────────────────── */}
         <Section title="INPUT">
           {/* Modal USDT */}
@@ -227,33 +290,6 @@ export default function CalculatorScreen() {
           <Text style={[styles.inputHint, { color: colors.mutedForeground }]}>
             Isi salah satu — yang lain dihitung otomatis
           </Text>
-
-          {/* Leverage */}
-          <View style={[styles.inputRow, { borderColor: colors.border, marginTop: 8 }]}>
-            <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Leverage</Text>
-            <View style={styles.inputRight}>
-              <TextInput
-                style={[styles.inputField, { color: colors.foreground }]}
-                keyboardType="number-pad"
-                value={leverageStr}
-                onChangeText={handleLeverageChange}
-                placeholder="10"
-                placeholderTextColor={colors.mutedForeground}
-                selectTextOnFocus
-              />
-              <Text style={[styles.inputUnit, { color: colors.mutedForeground }]}>x</Text>
-            </View>
-          </View>
-
-          {/* Leverage warning */}
-          {showLevWarning && (
-            <View style={[styles.warningBox, { backgroundColor: `${colors.warning}18`, borderColor: `${colors.warning}50` }]}>
-              <Feather name="alert-triangle" size={13} color={colors.warning} />
-              <Text style={[styles.warningText, { color: colors.warning }]}>
-                Leverage tinggi meningkatkan risiko likuidasi
-              </Text>
-            </View>
-          )}
 
           {/* Margin mode toggle */}
           <View style={styles.marginRow}>
@@ -468,16 +504,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: 10,
   },
-  inputLabel: { fontSize: 13, fontFamily: 'Inter_400Regular', flex: 1 },
-  inputRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  inputLabel: { fontSize: 13, fontFamily: 'Inter_400Regular', flex: 1, marginRight: 8 },
+  inputRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   inputField: {
     fontSize: 16,
     fontFamily: 'Inter_600SemiBold',
     textAlign: 'right',
-    minWidth: 90,
+    minWidth: 80,
+    maxWidth: 160,
+    flexShrink: 1,
     letterSpacing: -0.3,
   },
-  inputUnit: { fontSize: 13, fontFamily: 'Inter_500Medium', minWidth: 36 },
+  inputUnit: { fontSize: 13, fontFamily: 'Inter_500Medium', minWidth: 40 },
   inputHint: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 6, textAlign: 'center' },
 
   orDivider: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 4 },
@@ -565,4 +603,22 @@ const styles = StyleSheet.create({
   pnlRoe: { fontSize: 12, fontFamily: 'Inter_500Medium', marginTop: 1 },
 
   disclaimer: { fontSize: 10, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: 4, lineHeight: 16 },
+
+  // Long/Short toggle
+  sideToggle: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+    height: 46,
+    marginBottom: 12,
+  },
+  sideBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  sideBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+
+  // Leverage presets
+  levRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  presets: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  presetBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1 },
+  presetText: { fontSize: 12, fontFamily: 'Inter_500Medium' },
 });

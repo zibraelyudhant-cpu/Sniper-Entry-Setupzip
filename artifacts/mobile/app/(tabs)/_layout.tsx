@@ -23,6 +23,14 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'function', selected: 'function' }} />
         <Label>Kalkulator</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="breakout">
+        <Icon sf={{ default: 'bolt', selected: 'bolt.fill' }} />
+        <Label>Breakout</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="patterns">
+        <Icon sf={{ default: 'waveform', selected: 'waveform' }} />
+        <Label>Pattern</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -100,6 +108,30 @@ function ClassicTabLayout() {
               <SymbolView name="function" tintColor={color} size={22} />
             ) : (
               <Feather name="percent" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="breakout"
+        options={{
+          title: 'Breakout',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="bolt.fill" tintColor={color} size={22} />
+            ) : (
+              <Feather name="zap" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="patterns"
+        options={{
+          title: 'Pattern',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="waveform" tintColor={color} size={22} />
+            ) : (
+              <Feather name="activity" size={22} color={color} />
             ),
         }}
       />
