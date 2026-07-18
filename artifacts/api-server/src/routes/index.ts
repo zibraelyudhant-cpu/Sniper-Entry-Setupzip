@@ -4,6 +4,7 @@ import screenerRouter from "./screener";
 import smcAnalysisRouter from "./smc-analysis";
 import breakoutRouter from "./breakout";
 import patternsRouter from "./patterns";
+import backtestRouter from "./backtest";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(screenerRouter);
 router.use(smcAnalysisRouter);
 router.use(breakoutRouter);
 router.use(patternsRouter);
+router.use(backtestRouter);
 
 export default router;

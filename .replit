@@ -13,7 +13,7 @@ env = { "CI" = "true" }
 [[workflows.workflow]]
 name = "artifacts/mockup-sandbox: Component Preview Server"
 author = "agent"
-mode = "parallel"
+mode = "sequential"
 
 [workflows.workflow.metadata]
 outputType = "webview"

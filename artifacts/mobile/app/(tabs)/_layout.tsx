@@ -31,6 +31,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'waveform', selected: 'waveform' }} />
         <Label>Pattern</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="backtest">
+        <Icon sf={{ default: 'chart.xyaxis.line', selected: 'chart.xyaxis.line' }} />
+        <Label>Backtest</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -132,6 +136,18 @@ function ClassicTabLayout() {
               <SymbolView name="waveform" tintColor={color} size={22} />
             ) : (
               <Feather name="activity" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="backtest"
+        options={{
+          title: 'Backtest',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="chart.xyaxis.line" tintColor={color} size={22} />
+            ) : (
+              <Feather name="bar-chart" size={22} color={color} />
             ),
         }}
       />
