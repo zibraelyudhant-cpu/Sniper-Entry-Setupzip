@@ -100,16 +100,370 @@ function PatternCell({
 
 // ─── Detail Modal ─────────────────────────────────────────────────────────────
 
+
+// ─── Pattern SVG Illustrations ───────────────────────────────────────────────
+
+function PatternIllustration({ name, direction, colors }: {
+  name: string;
+  direction: 'bullish' | 'bearish';
+  colors: ReturnType<typeof useColors>;
+}) {
+  const bull = colors.bullish;
+  const bear = colors.bearish;
+  const muted = colors.mutedForeground;
+  const line = direction === 'bullish' ? bull : bear;
+  // Helper: candlestick mini
+  const Candle = ({ x, open, close, high, low, color }: { x: number; open: number; close: number; high: number; low: number; color: string }) => (
+    <>
+      <line x1={x+4} y1={high} x2={x+4} y2={low} stroke={color} strokeWidth="1"/>
+      <rect x={x} y={Math.min(open, close)} width="8" height={Math.max(Math.abs(open - close), 2)} fill={color} rx="1"/>
+    </>
+  );
+
+  const illustrations: Record<string, React.ReactNode> = {
+    'Bull Flag': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* BG grid */}
+        <line x1="0" y1="110" x2="300" y2="110" stroke="#222" strokeWidth="1"/>
+        {/* Pole — candle hijau naik */}
+        <Candle x={20} open={100} close={80} high={78} low={102} color={bull}/>
+        <Candle x={35} open={80} close={58} high={56} low={82} color={bull}/>
+        <Candle x={50} open={58} close={35} high={33} low={60} color={bull}/>
+        <Candle x={65} open={35} close={18} high={16} low={37} color={bull}/>
+        {/* Flag — channel datar/turun sedikit */}
+        <Candle x={88} open={22} close={28} high={20} low={30} color={bear}/>
+        <Candle x={103} open={26} close={24} high={22} low={32} color={bull}/>
+        <Candle x={118} open={28} close={32} high={26} low={34} color={bear}/>
+        <Candle x={133} open={30} close={26} high={24} low={36} color={bull}/>
+        <Candle x={148} open={28} close={34} high={26} low={36} color={bear}/>
+        {/* Channel lines */}
+        <line x1="85" y1="20" x2="165" y2="25" stroke={muted} strokeWidth="1" strokeDasharray="4,2" opacity="0.7"/>
+        <line x1="85" y1="35" x2="165" y2="38" stroke={muted} strokeWidth="1" strokeDasharray="4,2" opacity="0.7"/>
+        {/* Breakout */}
+        <Candle x={175} open={30} close={8} high={6} low={32} color={bull}/>
+        <Candle x={195} open={8} close={3} high={1} low={10} color={bull}/>
+        {/* Arrow */}
+        <line x1="210" y1="4" x2="240" y2="4" stroke={bull} strokeWidth="1.5" opacity="0.4"/>
+        {/* Labels */}
+        <text x="38" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Pole</text>
+        <text x="127" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Flag</text>
+        <text x="200" y="118" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Breakout ↑</text>
+        {/* Pole bracket */}
+        <line x1="80" y1="16" x2="80" y2="105" stroke={muted} strokeWidth="0.5" opacity="0.3"/>
+        <line x1="166" y1="16" x2="166" y2="105" stroke={muted} strokeWidth="0.5" opacity="0.3"/>
+      </svg>
+    ),
+    'Bear Flag': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        <line x1="0" y1="110" x2="300" y2="110" stroke="#222" strokeWidth="1"/>
+        {/* Pole — candle merah turun */}
+        <Candle x={20} open={20} close={35} high={18} low={37} color={bear}/>
+        <Candle x={35} open={35} close={52} high={33} low={54} color={bear}/>
+        <Candle x={50} open={52} close={70} high={50} low={72} color={bear}/>
+        <Candle x={65} open={70} close={88} high={68} low={90} color={bear}/>
+        {/* Flag — channel naik sedikit */}
+        <Candle x={88} open={84} close={78} high={76} low={86} color={bull}/>
+        <Candle x={103} open={78} close={82} high={76} low={84} color={bear}/>
+        <Candle x={118} open={80} close={74} high={72} low={82} color={bull}/>
+        <Candle x={133} open={76} close={80} high={74} low={82} color={bear}/>
+        <Candle x={148} open={78} close={72} high={70} low={80} color={bull}/>
+        <line x1="85" y1="75" x2="165" y2="68" stroke={muted} strokeWidth="1" strokeDasharray="4,2" opacity="0.7"/>
+        <line x1="85" y1="87" x2="165" y2="82" stroke={muted} strokeWidth="1" strokeDasharray="4,2" opacity="0.7"/>
+        {/* Breakdown */}
+        <Candle x={175} open={72} close={92} high={70} low={94} color={bear}/>
+        <Candle x={195} open={92} close={105} high={90} low={107} color={bear}/>
+        <line x1="210" y1="106" x2="240" y2="106" stroke={bear} strokeWidth="1.5" opacity="0.4"/>
+        {/* Labels */}
+        <text x="38" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Pole</text>
+        <text x="127" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Flag</text>
+        <text x="200" y="118" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Breakdown ↓</text>
+      </svg>
+    ),
+    'Ascending Triangle': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Resistance flat */}
+        <line x1="20" y1="25" x2="240" y2="25" stroke={bear} strokeWidth="1.5" strokeDasharray="6,3" opacity="0.8"/>
+        {/* Support naik */}
+        <line x1="20" y1="100" x2="210" y2="28" stroke={bull} strokeWidth="1.5"/>
+        {/* Area shading */}
+        <polygon points="20,25 20,100 210,28" fill={bull} fillOpacity="0.06"/>
+        {/* Candles bouncing dari support naik */}
+        <Candle x={25} open={95} close={35} high={33} low={97} color={bull}/>
+        <Candle x={60} open={70} close={30} high={28} low={72} color={bull}/>
+        <Candle x={95} open={55} close={28} high={26} low={57} color={bull}/>
+        <Candle x={130} open={42} close={27} high={25} low={44} color={bull}/>
+        <Candle x={165} open={32} close={26} high={24} low={34} color={bull}/>
+        {/* Breakout */}
+        <Candle x={215} open={24} close={8} high={6} low={26} color={bull}/>
+        <Candle x={240} open={8} close={2} high={0} low={10} color={bull}/>
+        {/* Labels */}
+        <text x="130" y="18" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Resistance Flat</text>
+        <text x="80" y="115" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Support Naik</text>
+        <text x="255" y="10" fontSize="9" fill={bull} fontFamily="Inter">↑</text>
+      </svg>
+    ),
+    'Descending Triangle': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Support flat */}
+        <line x1="20" y1="100" x2="240" y2="100" stroke={bull} strokeWidth="1.5" strokeDasharray="6,3" opacity="0.8"/>
+        {/* Resistance turun */}
+        <line x1="20" y1="20" x2="210" y2="97" stroke={bear} strokeWidth="1.5"/>
+        {/* Area shading */}
+        <polygon points="20,100 20,20 210,97" fill={bear} fillOpacity="0.06"/>
+        {/* Candles */}
+        <Candle x={25} open={25} close={95} high={23} low={97} color={bear}/>
+        <Candle x={60} open={48} close={93} high={46} low={95} color={bear}/>
+        <Candle x={95} open={60} close={95} high={58} low={97} color={bear}/>
+        <Candle x={130} open={72} close={97} high={70} low={99} color={bear}/>
+        <Candle x={165} open={82} close={96} high={80} low={98} color={bear}/>
+        {/* Breakdown */}
+        <Candle x={215} open={100} close={115} high={98} low={117} color={bear}/>
+        <Candle x={240} open={115} close={125} high={113} low={127} color={bear}/>
+        {/* Labels */}
+        <text x="100" y="14" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Resistance Turun</text>
+        <text x="130" y="115" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Support Flat</text>
+        <text x="255" y="128" fontSize="9" fill={bear} fontFamily="Inter">↓</text>
+      </svg>
+    ),
+    'Symmetrical Triangle': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Resistance turun */}
+        <line x1="15" y1="15" x2="195" y2="58" stroke={bear} strokeWidth="1.5" strokeDasharray="5,3" opacity="0.8"/>
+        {/* Support naik */}
+        <line x1="15" y1="110" x2="195" y2="63" stroke={bull} strokeWidth="1.5" strokeDasharray="5,3" opacity="0.8"/>
+        {/* Area shading */}
+        <polygon points="15,15 15,110 195,60" fill={muted} fillOpacity="0.05"/>
+        {/* Candles konvergen */}
+        <Candle x={20} open={20} close={100} high={15} low={108} color={muted}/>
+        <Candle x={50} open={35} close={85} high={30} low={90} color={muted}/>
+        <Candle x={80} open={45} close={75} high={40} low={80} color={muted}/>
+        <Candle x={110} open={52} close={70} high={48} low={74} color={muted}/>
+        <Candle x={140} open={57} close={65} high={54} low={68} color={muted}/>
+        <Candle x={170} open={59} close={63} high={57} low={65} color={muted}/>
+        {/* Breakout */}
+        <Candle x={205} open={60} close={direction === 'bullish' ? 35 : 85} high={direction === 'bullish' ? 33 : 58} low={direction === 'bullish' ? 62 : 87} color={line}/>
+        <Candle x={230} open={direction === 'bullish' ? 35 : 85} close={direction === 'bullish' ? 15 : 105} high={direction === 'bullish' ? 13 : 83} low={direction === 'bullish' ? 37 : 107} color={line}/>
+        {/* Labels */}
+        <text x="80" y="10" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">HH Turun</text>
+        <text x="80" y="124" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">HL Naik</text>
+        <text x="248" y={direction === 'bullish' ? 20 : 115} fontSize="10" fill={line} fontFamily="Inter">{direction === 'bullish' ? '↑' : '↓'}</text>
+      </svg>
+    ),
+    'Pennant': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Pole */}
+        {direction === 'bullish' ? (
+          <>
+            <Candle x={10} open={105} close={85} high={83} low={107} color={bull}/>
+            <Candle x={25} open={85} close={65} high={63} low={87} color={bull}/>
+            <Candle x={40} open={65} close={42} high={40} low={67} color={bull}/>
+            <Candle x={55} open={42} close={22} high={20} low={44} color={bull}/>
+            {/* Pennant top/bottom converging */}
+            <line x1="72" y1="20" x2="155" y2="48" stroke={muted} strokeWidth="1.2" strokeDasharray="4,2" opacity="0.8"/>
+            <line x1="72" y1="30" x2="155" y2="50" stroke={muted} strokeWidth="1.2" strokeDasharray="4,2" opacity="0.8"/>
+            <polygon points="72,20 72,30 155,50 155,48" fill={muted} fillOpacity="0.07"/>
+            <Candle x={75} open={28} close={22} high={20} low={32} color={bear}/>
+            <Candle x={95} open={25} close={29} high={23} low={31} color={bull}/>
+            <Candle x={115} open={30} close={26} high={24} low={35} color={bear}/>
+            <Candle x={135} open={28} close={32} high={26} low={34} color={bull}/>
+            {/* Breakout */}
+            <Candle x={165} open={46} close={18} high={16} low={48} color={bull}/>
+            <Candle x={190} open={18} close={5} high={3} low={20} color={bull}/>
+            <text x="35" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Pole</text>
+            <text x="115" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Pennant</text>
+            <text x="200" y="118" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">BO ↑</text>
+          </>
+        ) : (
+          <>
+            <Candle x={10} open={25} close={45} high={23} low={47} color={bear}/>
+            <Candle x={25} open={45} close={65} high={43} low={67} color={bear}/>
+            <Candle x={40} open={65} close={85} high={63} low={87} color={bear}/>
+            <Candle x={55} open={85} close={105} high={83} low={107} color={bear}/>
+            <line x1="72" y1="103" x2="155" y2="75" stroke={muted} strokeWidth="1.2" strokeDasharray="4,2" opacity="0.8"/>
+            <line x1="72" y1="95" x2="155" y2="73" stroke={muted} strokeWidth="1.2" strokeDasharray="4,2" opacity="0.8"/>
+            <polygon points="72,95 72,103 155,75 155,73" fill={muted} fillOpacity="0.07"/>
+            <Candle x={75} open={98} close={104} high={96} low={106} color={bull}/>
+            <Candle x={95} open={101} close={97} high={95} low={103} color={bear}/>
+            <Candle x={115} open={97} close={101} high={95} low={103} color={bull}/>
+            <Candle x={135} open={99} close={96} high={94} low={101} color={bear}/>
+            <Candle x={165} open={77} close={105} high={75} low={107} color={bear}/>
+            <Candle x={190} open={105} close={120} high={103} low={122} color={bear}/>
+            <text x="35" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Pole</text>
+            <text x="115" y="118" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">Pennant</text>
+            <text x="200" y="118" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">BO ↓</text>
+          </>
+        )}
+      </svg>
+    ),
+    'Double Top': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Price path */}
+        <polyline points="10,100 40,100 70,30 100,100 130,30 160,100 190,100" stroke={bear} strokeWidth="1.5" fill="none"/>
+        {/* Shading top areas */}
+        <polygon points="40,100 70,30 100,100" fill={bear} fillOpacity="0.12"/>
+        <polygon points="100,100 130,30 160,100" fill={bear} fillOpacity="0.12"/>
+        {/* Neckline */}
+        <line x1="10" y1="100" x2="240" y2="100" stroke={muted} strokeWidth="1.2" strokeDasharray="6,3" opacity="0.7"/>
+        {/* Breakdown candles */}
+        <Candle x={198} open={100} close={112} high={98} low={114} color={bear}/>
+        <Candle x={218} open={112} close={122} high={110} low={124} color={bear}/>
+        <Candle x={238} open={122} close={127} high={120} low={129} color={bear}/>
+        {/* Labels */}
+        <text x="70" y="22" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Top 1</text>
+        <text x="130" y="22" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Top 2</text>
+        <text x="120" y="115" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">— Neckline —</text>
+        <text x="240" y="127" fontSize="9" fill={bear} fontFamily="Inter">↓</text>
+      </svg>
+    ),
+    'Double Bottom': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Price path */}
+        <polyline points="10,30 40,30 70,100 100,30 130,100 160,30 190,30" stroke={bull} strokeWidth="1.5" fill="none"/>
+        {/* Shading bottom areas */}
+        <polygon points="40,30 70,100 100,30" fill={bull} fillOpacity="0.12"/>
+        <polygon points="100,30 130,100 160,30" fill={bull} fillOpacity="0.12"/>
+        {/* Neckline */}
+        <line x1="10" y1="30" x2="240" y2="30" stroke={muted} strokeWidth="1.2" strokeDasharray="6,3" opacity="0.7"/>
+        {/* Breakout candles */}
+        <Candle x={198} open={30} close={18} high={16} low={32} color={bull}/>
+        <Candle x={218} open={18} close={8} high={6} low={20} color={bull}/>
+        <Candle x={238} open={8} close={2} high={0} low={10} color={bull}/>
+        {/* Labels */}
+        <text x="70" y="118" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Bottom 1</text>
+        <text x="130" y="118" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Bottom 2</text>
+        <text x="120" y="20" fontSize="9" fill={muted} textAnchor="middle" fontFamily="Inter">— Neckline —</text>
+        <text x="240" y="10" fontSize="9" fill={bull} fontFamily="Inter">↑</text>
+      </svg>
+    ),
+    'Head & Shoulders': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Price curve */}
+        <polyline points="5,90 30,90 50,55 70,90 120,10 170,90 190,55 210,90 250,90" stroke={bear} strokeWidth="1.8" fill="none"/>
+        {/* Shoulder shading */}
+        <polygon points="30,90 50,55 70,90" fill={bear} fillOpacity="0.1"/>
+        <polygon points="190,90 190,55 210,90" fill={bear} fillOpacity="0.1"/>
+        {/* Head shading */}
+        <polygon points="70,90 120,10 170,90" fill={bear} fillOpacity="0.15"/>
+        {/* Neckline */}
+        <line x1="5" y1="90" x2="265" y2="90" stroke={muted} strokeWidth="1.2" strokeDasharray="5,3" opacity="0.7"/>
+        {/* Breakdown */}
+        <Candle x={255} open={90} close={105} high={88} low={107} color={bear}/>
+        <Candle x={275} open={105} close={118} high={103} low={120} color={bear}/>
+        {/* Labels */}
+        <text x="50" y="50" fontSize="8" fill={muted} textAnchor="middle" fontFamily="Inter">LS</text>
+        <text x="120" y="5" fontSize="8" fill={bear} textAnchor="middle" fontFamily="Inter">Head</text>
+        <text x="200" y="50" fontSize="8" fill={muted} textAnchor="middle" fontFamily="Inter">RS</text>
+        <text x="135" y="105" fontSize="8" fill={muted} textAnchor="middle" fontFamily="Inter">Neckline</text>
+        <text x="280" y="125" fontSize="10" fill={bear} fontFamily="Inter">↓</text>
+      </svg>
+    ),
+    'Inverse H&S': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Price curve */}
+        <polyline points="5,40 30,40 50,75 70,40 120,118 170,40 190,75 210,40 250,40" stroke={bull} strokeWidth="1.8" fill="none"/>
+        {/* Shoulder shading */}
+        <polygon points="30,40 50,75 70,40" fill={bull} fillOpacity="0.1"/>
+        <polygon points="190,75 190,40 210,40" fill={bull} fillOpacity="0.1"/>
+        {/* Head shading */}
+        <polygon points="70,40 120,118 170,40" fill={bull} fillOpacity="0.15"/>
+        {/* Neckline */}
+        <line x1="5" y1="40" x2="265" y2="40" stroke={muted} strokeWidth="1.2" strokeDasharray="5,3" opacity="0.7"/>
+        {/* Breakout */}
+        <Candle x={255} open={40} close={25} high={23} low={42} color={bull}/>
+        <Candle x={275} open={25} close={10} high={8} low={27} color={bull}/>
+        {/* Labels */}
+        <text x="50" y="90" fontSize="8" fill={muted} textAnchor="middle" fontFamily="Inter">LS</text>
+        <text x="120" y="127" fontSize="8" fill={bull} textAnchor="middle" fontFamily="Inter">Head</text>
+        <text x="200" y="90" fontSize="8" fill={muted} textAnchor="middle" fontFamily="Inter">RS</text>
+        <text x="135" y="33" fontSize="8" fill={muted} textAnchor="middle" fontFamily="Inter">Neckline</text>
+        <text x="280" y="12" fontSize="10" fill={bull} fontFamily="Inter">↑</text>
+      </svg>
+    ),
+    'Rising Wedge': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Area wedge */}
+        <polygon points="10,100 10,55 200,18 200,30" fill={bear} fillOpacity="0.08"/>
+        {/* Resistance naik lambat */}
+        <line x1="10" y1="55" x2="200" y2="18" stroke={bear} strokeWidth="1.5" strokeDasharray="5,3"/>
+        {/* Support naik cepat */}
+        <line x1="10" y1="100" x2="200" y2="30" stroke={bear} strokeWidth="1.5"/>
+        {/* Candles di dalam wedge */}
+        <Candle x={15} open={95} close={60} high={58} low={97} color={bull}/>
+        <Candle x={45} open={80} close={50} high={48} low={82} color={bull}/>
+        <Candle x={75} open={68} close={42} high={40} low={70} color={bull}/>
+        <Candle x={105} open={56} close={34} high={32} low={58} color={bull}/>
+        <Candle x={135} open={46} close={26} high={24} low={48} color={bull}/>
+        <Candle x={165} open={38} close={22} high={20} low={40} color={bull}/>
+        {/* Breakdown keluar bawah */}
+        <Candle x={210} open={28} close={55} high={26} low={57} color={bear}/>
+        <Candle x={235} open={55} close={78} high={53} low={80} color={bear}/>
+        <Candle x={260} open={78} close={98} high={76} low={100} color={bear}/>
+        {/* Arrow */}
+        <text x="270" y="108" fontSize="14" fill={bear} fontFamily="Inter">↓</text>
+        {/* Labels */}
+        <text x="100" y="12" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Resistance (lambat)</text>
+        <text x="100" y="118" fontSize="9" fill={bear} textAnchor="middle" fontFamily="Inter">Support (cepat) → Bearish Reversal</text>
+      </svg>
+    ),
+    'Falling Wedge': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        {/* Area wedge */}
+        <polygon points="10,18 10,45 200,88 200,100" fill={bull} fillOpacity="0.08"/>
+        {/* Resistance turun cepat */}
+        <line x1="10" y1="18" x2="200" y2="88" stroke={bull} strokeWidth="1.5"/>
+        {/* Support turun lambat */}
+        <line x1="10" y1="45" x2="200" y2="100" stroke={bull} strokeWidth="1.5" strokeDasharray="5,3"/>
+        {/* Candles di dalam wedge */}
+        <Candle x={15} open={22} close={42} high={20} low={44} color={bear}/>
+        <Candle x={45} open={38} close={55} high={36} low={57} color={bear}/>
+        <Candle x={75} open={52} close={65} high={50} low={67} color={bear}/>
+        <Candle x={105} open={62} close={74} high={60} low={76} color={bear}/>
+        <Candle x={135} open={70} close={80} high={68} low={82} color={bear}/>
+        <Candle x={165} open={78} close={86} high={76} low={88} color={bear}/>
+        {/* Breakout keluar atas */}
+        <Candle x={210} open={90} close={65} high={63} low={92} color={bull}/>
+        <Candle x={235} open={65} close={42} high={40} low={67} color={bull}/>
+        <Candle x={260} open={42} close={20} high={18} low={44} color={bull}/>
+        {/* Arrow */}
+        <text x="270" y="22" fontSize="14" fill={bull} fontFamily="Inter">↑</text>
+        {/* Labels */}
+        <text x="100" y="12" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Resistance (cepat) → Bullish Reversal</text>
+        <text x="100" y="118" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Support (lambat)</text>
+      </svg>
+    ),
+  };
+
+  const illustration = illustrations[name];
+  if (!illustration) return null;
+
+  return (
+    <View style={{
+      backgroundColor: '#0D0D0D',
+      borderRadius: 8,
+      padding: 8,
+      alignItems: 'center',
+      marginVertical: 4,
+    }}>
+      <Text style={{ fontSize: 10, color: colors.mutedForeground, marginBottom: 6, fontFamily: 'Inter_400Regular', letterSpacing: 0.5 }}>
+        POLA IDEAL
+      </Text>
+      {illustration}
+    </View>
+  );
+}
+
 function PatternDetail({
   pattern,
   tf,
   patternName,
+  symbol,
   colors,
   onClose,
 }: {
   pattern: PatternResult;
   tf: string;
   patternName: string;
+  symbol: string;
   colors: ReturnType<typeof useColors>;
   onClose: () => void;
 }) {
@@ -159,6 +513,44 @@ function PatternDetail({
         <View style={[styles.detailDesc, { backgroundColor: `${confColor}08`, borderLeftColor: confColor }]}>
           <Text style={[styles.detailDescText, { color: colors.foreground }]}>{pattern.description}</Text>
         </View>
+
+        {/* TradingView Chart */}
+        {symbol ? (() => {
+          const tfMap: Record<string, string> = {
+            H4: '240', H1: '60', M30: '30', M15: '15', M5: '5'
+          };
+          const interval = tfMap[tf] ?? '60';
+          const coin = symbol.replace('USDT', '');
+          const tvUrl = `https://www.tradingview.com/widgetembed/?symbol=BINANCE%3A${coin}USDT.P&interval=${interval}&theme=dark&style=1&locale=id&hide_top_toolbar=1&hide_legend=1&allow_symbol_change=0`;
+          if (Platform.OS === 'web') {
+            return (
+              <View style={{ height: 220, borderRadius: 10, overflow: 'hidden', marginVertical: 4 }}>
+                <iframe
+                  src={tvUrl}
+                  style={{ width: '100%', height: '100%', border: 'none', borderRadius: 10 }}
+                  allowTransparency
+                />
+              </View>
+            );
+          }
+          // Native: lazy load WebView
+          const { default: WebView } = require('react-native-webview');
+          const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}body{background:#0D0D0D}</style></head><body><div class="tradingview-widget-container" style="height:220px;width:100%"><div id="tv_chart"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"width":"100%","height":220,"symbol":"BINANCE:${coin}USDT.P","interval":"${interval}","timezone":"Asia/Jakarta","theme":"dark","style":"1","locale":"id","hide_top_toolbar":true,"hide_legend":true,"container_id":"tv_chart"});</script></div></body></html>`;
+          return (
+            <View style={{ height: 220, borderRadius: 10, overflow: 'hidden', marginVertical: 4 }}>
+              <WebView
+                source={{ html }}
+                style={{ flex: 1, backgroundColor: '#0D0D0D' }}
+                scrollEnabled={false}
+                javaScriptEnabled
+                domStorageEnabled
+              />
+            </View>
+          );
+        })() : null}
+
+        {/* Ilustrasi SVG */}
+        <PatternIllustration name={patternName} direction={pattern.direction} colors={colors} />
 
         {/* Arti pattern */}
         <Text style={[styles.detailImplication, { color: colors.mutedForeground }]}>
@@ -226,7 +618,7 @@ export default function PatternsScreen() {
     { query: { enabled: !!symbol, staleTime: 120_000 } }
   );
 
-  const [selected, setSelected] = useState<{ pattern: PatternResult; tf: string; name: string } | null>(null);
+  const [selected, setSelected] = useState<{ pattern: PatternResult; tf: string; name: string; symbol: string } | null>(null);
 
   // Summary: berapa TF punya pattern
   const activeTFs = data?.timeframes.filter(tf => tf.patterns.length > 0).length ?? 0;
@@ -276,7 +668,7 @@ export default function PatternsScreen() {
                   <PatternCell
                     pattern={p}
                     colors={colors}
-                    onPress={p ? () => setSelected({ pattern: p, tf, name: patternName }) : undefined}
+                    onPress={p ? () => setSelected({ pattern: p, tf, name: patternName, symbol }) : undefined}
                   />
                 </View>
               );
@@ -423,6 +815,7 @@ export default function PatternsScreen() {
       {/* Detail overlay */}
       {selected && (
         <PatternDetail
+          symbol={selected.symbol}
           pattern={selected.pattern}
           tf={selected.tf}
           patternName={selected.name}
