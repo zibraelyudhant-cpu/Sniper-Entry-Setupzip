@@ -123,6 +123,67 @@ function SkipScreen({ data, colors }: { data: SniperResult; colors: ReturnType<t
   );
 }
 
+function NoSetupScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
+  // Tentukan filter mana yang gagal berdasarkan field yang ada
+  const filters = [
+    {
+      label: 'CHoCH 15M',
+      passed: data.choch15M === true,
+      desc: data.choch15MDescription ?? 'Belum terdeteksi',
+    },
+    {
+      label: 'Rejection 15M',
+      passed: data.rejection15M === true,
+      desc: data.rejection15MCandle ?? 'Belum ada candle rejection di zona',
+    },
+    {
+      label: 'Pattern Konfirmasi',
+      passed: data.patternConfirmed === true,
+      desc: data.patternName ?? 'Tidak ada pattern searah bias',
+    },
+  ];
+
+  return (
+    <>
+      <TrendSection data={data} colors={colors} />
+      <Section title="HARD FILTER TIDAK TERPENUHI">
+        <View style={styles.statusBlock}>
+          <Feather name="shield" size={32} color={colors.warning} />
+          <Text style={[styles.statusTitle, { color: colors.warning }]}>Sinyal Belum Layak Entry</Text>
+          <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
+        </View>
+        {filters.map((f, i) => (
+          <View key={i} style={[styles.filterRow, { borderBottomColor: colors.border }]}>
+            <Feather
+              name={f.passed ? 'check-circle' : 'x-circle'}
+              size={16}
+              color={f.passed ? colors.bullish : colors.bearish}
+            />
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={[styles.filterLabel, { color: colors.foreground }]}>{f.label}</Text>
+              <Text style={[styles.filterDesc, { color: colors.mutedForeground }]}>{f.desc}</Text>
+            </View>
+          </View>
+        ))}
+      </Section>
+      {data.zoneType && (
+        <Section title="ZONA DITEMUKAN">
+          <Row label="Tipe Zona" value={data.zoneType} />
+          {data.zoneRange && (
+            <Row
+              label="Range"
+              value={`${formatPrice(data.zoneRange.low)} – ${formatPrice(data.zoneRange.high)}`}
+            />
+          )}
+          <Text style={[styles.statusMsg, { color: colors.mutedForeground, marginTop: 8 }]}>
+            Zona valid — tunggu semua filter terpenuhi sebelum entry.
+          </Text>
+        </Section>
+      )}
+    </>
+  );
+}
+
 function TrendBadge({
   label, bias, strength, colors,
 }: {
@@ -219,6 +280,40 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
   );
 }
 
+function ProbabilitySection({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
+  const prob = data.profitProbability ?? 0;
+  const badgeColor = prob >= 75 ? colors.bullish : prob >= 50 ? colors.gold : colors.bearish;
+  const label = prob >= 75 ? 'Tinggi' : prob >= 50 ? 'Sedang' : 'Rendah';
+
+  return (
+    <Section title="PROBABILITAS PROFIT">
+      {/* Badge utama */}
+      <View style={[styles.probHeader, { backgroundColor: `${badgeColor}15`, borderColor: badgeColor }]}>
+        <Text style={[styles.probEmoji]}>🎯</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.probLabel, { color: colors.mutedForeground }]}>Probabilitas Profit</Text>
+          <Text style={[styles.probValue, { color: badgeColor }]}>{prob}%</Text>
+        </View>
+        <View style={[styles.probBadge, { backgroundColor: `${badgeColor}25`, borderColor: badgeColor }]}>
+          <Text style={[styles.probBadgeText, { color: badgeColor }]}>{label}</Text>
+        </View>
+      </View>
+
+      {/* List faktor */}
+      {(data.probabilityFactors ?? []).map((factor, i) => {
+        const isPassed = factor.startsWith('✅');
+        return (
+          <View key={i} style={[styles.probRow, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.probRowText, { color: isPassed ? colors.foreground : colors.mutedForeground }]}>
+              {factor}
+            </Text>
+          </View>
+        );
+      })}
+    </Section>
+  );
+}
+
 function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   const isBuy = data.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
@@ -226,6 +321,8 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
   return (
     <>
       <TrendSection data={data} colors={colors} />
+
+      <ProbabilitySection data={data} colors={colors} />
 
       {/* Main Entry Setup */}
       <Section title="SNIPER ENTRY SETUP">
@@ -541,6 +638,7 @@ export default function SniperScreen() {
           {data.status === 'no_trend' && <NoTrendScreen data={data} colors={colors} />}
           {data.status === 'no_zone' && <NoZoneScreen data={data} colors={colors} />}
           {data.status === 'skip_conditions' && <SkipScreen data={data} colors={colors} />}
+          {data.status === 'no_setup' && <NoSetupScreen data={data} colors={colors} />}
           {data.status === 'ready' && <ReadyScreen data={data} colors={colors} />}
           {data.status === 'error' && (
             <Section title="ERROR">
@@ -681,6 +779,17 @@ const styles = StyleSheet.create({
   trendBadgeStrength: { fontSize: 10, fontFamily: 'Inter_500Medium' },
   skipReason: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 6, paddingHorizontal: 4 },
   skipReasonText: { fontSize: 13, fontFamily: 'Inter_400Regular', flex: 1, lineHeight: 20 },
+  probHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 10, borderWidth: 1, marginBottom: 12 },
+  probEmoji: { fontSize: 24 },
+  probLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', marginBottom: 2 },
+  probValue: { fontSize: 28, fontFamily: 'Inter_700Bold' },
+  probBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  probBadgeText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  probRow: { paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth },
+  probRowText: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 20 },
+  filterRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1 },
+  filterLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', marginBottom: 2 },
+  filterDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 18 },
   entryHeader: {},
   entryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   entryLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', letterSpacing: 0.5 },

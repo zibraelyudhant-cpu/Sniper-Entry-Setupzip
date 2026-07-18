@@ -142,6 +142,16 @@ export interface SniperResult {
   expiryHours?: number;
   skipReasons?: string[];
   reasoning?: string;
+  // Confirmation fields
+  rejection15M?: boolean;
+  rejection15MCandle?: string;
+  choch15M?: boolean;
+  choch15MDescription?: string;
+  patternConfirmed?: boolean;
+  patternName?: string;
+  // Probability scoring
+  profitProbability?: number;
+  probabilityFactors?: string[];
 }
 
 // ─── Data Fetching ────────────────────────────────────────────────────────────
@@ -1426,25 +1436,94 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       selectedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
     );
 
-    // STEP 4a: Cek rejection candle 15M — entry lebih presisi
+    // STEP 4a: CHoCH 15M (scoring, bukan hard filter)
+    const choch15M = detectCHoCH15M(m15.highs, m15.lows, m15.closes, bias);
+
+    // STEP 4b: Rejection candle 15M (scoring, bukan hard filter)
     const rejection15M = checkRejection15M(
       refinedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
     );
 
-    // STEP 4b: Konfirmasi 5M (tetap dicek sebagai tambahan)
+    // STEP 4c: Pattern konfirmasi H1/H4 (scoring, bukan hard filter)
+    const validPatterns = bias === "bullish"
+      ? ["Bull Flag", "Ascending Triangle", "Double Bottom", "Inverse H&S", "Falling Wedge", "Pennant"]
+      : ["Bear Flag", "Descending Triangle", "Double Top", "Head & Shoulders", "Rising Wedge", "Pennant"];
+
+    const allPatterns = [
+      detectBullFlag(h1.highs, h1.lows, h1.closes, h1.volumes),
+      detectBearFlag(h1.highs, h1.lows, h1.closes, h1.volumes),
+      detectAscendingTriangle(h1.highs, h1.lows, h1.closes),
+      detectDescendingTriangle(h1.highs, h1.lows, h1.closes),
+      detectDoubleBottom(h1.highs, h1.lows, h1.closes),
+      detectDoubleTop(h1.highs, h1.lows, h1.closes),
+      detectInverseHS(h1.highs, h1.lows, h1.closes),
+      detectHeadAndShoulders(h1.highs, h1.lows, h1.closes),
+      detectFallingWedge(h1.highs, h1.lows, h1.closes),
+      detectRisingWedge(h1.highs, h1.lows, h1.closes),
+      detectPennant(h1.highs, h1.lows, h1.closes, h1.volumes),
+      detectBullFlag(h4.highs, h4.lows, h4.closes, h4.volumes),
+      detectBearFlag(h4.highs, h4.lows, h4.closes, h4.volumes),
+      detectAscendingTriangle(h4.highs, h4.lows, h4.closes),
+      detectDescendingTriangle(h4.highs, h4.lows, h4.closes),
+      detectDoubleBottom(h4.highs, h4.lows, h4.closes),
+      detectDoubleTop(h4.highs, h4.lows, h4.closes),
+    ].filter(p => p !== null && validPatterns.includes(p!.name));
+    const confirmedPattern = allPatterns.length > 0 ? allPatterns[0] : null;
+
+    // STEP 4d: Jam sesi (London/NY = 14.00-23.00 WIB)
+    const nowWIBHour = (new Date().getUTCHours() + 7) % 24;
+    const isLondonNYSession = nowWIBHour >= 14 && nowWIBHour <= 23;
+
+    // STEP 4e: Konfirmasi 5M (opsional)
     const confirmation = checkEntryConfirmation5M(
       refinedZone, m5.opens, m5.highs, m5.lows, m5.closes, bias
     );
+
+    // STEP 5: Probability scoring
+    let profitProbability = 0;
+    const probabilityFactors: string[] = [];
+
+    if (choch15M.detected) {
+      profitProbability += 30;
+      probabilityFactors.push("✅ CHoCH 15M terkonfirmasi (+30%)");
+    } else {
+      probabilityFactors.push("⚠️ CHoCH 15M belum terbentuk");
+    }
+
+    if (rejection15M.confirmed) {
+      profitProbability += 25;
+      probabilityFactors.push(`✅ Rejection 15M: ${rejection15M.candleType} (+25%)`);
+    } else {
+      probabilityFactors.push("⚠️ Tidak ada rejection candle 15M di zona");
+    }
+
+    if (confirmedPattern) {
+      profitProbability += 20;
+      probabilityFactors.push(`✅ Pattern: ${confirmedPattern.name} (+20%)`);
+    } else {
+      probabilityFactors.push("⚠️ Tidak ada pattern konfirmasi");
+    }
+
+    if (isLondonNYSession) {
+      profitProbability += 15;
+      probabilityFactors.push("✅ Sesi London/NY (+15%)");
+    } else {
+      probabilityFactors.push(`⚠️ Asian session — di luar jam London/NY (sekarang ${nowWIBHour}:00 WIB)`);
+    }
+
+    if (selectedZone.tier <= 2) {
+      profitProbability += 10;
+      probabilityFactors.push(`✅ Zona Tier ${selectedZone.tier} (+10%)`);
+    } else {
+      probabilityFactors.push(`⚠️ Zona Tier ${selectedZone.tier} (Tier 1-2 lebih baik)`);
+    }
 
     // Entry price: pakai rejection 15M kalau ada, fallback ke zona entry
     const finalEntryPrice = rejection15M.confirmed
       ? rejection15M.entryPrice
       : refinedZone.entryPrice;
 
-    // STEP 4c: CHoCH 15M konfirmasi (searah bias)
-    const choch15M = detectCHoCH15M(m15.highs, m15.lows, m15.closes, bias);
-
-    // STEP 5: Calculate SL/TP
+    // STEP 6: Calculate SL/TP
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
     const atrH2 = calcATR(h2.highs, h2.lows, h2.closes);
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
@@ -1462,15 +1541,12 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     const reasoning = [
       `Entry di ${selectedZone.zoneType} (${selectedZone.low.toFixed(4)}-${selectedZone.high.toFixed(4)}).`,
       refinedZone.refined ? `Direfine menggunakan ${refinedZone.zoneType}.` : "Zona H1 digunakan langsung.",
-      choch15M.detected
-        ? `✅ ${choch15M.description}.`
-        : "⏳ CHoCH 15M belum terbentuk — struktur belum konfirmasi pembalikan.",
+      choch15M.detected ? `✅ ${choch15M.description}.` : "⏳ CHoCH 15M belum terbentuk.",
       rejection15M.confirmed
         ? `✅ Rejection 15M: ${rejection15M.candleType} — entry limit di ${finalEntryPrice.toFixed(4)}.`
-        : "⏳ Belum ada rejection 15M — pasang limit order di tengah zona, pantau candle 15M.",
-      confirmation.confirmed
-        ? `Konfirmasi 5M: ${confirmation.candleType}.`
-        : "",
+        : "⏳ Belum ada rejection 15M — limit order di tengah zona.",
+      confirmedPattern ? `✅ Pattern: ${confirmedPattern.name}.` : "⏳ Tidak ada pattern konfirmasi.",
+      confirmation.confirmed ? `Konfirmasi 5M: ${confirmation.candleType}.` : "",
       `SL di ${bias === "bullish" ? "bawah" : "atas"} swing H1 terdekat.`,
       `TP1 R:R 1:1.5, TP2 R:R 1:3.`,
     ].filter(Boolean).join(" ");
@@ -1498,6 +1574,10 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       rejection15MCandle: rejection15M.candleType,
       choch15M: choch15M.detected,
       choch15MDescription: choch15M.description,
+      patternConfirmed: !!confirmedPattern,
+      patternName: confirmedPattern?.name,
+      profitProbability,
+      probabilityFactors,
       rsi: skipConds.rsi,
       rsiDivergence: skipConds.rsiDivergence,
       chochDetected: skipConds.chochDetected,
@@ -2283,8 +2363,8 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
     tier3plus: trades.filter(t => t.zoneTier > 2),
     londonNY: trades.filter(t => isLondonNY(t.hour)),
     asian: trades.filter(t => !isLondonNY(t.hour)),
-    highVolume: trades.filter(t => (t.volumeRatio ?? 0) >= 2),
-    lowVolume: trades.filter(t => (t.volumeRatio ?? 0) < 2),
+    highVolume: trades.filter(t => t.volumeRatio !== undefined && t.volumeRatio >= 2),
+    lowVolume: trades.filter(t => t.volumeRatio !== undefined && t.volumeRatio < 2),
   };
 
   const breakdown: BacktestAnalysis['breakdown'] = {} as BacktestAnalysis['breakdown'];
@@ -2317,7 +2397,7 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
     if (!isLondonNY(t.hour)) {
       causeCounts['Entry di luar jam London/NY (Asian session)'] = (causeCounts['Entry di luar jam London/NY (Asian session)'] ?? 0) + 1;
     }
-    if ((t.volumeRatio ?? 0) < 2) {
+    if (t.volumeRatio !== undefined && t.volumeRatio < 2) {
       causeCounts['Volume breakout rendah (< 2x)'] = (causeCounts['Volume breakout rendah (< 2x)'] ?? 0) + 1;
     }
   }
