@@ -165,6 +165,8 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
     (data.oiChange ?? 0) > 0 ? colors.bullish : colors.bearish;
 
   const chochColor = data.chochDetected ? colors.bearish : colors.bullish;
+  const choch15MColor = (data as any).choch15M ? colors.bullish : colors.mutedForeground;
+  const rejection15MColor = (data as any).rejection15M ? colors.bullish : colors.mutedForeground;
 
   return (
     <Section title="KONDISI PASAR">
@@ -172,6 +174,20 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
         label="CHoCH H1"
         value={data.chochDetected ? 'Terbentuk ⚠' : 'Belum terbentuk ✓'}
         valueColor={chochColor}
+      />
+      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+      <Row
+        label="CHoCH 15M"
+        value={(data as any).choch15M ? 'Terkonfirmasi ✓' : 'Belum terbentuk'}
+        valueColor={choch15MColor}
+      />
+      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+      <Row
+        label="Rejection 15M"
+        value={(data as any).rejection15M
+          ? `${(data as any).rejection15MCandle} ✓`
+          : 'Belum ada'}
+        valueColor={rejection15MColor}
       />
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <Row
@@ -184,6 +200,14 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
         label="OI Change"
         value={`${(data.oiChange ?? 0) >= 0 ? '+' : ''}${(data.oiChange ?? 0).toFixed(2)}%`}
         valueColor={oiColor}
+      />
+      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+      <Row
+        label="OI Akumulasi"
+        value={(data as any).oiAccumulation
+          ? '✅ Akumulasi terdeteksi'
+          : (data as any).oiAccumulationDesc ?? 'Memuat...'}
+        valueColor={(data as any).oiAccumulation ? colors.bullish : colors.mutedForeground}
       />
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <Row

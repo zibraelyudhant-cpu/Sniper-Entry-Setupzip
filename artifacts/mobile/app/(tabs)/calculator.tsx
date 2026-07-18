@@ -1,4 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
+import * as Linking from 'expo-linking';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -17,10 +19,13 @@ import { useLocalSearchParams } from 'expo-router';
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 function formatPrice(price: number): string {
-  if (price >= 10000) return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (price >= 100) return price.toFixed(2);
-  if (price >= 1) return price.toFixed(4);
-  return price.toFixed(6);
+  let result: string;
+  if (price >= 10000) result = price.toFixed(2);
+  else if (price >= 100) result = price.toFixed(2);
+  else if (price >= 1) result = price.toFixed(4);
+  else result = price.toFixed(6);
+  // Ganti titik dengan koma sebagai desimal
+  return result.replace('.', ',');
 }
 
 function formatPnl(pnl: number): string {
@@ -506,6 +511,47 @@ export default function CalculatorScreen() {
         </Section>
 
         {/* Disclaimer */}
+        {/* ── TOMBOL BINANCE ──────────────────────────────────────────── */}
+        {hasPrices && calc && (
+          <View style={styles.binanceRow}>
+            {/* Copy semua harga */}
+            <Pressable
+              onPress={async () => {
+                const text = [
+                  `Entry  : ${formatPrice(entryPrice)}`,
+                  `SL     : ${formatPrice(stopLoss)}`,
+                  `TP1    : ${formatPrice(takeProfit1)}`,
+                  takeProfit2 > 0 ? `TP2    : ${formatPrice(takeProfit2)}` : '',
+                  `Liq.   : ${formatPrice(calc.liqPrice)}`,
+                  `Symbol : ${symbol}`,
+                ].filter(Boolean).join('\n');
+                await Clipboard.setStringAsync(text);
+              }}
+              style={({ pressed }) => [
+                styles.binanceBtn,
+                { backgroundColor: pressed ? `${colors.mutedForeground}20` : colors.card, borderColor: colors.border }
+              ]}
+            >
+              <Text style={[styles.binanceBtnText, { color: colors.foreground }]}>📋 Copy Harga</Text>
+            </Pressable>
+
+            {/* Buka Binance */}
+            <Pressable
+              onPress={() => {
+                const coin = symbol.replace('USDT', '');
+                const url = `https://www.binance.com/id/futures/${coin}USDT`;
+                Linking.openURL(url);
+              }}
+              style={({ pressed }) => [
+                styles.binanceBtn,
+                { backgroundColor: pressed ? '#F0B90B30' : '#F0B90B15', borderColor: '#F0B90B' }
+              ]}
+            >
+              <Text style={[styles.binanceBtnText, { color: '#F0B90B' }]}>⚡ Buka Binance</Text>
+            </Pressable>
+          </View>
+        )}
+
         <Text style={[styles.disclaimer, { color: colors.mutedForeground }]}>
           * Kalkulasi menggunakan formula Binance Futures. Hanya untuk referensi. Bukan saran finansial.
         </Text>
@@ -656,6 +702,9 @@ const styles = StyleSheet.create({
   pnlRoe: { fontSize: 12, fontFamily: 'Inter_500Medium', marginTop: 1 },
 
   disclaimer: { fontSize: 10, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: 4, lineHeight: 16 },
+  binanceRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  binanceBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  binanceBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
 
   // Long/Short toggle
   sideToggle: {

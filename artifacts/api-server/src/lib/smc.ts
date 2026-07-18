@@ -108,6 +108,8 @@ export interface SkipConditions {
   rsiDivergence: boolean;
   chochDetected: boolean;
   oiChange: number;
+  oiAccumulation: boolean;
+  oiAccumulationDesc: string;
   fundingRate: number;
 }
 
@@ -132,6 +134,8 @@ export interface SniperResult {
   rsiDivergence?: boolean;
   chochDetected?: boolean;
   oiChange?: number;
+  oiAccumulation?: boolean;
+  oiAccumulationDesc?: string;
   fundingRate?: number;
   setupValidHours?: number;
   estimatedHitHours?: number;
@@ -877,6 +881,86 @@ export function refineZone15M(
 
 // ─── Step 4: Entry Confirmation at 5M ────────────────────────────────────────
 
+export interface Rejection15M {
+  confirmed: boolean;
+  candleType: string;
+  rejectionHigh: number;  // high candle rejection (untuk SL bearish)
+  rejectionLow: number;   // low candle rejection (untuk SL bullish)
+  entryPrice: number;     // entry lebih presisi dari rejection candle
+}
+
+export function checkRejection15M(
+  refinedZone: RefinedZone,
+  opens15m: number[],
+  highs15m: number[],
+  lows15m: number[],
+  closes15m: number[],
+  bias: "bullish" | "bearish"
+): Rejection15M {
+  const zoneLow = refinedZone.low;
+  const zoneHigh = refinedZone.high;
+  const buffer = (zoneHigh - zoneLow) * 0.1; // 10% dari lebar zona
+
+  // Cek 3 candle 15M terakhir
+  const start = Math.max(0, opens15m.length - 3);
+
+  for (let i = opens15m.length - 1; i >= start; i--) {
+    const isInZone = lows15m[i] <= zoneHigh + buffer && highs15m[i] >= zoneLow - buffer;
+    if (!isInZone) continue;
+
+    const body = Math.abs(closes15m[i] - opens15m[i]);
+    const range = highs15m[i] - lows15m[i];
+    if (range === 0) continue;
+
+    const upperWick = highs15m[i] - Math.max(opens15m[i], closes15m[i]);
+    const lowerWick = Math.min(opens15m[i], closes15m[i]) - lows15m[i];
+
+    if (bias === "bullish") {
+      // Hammer / Pin Bar: lower wick > 1.5x body DAN candle bullish
+      const isHammer = lowerWick > body * 1.5 && closes15m[i] > opens15m[i];
+      // Rejection kuat: lower wick > 60% dari range total
+      const isStrongRejection = lowerWick > range * 0.6;
+
+      if (isHammer || isStrongRejection) {
+        // Entry di low candle rejection + buffer kecil (10% dari range)
+        const entryPrice = lows15m[i] + range * 0.1;
+        return {
+          confirmed: true,
+          candleType: isHammer ? "Hammer 15M" : "Pin Bar 15M",
+          rejectionHigh: highs15m[i],
+          rejectionLow: lows15m[i],
+          entryPrice: Math.max(entryPrice, zoneLow), // tidak lebih rendah dari zona
+        };
+      }
+    } else {
+      // Shooting Star: upper wick > 1.5x body DAN candle bearish
+      const isShootingStar = upperWick > body * 1.5 && closes15m[i] < opens15m[i];
+      // Rejection kuat: upper wick > 60% dari range total
+      const isStrongRejection = upperWick > range * 0.6;
+
+      if (isShootingStar || isStrongRejection) {
+        // Entry di high candle rejection - buffer kecil (10% dari range)
+        const entryPrice = highs15m[i] - range * 0.1;
+        return {
+          confirmed: true,
+          candleType: isShootingStar ? "Shooting Star 15M" : "Pin Bar 15M",
+          rejectionHigh: highs15m[i],
+          rejectionLow: lows15m[i],
+          entryPrice: Math.min(entryPrice, zoneHigh), // tidak lebih tinggi dari zona
+        };
+      }
+    }
+  }
+
+  return {
+    confirmed: false,
+    candleType: "Belum ada rejection 15M",
+    rejectionHigh: refinedZone.high,
+    rejectionLow: refinedZone.low,
+    entryPrice: refinedZone.entryPrice,
+  };
+}
+
 export function checkEntryConfirmation5M(
   refinedZone: RefinedZone,
   opens5m: number[],
@@ -1046,6 +1130,73 @@ function detectCHoCH(
   }
 }
 
+// CHoCH 15M: deteksi CHoCH yang SEARAH bias (konfirmasi, bukan skip)
+// Bullish: harga sebelumnya bikin LL, lalu breakout bikin HH → struktur mulai bullish
+// Bearish: harga sebelumnya bikin HH, lalu breakdown bikin LL → struktur mulai bearish
+function detectCHoCH15M(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  bias: "bullish" | "bearish"
+): { detected: boolean; description: string } {
+  const n = closes.length;
+  if (n < 10) return { detected: false, description: "Data tidak cukup" };
+
+  // Ambil 20 candle terakhir
+  const sliceH = highs.slice(Math.max(0, n - 20));
+  const sliceL = lows.slice(Math.max(0, n - 20));
+  const sliceC = closes.slice(Math.max(0, n - 20));
+
+  const swingHighs = findSwingHighs(sliceH, 3);
+  const swingLows = findSwingLows(sliceL, 3);
+
+  const lastClose = sliceC[sliceC.length - 1];
+
+  if (bias === "bullish") {
+    // CHoCH bullish: sebelumnya ada LL, lalu close breakout di atas HH terakhir
+    if (swingHighs.length < 2 || swingLows.length < 2) return { detected: false, description: "Swing tidak cukup" };
+
+    const prevHH = swingHighs[swingHighs.length - 2];
+    const lastHH = swingHighs[swingHighs.length - 1];
+    const prevLL = swingLows[swingLows.length - 2];
+    const lastLL = swingLows[swingLows.length - 1];
+
+    // Struktur sebelumnya bearish (LL terbentuk)
+    const hadBearStructure = lastLL < prevLL;
+    // Sekarang close breakout di atas HH sebelumnya
+    const chochConfirmed = lastClose > prevHH;
+
+    if (hadBearStructure && chochConfirmed) {
+      return {
+        detected: true,
+        description: `CHoCH Bullish 15M — LL terbentuk di ${lastLL.toFixed(4)}, close breakout HH ${prevHH.toFixed(4)}`
+      };
+    }
+  } else {
+    // CHoCH bearish: sebelumnya ada HH, lalu close breakdown di bawah LL terakhir
+    if (swingHighs.length < 2 || swingLows.length < 2) return { detected: false, description: "Swing tidak cukup" };
+
+    const prevHH = swingHighs[swingHighs.length - 2];
+    const lastHH = swingHighs[swingHighs.length - 1];
+    const prevLL = swingLows[swingLows.length - 2];
+    const lastLL = swingLows[swingLows.length - 1];
+
+    // Struktur sebelumnya bullish (HH terbentuk)
+    const hadBullStructure = lastHH > prevHH;
+    // Sekarang close breakdown di bawah LL sebelumnya
+    const chochConfirmed = lastClose < prevLL;
+
+    if (hadBullStructure && chochConfirmed) {
+      return {
+        detected: true,
+        description: `CHoCH Bearish 15M — HH terbentuk di ${lastHH.toFixed(4)}, close breakdown LL ${prevLL.toFixed(4)}`
+      };
+    }
+  }
+
+  return { detected: false, description: "CHoCH 15M belum terbentuk" };
+}
+
 export async function checkSkipConditions(
   symbol: string,
   bias: "bullish" | "bearish",
@@ -1094,24 +1245,55 @@ export async function checkSkipConditions(
     shouldSkip = true;
   }
 
-  // 3. OI (approximated from volume delta)
+  // 3. OI + Accumulation Detection
   let oiChange = 0;
+  let oiAccumulation = false;
+  let oiAccumulationDesc = "Data OI tidak tersedia";
   try {
     const oiUrl = `${BINANCE_FUTURES_BASE}/fapi/v1/openInterest?symbol=${symbol}`;
-    const oiHistUrl = `${BINANCE_FUTURES_BASE}/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=5`;
+    const oiHistUrl = `${BINANCE_FUTURES_BASE}/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=8`;
     const [oiRes, oiHistRes] = await Promise.all([fetch(oiUrl), fetch(oiHistUrl)]);
     if (oiRes.ok && oiHistRes.ok) {
-      const oiHist: Array<{ sumOpenInterest: string }> = await oiHistRes.json();
+      const oiHist: Array<{ sumOpenInterest: string; sumOpenInterestValue: string }> = await oiHistRes.json();
       if (oiHist.length >= 2) {
         const latest = parseFloat(oiHist[oiHist.length - 1].sumOpenInterest);
         const prev = parseFloat(oiHist[0].sumOpenInterest);
         oiChange = ((latest - prev) / prev) * 100;
+
+        // Skip conditions
         if (bias === "bullish" && oiChange < -2) {
           reasons.push(`OI turun ${oiChange.toFixed(1)}% saat harga naik (kemungkinan short covering)`);
           shouldSkip = true;
         } else if (bias === "bearish" && oiChange < -2) {
           reasons.push(`OI turun ${oiChange.toFixed(1)}% saat harga turun (kemungkinan long liquidation)`);
           shouldSkip = true;
+        }
+
+        // OI Accumulation Detection
+        // Cek apakah OI naik konsisten dalam 5 jam terakhir saat harga ranging
+        if (oiHist.length >= 5) {
+          const recent5 = oiHist.slice(-5);
+          const oiValues = recent5.map(d => parseFloat(d.sumOpenInterest));
+
+          // OI naik konsisten: tiap jam OI >= jam sebelumnya (minimal 3 dari 4 step naik)
+          let risingCount = 0;
+          for (let i = 1; i < oiValues.length; i++) {
+            if (oiValues[i] >= oiValues[i - 1]) risingCount++;
+          }
+          const oiRising = risingCount >= 3;
+
+          // OI naik signifikan dalam 5 jam (>= 1.5%)
+          const oiChange5h = ((oiValues[oiValues.length - 1] - oiValues[0]) / oiValues[0]) * 100;
+          const oiSignificant = oiChange5h >= 1.5;
+
+          if (oiRising && oiSignificant) {
+            oiAccumulation = true;
+            oiAccumulationDesc = `OI naik ${oiChange5h.toFixed(2)}% dalam 5 jam — akumulasi posisi terdeteksi`;
+          } else if (oiChange5h < -1.5) {
+            oiAccumulationDesc = `OI turun ${Math.abs(oiChange5h).toFixed(2)}% dalam 5 jam — distribusi/likuidasi`;
+          } else {
+            oiAccumulationDesc = `OI stabil (${oiChange5h >= 0 ? '+' : ''}${oiChange5h.toFixed(2)}% dalam 5 jam)`;
+          }
         }
       }
     }
@@ -1137,7 +1319,7 @@ export async function checkSkipConditions(
     }
   } catch { /* Funding rate check failed silently */ }
 
-  return { shouldSkip, reasons, rsi, rsiDivergence, chochDetected, oiChange, fundingRate };
+  return { shouldSkip, reasons, rsi, rsiDivergence, chochDetected, oiChange, oiAccumulation, oiAccumulationDesc, fundingRate };
 }
 
 // ─── Main Analysis Function ───────────────────────────────────────────────────
@@ -1244,10 +1426,23 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       selectedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
     );
 
-    // STEP 4: Confirm entry at 5M
+    // STEP 4a: Cek rejection candle 15M — entry lebih presisi
+    const rejection15M = checkRejection15M(
+      refinedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
+    );
+
+    // STEP 4b: Konfirmasi 5M (tetap dicek sebagai tambahan)
     const confirmation = checkEntryConfirmation5M(
       refinedZone, m5.opens, m5.highs, m5.lows, m5.closes, bias
     );
+
+    // Entry price: pakai rejection 15M kalau ada, fallback ke zona entry
+    const finalEntryPrice = rejection15M.confirmed
+      ? rejection15M.entryPrice
+      : refinedZone.entryPrice;
+
+    // STEP 4c: CHoCH 15M konfirmasi (searah bias)
+    const choch15M = detectCHoCH15M(m15.highs, m15.lows, m15.closes, bias);
 
     // STEP 5: Calculate SL/TP
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
@@ -1255,7 +1450,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
 
     const sniperLevels = calcSniperLevels(
-      confirmation.entryPrice, refinedZone, atrH2, atrH4, bias,
+      finalEntryPrice, refinedZone, atrH2, atrH4, bias,
       h1.highs, h1.lows, atrH1
     );
 
@@ -1265,14 +1460,20 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // Build reasoning
     const reasoning = [
-      `Entry di ${selectedZone.zoneType} (${selectedZone.low.toFixed(2)}-${selectedZone.high.toFixed(2)}).`,
+      `Entry di ${selectedZone.zoneType} (${selectedZone.low.toFixed(4)}-${selectedZone.high.toFixed(4)}).`,
       refinedZone.refined ? `Direfine menggunakan ${refinedZone.zoneType}.` : "Zona H1 digunakan langsung.",
+      choch15M.detected
+        ? `✅ ${choch15M.description}.`
+        : "⏳ CHoCH 15M belum terbentuk — struktur belum konfirmasi pembalikan.",
+      rejection15M.confirmed
+        ? `✅ Rejection 15M: ${rejection15M.candleType} — entry limit di ${finalEntryPrice.toFixed(4)}.`
+        : "⏳ Belum ada rejection 15M — pasang limit order di tengah zona, pantau candle 15M.",
       confirmation.confirmed
         ? `Konfirmasi 5M: ${confirmation.candleType}.`
-        : "Belum ada konfirmasi 5M — gunakan limit order pada zona.",
-      `SL di ${bias === "bullish" ? "bawah" : "atas"} zone + 0.5x ATR H1 sebagai buffer.`,
-      `TP1 dan TP2 berdasarkan R:R 1:1.5 dan 1:3 dari jarak entry ke SL.`,
-    ].join(" ");
+        : "",
+      `SL di ${bias === "bullish" ? "bawah" : "atas"} swing H1 terdekat.`,
+      `TP1 R:R 1:1.5, TP2 R:R 1:3.`,
+    ].filter(Boolean).join(" ");
 
     return {
       status: "ready",
@@ -1289,12 +1490,20 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       zoneType: selectedZone.zoneType,
       zoneRange: { low: selectedZone.low, high: selectedZone.high },
       refinedZoneType: refinedZone.zoneType,
-      entryConfirmed: confirmation.confirmed,
-      confirmationCandle: confirmation.candleType,
+      entryConfirmed: rejection15M.confirmed || confirmation.confirmed,
+      confirmationCandle: rejection15M.confirmed
+        ? rejection15M.candleType
+        : confirmation.candleType,
+      rejection15M: rejection15M.confirmed,
+      rejection15MCandle: rejection15M.candleType,
+      choch15M: choch15M.detected,
+      choch15MDescription: choch15M.description,
       rsi: skipConds.rsi,
       rsiDivergence: skipConds.rsiDivergence,
       chochDetected: skipConds.chochDetected,
       oiChange: skipConds.oiChange,
+      oiAccumulation: skipConds.oiAccumulation,
+      oiAccumulationDesc: skipConds.oiAccumulationDesc,
       fundingRate: skipConds.fundingRate,
       setupValidHours: sniperLevels.setupValidHours,
       estimatedHitHours,
