@@ -2518,16 +2518,19 @@ export async function runBacktest(
       if (structH4.bias === 'ranging') continue;
       const bias = structH4.bias as 'bullish' | 'bearish';
 
-      // Step 2: H1 zona
-      const zones = findZones(h1Slice.highs, h1Slice.lows, h1Slice.closes, h1Slice.opens, h1Slice.volumes, bias);
-      if (zones.length === 0) continue;
+      // Step 2: H1 zona — gunakan selectBestZoneH1 dengan existing functions
+      const currentPrice = h1Slice.closes[h1Slice.closes.length - 1];
+      const h1OBs = detectOrderBlocksH1(h1Slice.opens, h1Slice.highs, h1Slice.lows, h1Slice.closes, bias);
+      const h1FVGs = detectFVGH1(h1Slice.highs, h1Slice.lows, bias);
+      const h1SRLevels = detectSRLevels(h1Slice.highs, h1Slice.lows, h1Slice.closes);
+      const h1SnDZones = detectSnDZones(h1Slice.opens, h1Slice.highs, h1Slice.lows, h1Slice.closes);
+      const h1Fib = calcFibonacci(h1Slice.highs, h1Slice.lows, h1Slice.closes);
+      const selectedZone = selectBestZoneH1(h1OBs, h1FVGs, [], h1SRLevels, h1SnDZones, h1Fib, bias, currentPrice);
+      if (!selectedZone) continue;
 
       // Skip kalau CHoCH H1 terbentuk (konflik)
       const chochH1 = detectCHoCH(h1Slice.highs, h1Slice.lows, h1Slice.closes, bias);
       if (chochH1) continue;
-
-      const selectedZone = zones[0];
-      const currentPrice = h1Slice.closes[h1Slice.closes.length - 1];
 
       // Cek apakah harga approaching zona
       const zoneBuffer = (selectedZone.high - selectedZone.low) * 2;

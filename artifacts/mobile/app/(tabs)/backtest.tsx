@@ -230,7 +230,11 @@ export default function BacktestScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: normalized, period, menu }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try { const body = await res.json(); if (body?.error) errMsg = body.error; } catch {}
+        throw new Error(errMsg);
+      }
       const data = await res.json();
       setResult(data);
     } catch (err) {
