@@ -171,6 +171,10 @@ export interface SniperResult {
   volumeTrendValid?: boolean;
   volumeTrendDesc?: string;
   chochH4Detected?: boolean;
+  // Multi-TF Confluence
+  h4ConfluenceConfirmed?: boolean;
+  h4ConfluenceStrength?: string;
+  h4ConfluenceDesc?: string;
 }
 
 // ─── Data Fetching ────────────────────────────────────────────────────────────
@@ -1570,6 +1574,70 @@ export async function checkSkipConditions(
 
 // ─── Main Analysis Function ───────────────────────────────────────────────────
 
+// ─── Multi-TF Confluence: H4 approaching H1 zone ─────────────────────────────
+
+function detectH4Confluence(
+  h4Highs: number[],
+  h4Lows: number[],
+  h4Closes: number[],
+  h4Volumes: number[],
+  zoneLow: number,
+  zoneHigh: number,
+  bias: "bullish" | "bearish"
+): { confirmed: boolean; strength: "strong" | "moderate" | "weak"; description: string } {
+  const n = h4Closes.length;
+  if (n < 10) return { confirmed: false, strength: "weak", description: "Data H4 tidak cukup" };
+
+  const lastClose = h4Closes[n - 1];
+  const zoneRange = zoneHigh - zoneLow;
+  const zoneMid = (zoneHigh + zoneLow) / 2;
+
+  // Jarak harga H4 ke tepi zona (sebagai % dari harga)
+  const distToZone = bias === "bullish"
+    ? (lastClose - zoneHigh) / lastClose * 100   // jarak ke atas zona (bullish: approaching dari atas)
+    : (zoneLow - lastClose) / lastClose * 100;    // jarak ke bawah zona (bearish: approaching dari bawah)
+
+  // Tidak confluence kalau harga sudah di dalam zona atau sudah lewat
+  if (distToZone < 0) {
+    return { confirmed: false, strength: "weak", description: "Harga H4 sudah melewati zona" };
+  }
+
+  // Cek apakah H4 sedang bergerak menuju zona (momentum searah)
+  const last5Closes = h4Closes.slice(-5);
+  const isApproaching = bias === "bullish"
+    ? last5Closes[last5Closes.length - 1] < last5Closes[0]  // harga turun menuju zona support
+    : last5Closes[last5Closes.length - 1] > last5Closes[0]; // harga naik menuju zona resistance
+
+  // Cek volume H4 saat approaching (harus melemah = pullback sehat)
+  const recentVols = h4Volumes.slice(-5);
+  const avgVol = h4Volumes.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, h4Volumes.length);
+  const lastVol = recentVols[recentVols.length - 1];
+  const pullbackHealthy = lastVol < avgVol * 0.9; // volume pullback < rata-rata = sehat
+
+  // Kekuatan confluence berdasarkan jarak dan kondisi
+  if (distToZone <= 1.0 && isApproaching && pullbackHealthy) {
+    return {
+      confirmed: true,
+      strength: "strong",
+      description: `H4 approaching zona (${distToZone.toFixed(2)}% jauh), pullback volume sehat`
+    };
+  } else if (distToZone <= 2.5 && isApproaching) {
+    return {
+      confirmed: true,
+      strength: "moderate",
+      description: `H4 menuju zona (${distToZone.toFixed(2)}% jauh), momentum approaching`
+    };
+  } else if (distToZone <= 5.0) {
+    return {
+      confirmed: true,
+      strength: "weak",
+      description: `H4 dalam radius zona (${distToZone.toFixed(2)}% jauh)`
+    };
+  }
+
+  return { confirmed: false, strength: "weak", description: `H4 masih jauh dari zona (${distToZone.toFixed(2)}%)` };
+}
+
 export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta',
@@ -1673,7 +1741,13 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       selectedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
     );
 
-    // STEP 4a: CHoCH 15M (scoring, bukan hard filter)
+    // STEP 4a: Multi-TF Confluence — H4 approaching H1 zone
+    const h4Confluence = detectH4Confluence(
+      h4.highs, h4.lows, h4.closes, h4.volumes,
+      selectedZone.low, selectedZone.high, bias
+    );
+
+    // STEP 4b: CHoCH 15M (scoring, bukan hard filter)
     const choch15M = detectCHoCH15M(m15.highs, m15.lows, m15.closes, bias);
 
     // STEP 4b: Rejection candle 15M (scoring, bukan hard filter)
@@ -1789,6 +1863,22 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       probabilityFactors.push(`⚠️ Volume Dow lemah — ${skipConds.volumeTrendDesc}`);
     }
 
+    // Multi-TF Confluence: H4 approaching H1 zone
+    if (h4Confluence.confirmed) {
+      if (h4Confluence.strength === "strong") {
+        profitProbability += 15;
+        probabilityFactors.push(`✅ H4 Confluence KUAT (+15%) — ${h4Confluence.description}`);
+      } else if (h4Confluence.strength === "moderate") {
+        profitProbability += 10;
+        probabilityFactors.push(`✅ H4 Confluence SEDANG (+10%) — ${h4Confluence.description}`);
+      } else {
+        profitProbability += 5;
+        probabilityFactors.push(`✅ H4 Confluence LEMAH (+5%) — ${h4Confluence.description}`);
+      }
+    } else {
+      probabilityFactors.push(`⚠️ Tidak ada H4 confluence — ${h4Confluence.description}`);
+    }
+
     // Entry price: pakai rejection 15M kalau ada, fallback ke zona entry
     const finalEntryPrice = rejection15M.confirmed
       ? rejection15M.entryPrice
@@ -1854,6 +1944,9 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       volumeTrendValid: skipConds.volumeTrendValid,
       volumeTrendDesc: skipConds.volumeTrendDesc,
       chochH4Detected: skipConds.chochH4Detected,
+      h4ConfluenceConfirmed: h4Confluence.confirmed,
+      h4ConfluenceStrength: h4Confluence.strength,
+      h4ConfluenceDesc: h4Confluence.description,
       rsi: skipConds.rsi,
       rsiDivergence: skipConds.rsiDivergence,
       chochDetected: skipConds.chochDetected,
@@ -2760,24 +2853,28 @@ function simulateTrade(
   return { result: 'EXPIRED', exitPrice: futureHighs[limit - 1] ?? entryPrice, rr: 0 };
 }
 
-function getPeriodLimit(period: '1m' | '3m' | '6m' | '1y'): number {
+function getPeriodLimit(period: '1m' | '3m' | '6m' | '1y' | 'all', allH1Candles?: number): number {
   // H1 candles needed
-  const map = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640 };
-  return map[period];
+  const map: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640 };
+  if (period === 'all' && allH1Candles) return allH1Candles;
+  return map[period] ?? 8640;
 }
 
 export async function runBacktest(
   symbol: string,
-  period: '1m' | '3m' | '6m' | '1y',
-  menu: 'sniper' | 'breakout' | 'both'
+  period: '1m' | '3m' | '6m' | '1y' | 'all',
+  menu: 'sniper' | 'breakout' | 'both',
+  allH1Candles?: number
 ): Promise<BacktestResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
 
-  const periodLabel = { '1m': '1 Bulan', '3m': '3 Bulan', '6m': '6 Bulan', '1y': '1 Tahun' }[period];
-  const limit = getPeriodLimit(period);
+  const limit = getPeriodLimit(period, allH1Candles);
+  const periodLabel = period === 'all'
+    ? `Sejak Listing — maks 3 tahun (${Math.round(limit / 720)} bulan)`
+    : { '1m': '1 Bulan', '3m': '3 Bulan', '6m': '6 Bulan', '1y': '1 Tahun' }[period]!;
 
   // Fetch data historis H4 dan H1 dalam batch (max 1500 per request)
   async function fetchHistorical(interval: string, totalLimit: number): Promise<KlineData> {
