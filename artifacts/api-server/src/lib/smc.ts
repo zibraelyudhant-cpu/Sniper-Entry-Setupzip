@@ -2182,7 +2182,7 @@ export function findRetestZone(
 }
 
 export interface BreakoutResult {
-  status: 'ready' | 'in_zone' | 'approaching' | 'no_breakout' | 'no_zone' | 'no_trend' | 'skip' | 'error';
+  status: 'ready' | 'in_zone' | 'approaching' | 'no_breakout' | 'no_zone' | 'no_trend' | 'skip' | 'no_setup' | 'error';
   symbol: string;
   bias?: 'bullish' | 'bearish';
   currentPrice: number;
@@ -2203,6 +2203,19 @@ export interface BreakoutResult {
   fundingRate?: number;
   setupExpiryHours?: number;
   reason?: string;
+  // Hard filter results
+  choch15M?: boolean;
+  choch15MDesc?: string;
+  rejection15M?: boolean;
+  rejection15MCandle?: string;
+  patternConfirmed?: boolean;
+  patternName?: string;
+  // Teori Dow
+  chochH4Detected?: boolean;
+  dowPhase?: string;
+  dowPhaseDesc?: string;
+  volumeTrendValid?: boolean;
+  volumeTrendDesc?: string;
 }
 
 export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResult> {
@@ -2242,6 +2255,26 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
       return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat negatif', fundingRate };
     if (bias === 'bearish' && fundingRate > 0.1)
       return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat positif', fundingRate };
+
+    // ─── Teori Dow: CHoCH H4 (hard filter — primary trend reversal) ─────────────
+    const chochH4 = detectCHoCH(h4.highs, h4.lows, h4.closes, bias);
+    if (chochH4) {
+      return { status: 'no_trend', symbol, bias, currentPrice, timestamp,
+        message: 'CHoCH H4 terbentuk — primary trend sudah berbalik, setup breakout invalid',
+        chochH4Detected: true };
+    }
+
+    // ─── Teori Dow: Fase dan Volume Trend (scoring info) ─────────────────────
+    const dowResult = detectDowPhase(h4.highs, h4.lows, h4.closes, h4.volumes, bias);
+    const volTrend = checkVolumeTrend(h4.closes, h4.volumes, bias);
+
+    // Distribution = hard filter untuk breakout juga
+    if (dowResult.phase === 'distribution') {
+      return { status: 'skip', symbol, bias, currentPrice, timestamp,
+        message: `Fase Distribution H4 — ${dowResult.description}`,
+        chochH4Detected: false,
+        dowPhase: dowResult.phase, dowPhaseDesc: dowResult.description };
+    }
 
     // Deteksi breakout di H1 dan M30 — ambil yang paling kuat (volume ratio tertinggi)
     const breakoutH1 = detectBreakoutH1(h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes, bias);
@@ -2340,7 +2373,71 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
       zonePatternConfirmed = m15Patterns.length > 0;
     }
 
-    // Status: ready hanya kalau rejection + (pattern 15M ATAU pattern H1/M30 HIGH)
+    // ─── HARD FILTER 1: CHoCH 15M ───────────────────────────────────────────────
+    const choch15MResult = detectCHoCH15M(m15.highs, m15.lows, m15.closes, bias);
+    if (!choch15MResult.detected) {
+      return {
+        status: 'no_setup',
+        symbol, bias, currentPrice, timestamp,
+        message: 'CHoCH 15M belum terkonfirmasi — tunggu struktur 15M berbalik',
+        breakoutType: breakout.type,
+        brokenLevel: breakout.brokenLevel,
+        volumeRatio: breakout.volumeRatio,
+        retestZone,
+        choch15M: false,
+        choch15MDesc: choch15MResult.description,
+      };
+    }
+
+    // ─── HARD FILTER 2: Rejection candle 15M ─────────────────────────────────
+    const refinedForRejection = {
+      low: retestZone.low ?? retestZone.price - atrH1 * 0.3,
+      high: retestZone.high ?? retestZone.price + atrH1 * 0.3,
+      mid: retestZone.price,
+      entryPrice: retestZone.price,
+      zoneType: retestZone.type,
+      refined: false,
+    };
+    const rejection15MResult = checkRejection15M(
+      refinedForRejection, m15.opens, m15.highs, m15.lows, m15.closes, bias, m15.volumes
+    );
+    if (!rejection15MResult.confirmed) {
+      return {
+        status: 'no_setup',
+        symbol, bias, currentPrice, timestamp,
+        message: 'Belum ada rejection candle 15M di zona retest',
+        breakoutType: breakout.type,
+        brokenLevel: breakout.brokenLevel,
+        volumeRatio: breakout.volumeRatio,
+        retestZone,
+        choch15M: true,
+        choch15MDesc: choch15MResult.description,
+        rejection15M: false,
+        rejection15MCandle: rejection15MResult.candleType,
+      };
+    }
+
+    // ─── HARD FILTER 3: Pattern konfirmasi ───────────────────────────────────
+    const allBreakoutPatterns = [...allConfirmingPatterns];
+    const hasPattern = allBreakoutPatterns.length > 0;
+    if (!hasPattern) {
+      return {
+        status: 'no_setup',
+        symbol, bias, currentPrice, timestamp,
+        message: 'Tidak ada pattern konfirmasi searah bias',
+        breakoutType: breakout.type,
+        brokenLevel: breakout.brokenLevel,
+        volumeRatio: breakout.volumeRatio,
+        retestZone,
+        choch15M: true,
+        choch15MDesc: choch15MResult.description,
+        rejection15M: true,
+        rejection15MCandle: rejection15MResult.candleType,
+        patternConfirmed: false,
+      };
+    }
+
+    // Semua filter lolos — lanjut ke status
     const isReady = inZone && retestConfirmed && (zonePatternConfirmed || patternConfidence === 'HIGH');
     const status = isReady ? 'ready' : inZone ? 'in_zone' : 'approaching';
 
@@ -2386,6 +2483,17 @@ export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResu
       retestZone, retestConfirmed,
       patternConfidence,
       confirmingPatterns: allConfirmingPatterns,
+      choch15M: true,
+      choch15MDesc: choch15MResult.description,
+      rejection15M: true,
+      rejection15MCandle: rejection15MResult.candleType,
+      patternConfirmed: true,
+      patternName: allBreakoutPatterns[0],
+      chochH4Detected: false,
+      dowPhase: dowResult.phase,
+      dowPhaseDesc: dowResult.description,
+      volumeTrendValid: volTrend.valid,
+      volumeTrendDesc: volTrend.description,
       entryPrice, stopLoss, takeProfit1, takeProfit2, takeProfit3,
       fundingRate, setupExpiryHours: 8,
       reason: reasonParts.join(' | '),

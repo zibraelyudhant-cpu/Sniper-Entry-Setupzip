@@ -53,6 +53,7 @@ function StatusBadge({ status, colors }: { status: string; colors: ReturnType<ty
     ready: { label: '✅ SIAP ENTRY', color: colors.bullish },
     in_zone: { label: '👀 DI ZONA', color: '#14B8A6' },
     approaching: { label: '⏳ MENUJU ZONA', color: colors.gold },
+    no_setup: { label: '🚫 FILTER TIDAK LOLOS', color: colors.bearish },
   };
   const item = map[status] ?? { label: status.toUpperCase(), color: colors.mutedForeground };
   return (
@@ -318,13 +319,31 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
           </View>
 
           {/* Status tidak ada setup */}
-          {['no_trend', 'no_breakout', 'no_zone', 'skip', 'error'].includes(data.status) && (
+          {['no_trend', 'no_breakout', 'no_zone', 'skip', 'error', 'no_setup'].includes(data.status) && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STATUS</Text>
               <View style={styles.statusBlock}>
                 <Feather name="alert-circle" size={32} color={colors.warning} />
                 <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
               </View>
+              {data.status === 'no_setup' && (
+                <View style={{ marginTop: 12, gap: 8 }}>
+                  {[
+                    { label: 'CHoCH 15M', passed: data.choch15M === true, desc: data.choch15MDesc ?? 'Belum terdeteksi' },
+                    { label: 'Rejection 15M', passed: data.rejection15M === true, desc: data.rejection15MCandle ?? 'Belum ada candle rejection' },
+                    { label: 'Pattern Konfirmasi', passed: data.patternConfirmed === true, desc: data.patternName ?? 'Tidak ada pattern searah bias' },
+                  ].map((f, i) => (
+                    <View key={i} style={[styles.filterRow, { borderBottomColor: colors.border }]}>
+                      <Feather name={f.passed ? 'check-circle' : 'x-circle'} size={16}
+                        color={f.passed ? colors.bullish : colors.bearish} />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={[styles.filterLabel, { color: colors.foreground }]}>{f.label}</Text>
+                        <Text style={[styles.filterDesc, { color: colors.mutedForeground }]}>{f.desc}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )}
 
@@ -395,6 +414,39 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
                     <View style={[styles.reasonBox, { borderLeftColor: colors.primary, backgroundColor: `${colors.primary}10` }]}>
                       <Text style={[styles.reasonText, { color: colors.mutedForeground }]}>{data.retestZone.reason}</Text>
                     </View>
+                  )}
+                </View>
+              )}
+
+              {/* Teori Dow */}
+              {(data.dowPhase || data.volumeTrendValid !== undefined) && (
+                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>TEORI DOW</Text>
+                  {data.dowPhase && data.dowPhase !== 'unknown' && (
+                    <View style={styles.infoRow}>
+                      <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Fase</Text>
+                      <Text style={[styles.infoValue, { color:
+                        data.dowPhase === 'accumulation' ? colors.bullish :
+                        data.dowPhase === 'participation' ? colors.gold : colors.mutedForeground
+                      }]}>
+                        {data.dowPhase === 'accumulation' ? '✅ Accumulation' :
+                         data.dowPhase === 'participation' ? '⚡ Participation' : data.dowPhase}
+                      </Text>
+                    </View>
+                  )}
+                  {data.dowPhaseDesc && (
+                    <Text style={[styles.reasonText, { color: colors.mutedForeground, marginBottom: 8 }]}>{data.dowPhaseDesc}</Text>
+                  )}
+                  {data.volumeTrendValid !== undefined && (
+                    <View style={styles.infoRow}>
+                      <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Volume Dow</Text>
+                      <Text style={[styles.infoValue, { color: data.volumeTrendValid ? colors.bullish : colors.bearish }]}>
+                        {data.volumeTrendValid ? '✅ Valid' : '⚠️ Lemah'}
+                      </Text>
+                    </View>
+                  )}
+                  {data.volumeTrendDesc && (
+                    <Text style={[styles.reasonText, { color: colors.mutedForeground }]}>{data.volumeTrendDesc}</Text>
                   )}
                 </View>
               )}
@@ -585,6 +637,9 @@ const styles = StyleSheet.create({
   section: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 12 },
   sectionTitle: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1.5, marginBottom: 12 },
   statusBlock: { alignItems: 'center', gap: 10, paddingVertical: 8 },
+  filterRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  filterLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', marginBottom: 2 },
+  filterDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 18 },
   statusMsg: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
   infoLabel: { fontSize: 13, fontFamily: 'Inter_400Regular' },
