@@ -18,6 +18,7 @@ import type {
 import type {
   ErrorResponse,
   GetSmcAnalysisParams,
+  SniperScanResponse,
   HealthStatus,
   ScreenerResponse,
   SniperResult
@@ -379,6 +380,30 @@ export function useGetPatterns<TData = Awaited<ReturnType<typeof getPatterns>>, 
   options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getPatterns>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPatternsQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+export const getSniperScan = async (options?: RequestInit): Promise<SniperScanResponse> =>
+  customFetch<SniperScanResponse>('/api/sniper/scan', { ...options, method: 'GET' });
+
+export const getGetSniperScanQueryKey = () => ['/api/sniper/scan'] as const;
+
+export const getGetSniperScanQueryOptions = <TData = Awaited<ReturnType<typeof getSniperScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSniperScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetSniperScanQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSniperScan>>> = ({ signal }) =>
+    getSniperScan({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getSniperScan>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetSniperScan<TData = Awaited<ReturnType<typeof getSniperScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSniperScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSniperScanQueryOptions(options);
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
   return withQueryKey(query, queryOptions.queryKey);
 }

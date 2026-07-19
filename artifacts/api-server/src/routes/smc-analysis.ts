@@ -20,4 +20,32 @@ router.get("/smc-analysis", async (req, res) => {
   res.json(result);
 });
 
+// GET /api/sniper/scan
+router.get('/sniper/scan', async (req, res) => {
+  try {
+    const { getUniverse } = await import('./screener');
+    const universe = await getUniverse();
+    const results: Awaited<ReturnType<typeof analyzeSniperEntry>>[] = [];
+    const batchSize = 5;
+    for (let i = 0; i < universe.length; i += batchSize) {
+      const batch = universe.slice(i, i + batchSize);
+      const batchResults = await Promise.allSettled(batch.map(s => analyzeSniperEntry(s)));
+      for (const r of batchResults) {
+        if (r.status === 'fulfilled') {
+          const val = r.value;
+          if (val.status === 'ready' && (val.profitProbability ?? 0) >= 30) {
+            results.push(val);
+          }
+        }
+      }
+    }
+    // Sort by profitProbability descending
+    results.sort((a, b) => (b.profitProbability ?? 0) - (a.profitProbability ?? 0));
+    res.json({ coins: results, fetchedAt: Date.now() });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: message });
+  }
+});
+
 export default router;

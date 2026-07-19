@@ -88,19 +88,17 @@ function calcEMA(values: number[], period: number): number[] {
   return ema;
 }
 
-interface MACDResult { macdLine: number; signalLine: number; histogram: number }
-
-function calcMACD(closes: number[], fast = 12, slow = 26, signal = 9): MACDResult {
-  if (closes.length < slow + signal) return { macdLine: 0, signalLine: 0, histogram: 0 };
-  const emaFast = calcEMA(closes, fast);
-  const emaSlow = calcEMA(closes, slow);
-  const macdLine = emaFast.map((v, i) => v - emaSlow[i]);
-  const macdValid = macdLine.slice(slow - 1);
-  const signalArr = calcEMA(macdValid, signal);
-  const lastMacd = macdValid[macdValid.length - 1];
-  const lastSignal = signalArr[signalArr.length - 1];
-  return { macdLine: lastMacd, signalLine: lastSignal, histogram: lastMacd - lastSignal };
+function getLastEMA(values: number[], period: number): number {
+  if (values.length < period) return values[values.length - 1] ?? 0;
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+  }
+  return ema;
 }
+
+
 
 function calcADX(highs: number[], lows: number[], closes: number[], period = 14): number {
   if (highs.length < period * 2 + 1) return 0;
@@ -147,8 +145,8 @@ interface ScreenerEntry {
   volume24h: number;
   rsiH4: number;
   rsiH1: number;
-  macdValidH4: boolean;
-  macdValidH1: boolean;
+  emaValidH4: boolean;
+  emaValidH1: boolean;
   atrH4: number;
   atrH4Pct: number;
   adxH4: number;
@@ -219,18 +217,29 @@ router.get("/screener", async (req, res) => {
             if (bias === "bullish" && (rsiH4 < 50 || rsiH4 > 80)) return null;
             if (bias === "bearish" && (rsiH4 < 30 || rsiH4 > 50)) return null;
 
-            // ── Filter 4: MACD H4 valid ───────────────────────────────────────
-            const macdH4 = calcMACD(h4.closes);
-            const macdH1 = calcMACD(h1.closes);
-            const macdValidH4 =
-              bias === "bullish"
-                ? macdH4.macdLine > macdH4.signalLine && macdH4.macdLine > 0
-                : macdH4.macdLine < macdH4.signalLine && macdH4.macdLine < 0;
-            if (!macdValidH4) return null;
-            const macdValidH1 =
-              bias === "bullish"
-                ? macdH1.macdLine > macdH1.signalLine
-                : macdH1.macdLine < macdH1.signalLine;
+            // ── Filter 4: EMA 21/34/61 H4 ────────────────────────────────────
+            const ema21H4 = calcEMA(h4.closes, 21);
+            const ema34H4 = calcEMA(h4.closes, 34);
+            const ema61H4 = calcEMA(h4.closes, 61);
+            const lastEma21H4 = ema21H4[ema21H4.length - 1];
+            const lastEma34H4 = ema34H4[ema34H4.length - 1];
+            const lastEma61H4 = ema61H4[ema61H4.length - 1];
+            const emaValidH4 = bias === "bullish"
+              ? price > lastEma21H4 && lastEma21H4 > lastEma34H4 && lastEma34H4 > lastEma61H4
+              : price < lastEma21H4 && lastEma21H4 < lastEma34H4 && lastEma34H4 < lastEma61H4;
+            if (!emaValidH4) return null;
+
+            // ── Filter 4b: EMA 21/34/61 H1 ───────────────────────────────────
+            const ema21H1 = calcEMA(h1.closes, 21);
+            const ema34H1 = calcEMA(h1.closes, 34);
+            const ema61H1 = calcEMA(h1.closes, 61);
+            const lastEma21H1 = ema21H1[ema21H1.length - 1];
+            const lastEma34H1 = ema34H1[ema34H1.length - 1];
+            const lastEma61H1 = ema61H1[ema61H1.length - 1];
+            const emaValidH1 = bias === "bullish"
+              ? price > lastEma21H1 && lastEma21H1 > lastEma34H1 && lastEma34H1 > lastEma61H1
+              : price < lastEma21H1 && lastEma21H1 < lastEma34H1 && lastEma34H1 < lastEma61H1;
+            if (!emaValidH1) return null;
 
             // ── Filter 5: ATR H4 >= 0.5% dari harga ──────────────────────────
             const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
@@ -279,12 +288,10 @@ router.get("/screener", async (req, res) => {
             const rsiH1Optimal =
               bias === "bullish" ? rsiH1 >= 50 && rsiH1 <= 70 : rsiH1 >= 30 && rsiH1 <= 50;
             if (rsiH1Optimal) score += 1;
-            if (bias === "bullish" ? macdH4.histogram > 0 : macdH4.histogram < 0) score += 1;
-            if (bias === "bullish" ? macdH1.histogram > 0 : macdH1.histogram < 0) score += 1;
             if (volumeValid) score += 1;
 
             const confidence: "HIGH" | "MODERATE" | "LOW" =
-              score >= 7 ? "HIGH" : score >= 4 ? "MODERATE" : "LOW";
+              score >= 6 ? "HIGH" : score >= 3 ? "MODERATE" : "LOW";
 
             return {
               symbol: ticker.symbol,
@@ -296,8 +303,8 @@ router.get("/screener", async (req, res) => {
               volume24h: parseFloat(ticker.quoteVolume),
               rsiH4,
               rsiH1,
-              macdValidH4,
-              macdValidH1,
+              emaValidH4,
+              emaValidH1,
               atrH4,
               atrH4Pct,
               adxH4,

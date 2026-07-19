@@ -214,7 +214,7 @@ export default function ScreenerScreen() {
 
   const handleCoinPress = useCallback((coin: ScreenerCoin) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({ pathname: '/(tabs)/sniper', params: { symbol: coin.symbol } });
+    router.push({ pathname: '/(tabs)/sniper', params: { symbol: coin.symbol, tab: 'analisa' } });
   }, []);
 
   const handleManualScan = useCallback(() => {
@@ -223,7 +223,7 @@ export default function ScreenerScreen() {
     const raw = search.trim().toUpperCase();
     const symbol = raw.endsWith('USDT') ? raw : `${raw}USDT`;
     setSearch('');
-    router.push({ pathname: '/(tabs)/sniper', params: { symbol } });
+    router.push({ pathname: '/(tabs)/sniper', params: { symbol, tab: 'analisa' } });
   }, [search]);
 
   const filteredCoins = (data?.coins ?? []).filter((c) =>

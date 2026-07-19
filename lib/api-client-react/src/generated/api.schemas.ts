@@ -129,6 +129,19 @@ export interface SniperResult {
   expiryHours?: number;
   skipReasons?: string[];
   reasoning?: string;
+  rejection15M?: boolean;
+  rejection15MCandle?: string;
+  choch15M?: boolean;
+  choch15MDescription?: string;
+  patternConfirmed?: boolean;
+  patternName?: string;
+  profitProbability?: number;
+  probabilityFactors?: string[];
+}
+
+export interface SniperScanResponse {
+  coins: SniperResult[];
+  fetchedAt: number;
 }
 
 export type GetSmcAnalysisParams = {

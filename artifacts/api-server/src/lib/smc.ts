@@ -27,6 +27,8 @@ export interface OrderBlock {
   index: number;
   type: "bullish" | "bearish";
   strength: number;
+  touches: number;       // berapa kali harga sudah masuk ke zona setelah terbentuk
+  candlesAgo: number;    // berapa candle lalu zona ini terbentuk
 }
 
 export interface FVG {
@@ -35,6 +37,8 @@ export interface FVG {
   mid: number;
   index: number;
   type: "bullish" | "bearish";
+  touches: number;       // berapa kali harga sudah masuk ke zona setelah terbentuk
+  candlesAgo: number;    // berapa candle lalu zona ini terbentuk
 }
 
 export interface UnfilledOrderZone {
@@ -73,6 +77,8 @@ export interface SelectedZone {
   tier: number;
   srLevel?: SRLevel;
   fibLevel?: number;
+  touches?: number;
+  candlesAgo?: number;
 }
 
 export interface RefinedZone {
@@ -101,16 +107,23 @@ export interface SniperLevels {
   expiryHours: number;
 }
 
+export type DowPhase = 'accumulation' | 'participation' | 'distribution' | 'unknown';
+
 export interface SkipConditions {
   shouldSkip: boolean;
   reasons: string[];
   rsi: number;
   rsiDivergence: boolean;
   chochDetected: boolean;
+  chochH4Detected: boolean;
   oiChange: number;
   oiAccumulation: boolean;
   oiAccumulationDesc: string;
   fundingRate: number;
+  dowPhase: DowPhase;
+  dowPhaseDesc: string;
+  volumeTrendValid: boolean;
+  volumeTrendDesc: string;
 }
 
 export interface SniperResult {
@@ -152,6 +165,12 @@ export interface SniperResult {
   // Probability scoring
   profitProbability?: number;
   probabilityFactors?: string[];
+  // Teori Dow
+  dowPhase?: string;
+  dowPhaseDesc?: string;
+  volumeTrendValid?: boolean;
+  volumeTrendDesc?: string;
+  chochH4Detected?: boolean;
 }
 
 // ─── Data Fetching ────────────────────────────────────────────────────────────
@@ -403,6 +422,11 @@ export function detectOrderBlocksH1(
       const impulse = maxClose - closes[i];
       if (impulse > range * 1.5) {
         const strength = impulse / range;
+        // Hitung touches: berapa kali harga masuk ke zona setelah OB terbentuk
+        let touches = 0;
+        for (let j = i + 1; j < closes.length; j++) {
+          if (lows[j] <= highs[i] && highs[j] >= lows[i]) touches++;
+        }
         obs.push({
           high: highs[i],
           low: lows[i],
@@ -410,6 +434,8 @@ export function detectOrderBlocksH1(
           index: i,
           type: "bullish",
           strength,
+          touches,
+          candlesAgo: opens.length - 1 - i,
         });
       }
     } else {
@@ -426,6 +452,10 @@ export function detectOrderBlocksH1(
       const impulse = closes[i] - minClose;
       if (impulse > range * 1.5) {
         const strength = impulse / range;
+        let touches = 0;
+        for (let j = i + 1; j < closes.length; j++) {
+          if (lows[j] <= highs[i] && highs[j] >= lows[i]) touches++;
+        }
         obs.push({
           high: highs[i],
           low: lows[i],
@@ -433,13 +463,20 @@ export function detectOrderBlocksH1(
           index: i,
           type: "bearish",
           strength,
+          touches,
+          candlesAgo: opens.length - 1 - i,
         });
       }
     }
   }
 
+  // Filter: zona fresh (touches <= 1) diprioritaskan, tapi tetap include touches 2 kalau tidak ada yang fresh
+  const fresh = obs.filter(ob => ob.touches <= 1);
+  const pool = fresh.length > 0 ? fresh : obs.filter(ob => ob.touches <= 2);
+  const final = pool.length > 0 ? pool : obs;
+
   // Sort by strength and recency, return top 5
-  return obs
+  return final
     .sort((a, b) => b.strength * (b.index / opens.length) - a.strength * (a.index / opens.length))
     .slice(0, 5);
 }
@@ -459,19 +496,33 @@ export function detectFVGH1(
       if (highs[i - 1] < lows[i + 1]) {
         const low = highs[i - 1];
         const high = lows[i + 1];
-        fvgs.push({ high, low, mid: (high + low) / 2, index: i, type: "bullish" });
+        // Hitung touches: berapa kali harga masuk ke FVG setelah terbentuk
+        let touches = 0;
+        for (let j = i + 2; j < highs.length; j++) {
+          if (lows[j] <= high && highs[j] >= low) touches++;
+        }
+        fvgs.push({ high, low, mid: (high + low) / 2, index: i, type: "bullish", touches, candlesAgo: highs.length - 1 - i });
       }
     } else {
       // Bearish FVG: gap down — candle[i-1].low > candle[i+1].high
       if (lows[i - 1] > highs[i + 1]) {
         const high = lows[i - 1];
         const low = highs[i + 1];
-        fvgs.push({ high, low, mid: (high + low) / 2, index: i, type: "bearish" });
+        let touches = 0;
+        for (let j = i + 2; j < highs.length; j++) {
+          if (lows[j] <= high && highs[j] >= low) touches++;
+        }
+        fvgs.push({ high, low, mid: (high + low) / 2, index: i, type: "bearish", touches, candlesAgo: highs.length - 1 - i });
       }
     }
   }
 
-  return fvgs.slice(-5);
+  // Filter: prioritaskan FVG fresh (touches = 0, belum pernah disentuh)
+  const fresh = fvgs.filter(f => f.touches === 0);
+  const pool = fresh.length > 0 ? fresh : fvgs.filter(f => f.touches <= 1);
+  const final = pool.length > 0 ? pool : fvgs;
+
+  return final.slice(-5);
 }
 
 export async function detectUnfilledOrdersH1(
@@ -687,6 +738,8 @@ export function selectBestZoneH1(
           entryPrice: uo.mid,
           zoneType: "Unfilled Order dalam OB",
           tier: 1,
+          touches: ob.touches,
+          candlesAgo: ob.candlesAgo,
         };
       }
     }
@@ -704,6 +757,8 @@ export function selectBestZoneH1(
           entryPrice: fvg.mid,
           zoneType: "Order Block + FVG overlap",
           tier: 2,
+          touches: Math.max(ob.touches, fvg.touches),
+          candlesAgo: ob.candlesAgo,
         };
       }
     }
@@ -727,6 +782,8 @@ export function selectBestZoneH1(
           zoneType: "Order Block + S&R confluence",
           tier: 3,
           srLevel: sr,
+          touches: ob.touches,
+          candlesAgo: ob.candlesAgo,
         };
       }
     }
@@ -743,6 +800,8 @@ export function selectBestZoneH1(
           entryPrice: goldenZone,
           zoneType: "Order Block + Supply/Demand confluence",
           tier: 3,
+          touches: ob.touches,
+          candlesAgo: ob.candlesAgo,
         };
       }
     }
@@ -763,6 +822,8 @@ export function selectBestZoneH1(
         entryPrice: goldenZone,
         zoneType: "Order Block murni",
         tier: 4,
+        touches: ob.touches,
+        candlesAgo: ob.candlesAgo,
       };
     }
   }
@@ -781,6 +842,8 @@ export function selectBestZoneH1(
           zoneType: "FVG + S&R confluence",
           tier: 5,
           srLevel: sr,
+          touches: fvg.touches,
+          candlesAgo: fvg.candlesAgo,
         };
       }
     }
@@ -797,6 +860,8 @@ export function selectBestZoneH1(
       entryPrice: fvg.mid,
       zoneType: "FVG murni",
       tier: 6,
+      touches: fvg.touches,
+      candlesAgo: fvg.candlesAgo,
     };
   }
 
@@ -897,6 +962,8 @@ export interface Rejection15M {
   rejectionHigh: number;  // high candle rejection (untuk SL bearish)
   rejectionLow: number;   // low candle rejection (untuk SL bullish)
   entryPrice: number;     // entry lebih presisi dari rejection candle
+  volumeConfirmed: boolean; // volume candle rejection > 1.2x rata-rata
+  volumeRatio: number;      // rasio volume vs rata-rata
 }
 
 export function checkRejection15M(
@@ -905,58 +972,80 @@ export function checkRejection15M(
   highs15m: number[],
   lows15m: number[],
   closes15m: number[],
-  bias: "bullish" | "bearish"
+  bias: "bullish" | "bearish",
+  volumes15m: number[] = []
 ): Rejection15M {
   const zoneLow = refinedZone.low;
   const zoneHigh = refinedZone.high;
   const buffer = (zoneHigh - zoneLow) * 0.1; // 10% dari lebar zona
 
-  // Cek 3 candle 15M terakhir
-  const start = Math.max(0, opens15m.length - 3);
+  // Exclude candle terakhir (live/belum close) supaya konsisten antara scan dan analisa
+  // Cek 3 candle 15M terakhir (dari candle yang sudah close)
+  const opens = opens15m.slice(0, -1);
+  const highs = highs15m.slice(0, -1);
+  const lows = lows15m.slice(0, -1);
+  const closes = closes15m.slice(0, -1);
+  const volumes = volumes15m.length > 0 ? volumes15m.slice(0, -1) : [];
 
-  for (let i = opens15m.length - 1; i >= start; i--) {
-    const isInZone = lows15m[i] <= zoneHigh + buffer && highs15m[i] >= zoneLow - buffer;
+  // Hitung rata-rata volume 20 candle terakhir (untuk volume konfirmasi)
+  const volSlice = volumes.slice(-20);
+  const avgVolume = volSlice.length > 0
+    ? volSlice.reduce((a, b) => a + b, 0) / volSlice.length
+    : 0;
+
+  const start = Math.max(0, opens.length - 3);
+
+  for (let i = opens.length - 1; i >= start; i--) {
+    const isInZone = lows[i] <= zoneHigh + buffer && highs[i] >= zoneLow - buffer;
     if (!isInZone) continue;
 
-    const body = Math.abs(closes15m[i] - opens15m[i]);
-    const range = highs15m[i] - lows15m[i];
+    const body = Math.abs(closes[i] - opens[i]);
+    const range = highs[i] - lows[i];
     if (range === 0) continue;
 
-    const upperWick = highs15m[i] - Math.max(opens15m[i], closes15m[i]);
-    const lowerWick = Math.min(opens15m[i], closes15m[i]) - lows15m[i];
+    const upperWick = highs[i] - Math.max(opens[i], closes[i]);
+    const lowerWick = Math.min(opens[i], closes[i]) - lows[i];
 
     if (bias === "bullish") {
       // Hammer / Pin Bar: lower wick > 1.5x body DAN candle bullish
-      const isHammer = lowerWick > body * 1.5 && closes15m[i] > opens15m[i];
+      const isHammer = lowerWick > body * 1.5 && closes[i] > opens[i];
       // Rejection kuat: lower wick > 60% dari range total
       const isStrongRejection = lowerWick > range * 0.6;
 
       if (isHammer || isStrongRejection) {
-        // Entry di low candle rejection + buffer kecil (10% dari range)
-        const entryPrice = lows15m[i] + range * 0.1;
+        const entryPrice = lows[i] + range * 0.1;
+        const volRatio = avgVolume > 0 && volumes.length > i ? volumes[i] / avgVolume : 0;
+        const volConfirmed = volRatio >= 1.2;
+        const baseType = isHammer ? "Hammer 15M" : "Pin Bar 15M";
         return {
           confirmed: true,
-          candleType: isHammer ? "Hammer 15M" : "Pin Bar 15M",
-          rejectionHigh: highs15m[i],
-          rejectionLow: lows15m[i],
-          entryPrice: Math.max(entryPrice, zoneLow), // tidak lebih rendah dari zona
+          candleType: volConfirmed ? `${baseType} ✅ Vol ${volRatio.toFixed(1)}x` : baseType,
+          rejectionHigh: highs[i],
+          rejectionLow: lows[i],
+          entryPrice: Math.max(entryPrice, zoneLow),
+          volumeConfirmed: volConfirmed,
+          volumeRatio: volRatio,
         };
       }
     } else {
       // Shooting Star: upper wick > 1.5x body DAN candle bearish
-      const isShootingStar = upperWick > body * 1.5 && closes15m[i] < opens15m[i];
+      const isShootingStar = upperWick > body * 1.5 && closes[i] < opens[i];
       // Rejection kuat: upper wick > 60% dari range total
       const isStrongRejection = upperWick > range * 0.6;
 
       if (isShootingStar || isStrongRejection) {
-        // Entry di high candle rejection - buffer kecil (10% dari range)
-        const entryPrice = highs15m[i] - range * 0.1;
+        const entryPrice = highs[i] - range * 0.1;
+        const volRatio = avgVolume > 0 && volumes.length > i ? volumes[i] / avgVolume : 0;
+        const volConfirmed = volRatio >= 1.2;
+        const baseType = isShootingStar ? "Shooting Star 15M" : "Pin Bar 15M";
         return {
           confirmed: true,
-          candleType: isShootingStar ? "Shooting Star 15M" : "Pin Bar 15M",
-          rejectionHigh: highs15m[i],
-          rejectionLow: lows15m[i],
-          entryPrice: Math.min(entryPrice, zoneHigh), // tidak lebih tinggi dari zona
+          candleType: volConfirmed ? `${baseType} ✅ Vol ${volRatio.toFixed(1)}x` : baseType,
+          rejectionHigh: highs[i],
+          rejectionLow: lows[i],
+          entryPrice: Math.min(entryPrice, zoneHigh),
+          volumeConfirmed: volConfirmed,
+          volumeRatio: volRatio,
         };
       }
     }
@@ -968,6 +1057,8 @@ export function checkRejection15M(
     rejectionHigh: refinedZone.high,
     rejectionLow: refinedZone.low,
     entryPrice: refinedZone.entryPrice,
+    volumeConfirmed: false,
+    volumeRatio: 0,
   };
 }
 
@@ -1149,13 +1240,17 @@ function detectCHoCH15M(
   closes: number[],
   bias: "bullish" | "bearish"
 ): { detected: boolean; description: string } {
-  const n = closes.length;
+  // Exclude candle terakhir (live/belum close) supaya konsisten antara scan dan analisa
+  const h = highs.slice(0, -1);
+  const l = lows.slice(0, -1);
+  const c = closes.slice(0, -1);
+  const n = c.length;
   if (n < 10) return { detected: false, description: "Data tidak cukup" };
 
   // Ambil 20 candle terakhir
-  const sliceH = highs.slice(Math.max(0, n - 20));
-  const sliceL = lows.slice(Math.max(0, n - 20));
-  const sliceC = closes.slice(Math.max(0, n - 20));
+  const sliceH = h.slice(Math.max(0, n - 20));
+  const sliceL = l.slice(Math.max(0, n - 20));
+  const sliceC = c.slice(Math.max(0, n - 20));
 
   const swingHighs = findSwingHighs(sliceH, 3);
   const swingLows = findSwingLows(sliceL, 3);
@@ -1207,12 +1302,119 @@ function detectCHoCH15M(
   return { detected: false, description: "CHoCH 15M belum terbentuk" };
 }
 
+// ─── Teori Dow: Deteksi Fase Trend ───────────────────────────────────────────
+
+function detectDowPhase(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  volumes: number[],
+  bias: "bullish" | "bearish"
+): { phase: DowPhase; description: string } {
+  const n = closes.length;
+  if (n < 30) return { phase: 'unknown', description: 'Data tidak cukup' };
+
+  // Bagi data jadi 3 bagian (awal, tengah, akhir)
+  const third = Math.floor(n / 3);
+  const early = { closes: closes.slice(0, third), volumes: volumes.slice(0, third) };
+  const mid   = { closes: closes.slice(third, third * 2), volumes: volumes.slice(third, third * 2) };
+  const late  = { closes: closes.slice(third * 2), volumes: volumes.slice(third * 2) };
+
+  const avgVolEarly = early.volumes.reduce((a, b) => a + b, 0) / early.volumes.length;
+  const avgVolMid   = mid.volumes.reduce((a, b) => a + b, 0) / mid.volumes.length;
+  const avgVolLate  = late.volumes.reduce((a, b) => a + b, 0) / late.volumes.length;
+
+  // Price change per periode
+  const priceChangeMid  = (mid.closes[mid.closes.length - 1] - mid.closes[0]) / mid.closes[0] * 100;
+  const priceChangeLate = (late.closes[late.closes.length - 1] - late.closes[0]) / late.closes[0] * 100;
+
+  // Volume trend: naik atau turun dari periode ke periode
+  const volAccelerating = avgVolMid > avgVolEarly * 1.1 && avgVolLate > avgVolMid * 1.1;
+  const volDecelerating = avgVolLate < avgVolMid * 0.85;
+
+  if (bias === "bullish") {
+    // Accumulation: harga sideways/naik perlahan, volume rendah dan stabil
+    if (Math.abs(priceChangeMid) < 5 && avgVolMid <= avgVolEarly * 1.1) {
+      return { phase: 'accumulation', description: `Accumulation — harga konsolidasi, volume stabil (${avgVolLate.toFixed(0)} avg)` };
+    }
+    // Distribution: harga masih naik tapi volume turun (divergence)
+    if (priceChangeLate > 2 && volDecelerating) {
+      return { phase: 'distribution', description: `Distribution — harga naik tapi volume melemah (vol turun ${((1 - avgVolLate/avgVolMid)*100).toFixed(0)}%)` };
+    }
+    // Public participation: harga naik kuat dengan volume naik
+    if (priceChangeMid > 3 && volAccelerating) {
+      return { phase: 'participation', description: `Public Participation — harga naik kuat dengan volume menguat` };
+    }
+  } else {
+    // Accumulation (bearish): harga sideways/turun perlahan, volume rendah
+    if (Math.abs(priceChangeMid) < 5 && avgVolMid <= avgVolEarly * 1.1) {
+      return { phase: 'accumulation', description: `Accumulation — harga konsolidasi bearish, volume stabil` };
+    }
+    // Distribution (bearish): harga turun tapi volume melemah = potensi reversal
+    if (priceChangeLate < -2 && volDecelerating) {
+      return { phase: 'distribution', description: `Distribution — harga turun tapi volume melemah (potensi reversal)` };
+    }
+    // Public participation bearish: harga turun kuat dengan volume naik
+    if (priceChangeMid < -3 && volAccelerating) {
+      return { phase: 'participation', description: `Public Participation — harga turun kuat dengan volume menguat` };
+    }
+  }
+
+  return { phase: 'unknown', description: 'Fase tidak terdeteksi jelas' };
+}
+
+// ─── Teori Dow: Volume Konfirmasi Trend ──────────────────────────────────────
+
+function checkVolumeTrend(
+  closes: number[],
+  volumes: number[],
+  bias: "bullish" | "bearish"
+): { valid: boolean; description: string } {
+  const n = closes.length;
+  if (n < 20 || volumes.length < 20) return { valid: true, description: 'Data tidak cukup' };
+
+  // Pisahkan candle impulse (searah bias) dan candle pullback (berlawanan)
+  const recent = closes.slice(-20);
+  const recentVols = volumes.slice(-20);
+
+  let impulseVol = 0, impulseCount = 0;
+  let pullbackVol = 0, pullbackCount = 0;
+
+  for (let i = 1; i < recent.length; i++) {
+    const isUp = recent[i] > recent[i - 1];
+    if ((bias === 'bullish' && isUp) || (bias === 'bearish' && !isUp)) {
+      impulseVol += recentVols[i];
+      impulseCount++;
+    } else {
+      pullbackVol += recentVols[i];
+      pullbackCount++;
+    }
+  }
+
+  const avgImpulseVol  = impulseCount  > 0 ? impulseVol  / impulseCount  : 0;
+  const avgPullbackVol = pullbackCount > 0 ? pullbackVol / pullbackCount : 0;
+
+  // Volume Dow: impulse candle harus lebih tinggi volumenya dari pullback
+  const ratio = avgPullbackVol > 0 ? avgImpulseVol / avgPullbackVol : 1;
+  const valid = ratio >= 1.0; // impulse vol >= pullback vol
+
+  if (valid) {
+    return { valid: true, description: `Volume trend valid — impulse vol ${ratio.toFixed(1)}x vs pullback` };
+  } else {
+    return { valid: false, description: `Volume melemah — pullback vol lebih tinggi dari impulse (${ratio.toFixed(1)}x)` };
+  }
+}
+
 export async function checkSkipConditions(
   symbol: string,
   bias: "bullish" | "bearish",
   h1Closes: number[],
   h1Highs: number[],
   h1Lows: number[],
+  h4Highs: number[] = [],
+  h4Lows: number[] = [],
+  h4Closes: number[] = [],
+  h4Volumes: number[] = [],
 ): Promise<SkipConditions> {
   const reasons: string[] = [];
   let shouldSkip = false;
@@ -1254,6 +1456,31 @@ export async function checkSkipConditions(
     reasons.push("CHoCH terbentuk di H1 — struktur H1 sudah berbalik arah");
     shouldSkip = true;
   }
+
+  // 2b. CHoCH on H4 (Teori Dow: primary trend reversal — hard filter lebih kuat)
+  const chochH4Detected = h4Highs.length > 0
+    ? detectCHoCH(h4Highs, h4Lows, h4Closes, bias)
+    : false;
+  if (chochH4Detected) {
+    reasons.push("CHoCH terbentuk di H4 — primary trend sudah berbalik, setup invalid");
+    shouldSkip = true;
+  }
+
+  // 2c. Dow Phase Detection
+  const dowResult = h4Closes.length > 0
+    ? detectDowPhase(h4Highs, h4Lows, h4Closes, h4Volumes, bias)
+    : { phase: 'unknown' as DowPhase, description: 'Data H4 tidak tersedia' };
+
+  // Distribution phase = sinyal bahaya, skip
+  if (dowResult.phase === 'distribution') {
+    reasons.push(`Fase Distribution terdeteksi di H4 — ${dowResult.description}`);
+    shouldSkip = true;
+  }
+
+  // 2d. Volume Trend (Teori Dow: volume harus konfirmasi trend)
+  const volTrend = h4Closes.length > 0
+    ? checkVolumeTrend(h4Closes, h4Volumes, bias)
+    : { valid: true, description: 'Data volume tidak tersedia' };
 
   // 3. OI + Accumulation Detection
   let oiChange = 0;
@@ -1329,7 +1556,16 @@ export async function checkSkipConditions(
     }
   } catch { /* Funding rate check failed silently */ }
 
-  return { shouldSkip, reasons, rsi, rsiDivergence, chochDetected, oiChange, oiAccumulation, oiAccumulationDesc, fundingRate };
+  return {
+    shouldSkip, reasons, rsi, rsiDivergence,
+    chochDetected, chochH4Detected,
+    oiChange, oiAccumulation, oiAccumulationDesc,
+    fundingRate,
+    dowPhase: dowResult.phase,
+    dowPhaseDesc: dowResult.description,
+    volumeTrendValid: volTrend.valid,
+    volumeTrendDesc: volTrend.description,
+  };
 }
 
 // ─── Main Analysis Function ───────────────────────────────────────────────────
@@ -1409,7 +1645,8 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     // STEP 3: Check skip conditions (after zone found)
     const skipConds = await checkSkipConditions(
       symbol, bias,
-      h1.closes, h1.highs, h1.lows
+      h1.closes, h1.highs, h1.lows,
+      h4.highs, h4.lows, h4.closes, h4.volumes
     );
 
     if (skipConds.shouldSkip) {
@@ -1441,7 +1678,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // STEP 4b: Rejection candle 15M (scoring, bukan hard filter)
     const rejection15M = checkRejection15M(
-      refinedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
+      refinedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias, m15.volumes
     );
 
     // STEP 4c: Pattern konfirmasi H1/H4 (scoring, bukan hard filter)
@@ -1491,8 +1728,13 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     }
 
     if (rejection15M.confirmed) {
-      profitProbability += 25;
-      probabilityFactors.push(`✅ Rejection 15M: ${rejection15M.candleType} (+25%)`);
+      if (rejection15M.volumeConfirmed) {
+        profitProbability += 25;
+        probabilityFactors.push(`✅ Rejection 15M + Volume: ${rejection15M.candleType} (+25%)`);
+      } else {
+        profitProbability += 15;
+        probabilityFactors.push(`✅ Rejection 15M: ${rejection15M.candleType} (+15%) — volume lemah`);
+      }
     } else {
       probabilityFactors.push("⚠️ Tidak ada rejection candle 15M di zona");
     }
@@ -1516,6 +1758,35 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       probabilityFactors.push(`✅ Zona Tier ${selectedZone.tier} (+10%)`);
     } else {
       probabilityFactors.push(`⚠️ Zona Tier ${selectedZone.tier} (Tier 1-2 lebih baik)`);
+    }
+
+    // Fresh zone check — zona yang belum pernah disentuh lebih kuat
+    const zoneTouches = selectedZone.touches ?? 0;
+    if (zoneTouches === 0) {
+      probabilityFactors.push(`✅ Zona fresh — belum pernah ditest`);
+    } else if (zoneTouches === 1) {
+      probabilityFactors.push(`⚠️ Zona sudah disentuh 1x — masih valid`);
+    } else {
+      probabilityFactors.push(`🚫 Zona sudah disentuh ${zoneTouches}x — kekuatan berkurang`);
+    }
+
+    // Teori Dow: fase trend
+    if (skipConds.dowPhase === 'accumulation') {
+      profitProbability += 10;
+      probabilityFactors.push(`✅ Fase Dow: Accumulation (+10%) — ${skipConds.dowPhaseDesc}`);
+    } else if (skipConds.dowPhase === 'participation') {
+      profitProbability += 5;
+      probabilityFactors.push(`✅ Fase Dow: Public Participation (+5%) — ${skipConds.dowPhaseDesc}`);
+    } else if (skipConds.dowPhase === 'unknown') {
+      probabilityFactors.push(`⚠️ Fase Dow tidak teridentifikasi`);
+    }
+
+    // Teori Dow: volume konfirmasi trend
+    if (skipConds.volumeTrendValid) {
+      profitProbability += 5;
+      probabilityFactors.push(`✅ Volume Dow valid (+5%) — ${skipConds.volumeTrendDesc}`);
+    } else {
+      probabilityFactors.push(`⚠️ Volume Dow lemah — ${skipConds.volumeTrendDesc}`);
     }
 
     // Entry price: pakai rejection 15M kalau ada, fallback ke zona entry
@@ -1578,6 +1849,11 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       patternName: confirmedPattern?.name,
       profitProbability,
       probabilityFactors,
+      dowPhase: skipConds.dowPhase,
+      dowPhaseDesc: skipConds.dowPhaseDesc,
+      volumeTrendValid: skipConds.volumeTrendValid,
+      volumeTrendDesc: skipConds.volumeTrendDesc,
+      chochH4Detected: skipConds.chochH4Detected,
       rsi: skipConds.rsi,
       rsiDivergence: skipConds.rsiDivergence,
       chochDetected: skipConds.chochDetected,
@@ -2623,7 +2899,7 @@ export async function runBacktest(
       const choch15M = detectCHoCH15M(m15Slice.highs, m15Slice.lows, m15Slice.closes, bias);
       const rejection15M = checkRejection15M(
         { low: selectedZone.low, high: selectedZone.high, entryPrice: selectedZone.entryPrice, zoneType: selectedZone.zoneType, refined: false },
-        m15Slice.opens, m15Slice.highs, m15Slice.lows, m15Slice.closes, bias
+        m15Slice.opens, m15Slice.highs, m15Slice.lows, m15Slice.closes, bias, m15Slice.volumes
       );
 
       // Pattern konfirmasi

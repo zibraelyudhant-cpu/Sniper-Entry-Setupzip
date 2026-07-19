@@ -14,7 +14,7 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useGetSmcAnalysis } from '@workspace/api-client-react';
+import { useGetSmcAnalysis, useGetSniperScan } from '@workspace/api-client-react';
 import type { SniperResult } from '@workspace/api-client-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -512,13 +512,237 @@ function TimingItem({ label, value, colors }: TimingItemProps) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function SniperScreen() {
-  const colors = useColors();
+
+// ─── Probability Badge ────────────────────────────────────────────────────────
+
+function ProbBadge({ prob, colors }: { prob: number; colors: ReturnType<typeof useColors> }) {
+  const color = prob >= 75 ? colors.bullish : prob >= 50 ? colors.gold : colors.bearish;
+  const label = prob >= 75 ? 'TINGGI' : prob >= 50 ? 'SEDANG' : 'RENDAH';
+  return (
+    <View style={[scanStyles.probBadge, { borderColor: color, backgroundColor: `${color}18` }]}>
+      <Text style={[scanStyles.probBadgeText, { color }]}>{prob}% {label}</Text>
+    </View>
+  );
+}
+
+// ─── Scan Coin Card ───────────────────────────────────────────────────────────
+
+function ScanCoinCard({ coin, onPress, colors }: { coin: SniperResult; onPress: () => void; colors: ReturnType<typeof useColors> }) {
+  const base = coin.symbol.replace('USDT', '');
+  const isBuy = coin.bias === 'bullish';
+  const biasColor = isBuy ? colors.bullish : colors.bearish;
+  const prob = coin.profitProbability ?? 0;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [scanStyles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
+    >
+      {/* Row 1: symbol + prob badge */}
+      <View style={scanStyles.cardRow1}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+            <Text style={[scanStyles.cardBase, { color: colors.foreground }]}>{base}</Text>
+            <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+            <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
+              <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>
+                {isBuy ? '▲ BUY' : '▼ SELL'}
+              </Text>
+            </View>
+            {coin.zoneType && (
+              <View style={[scanStyles.zoneBadge, { borderColor: colors.border }]}>
+                <Text style={[scanStyles.zoneBadgeText, { color: colors.mutedForeground }]}>{coin.zoneType}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 6 }}>
+          <ProbBadge prob={prob} colors={colors} />
+          <Text style={[scanStyles.cardPrice, { color: colors.foreground }]}>{formatPrice(coin.currentPrice)}</Text>
+        </View>
+        <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
+      </View>
+
+      {/* Row 2: kondisi CHoCH + Rejection + Pattern */}
+      <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>CHoCH 15M</Text>
+          <Text style={[scanStyles.condValue, { color: coin.choch15M ? colors.bullish : colors.bearish }]}>
+            {coin.choch15M ? '✅' : '⚠️'}
+          </Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Rejection</Text>
+          <Text style={[scanStyles.condValue, { color: coin.rejection15M ? colors.bullish : colors.bearish }]}>
+            {coin.rejection15M ? '✅' : '⚠️'}
+          </Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Pattern</Text>
+          <Text style={[scanStyles.condValue, { color: coin.patternConfirmed ? colors.bullish : colors.bearish }]}>
+            {coin.patternConfirmed ? '✅' : '⚠️'}
+          </Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
+          <Text style={[scanStyles.condValue, { color: colors.foreground }]}>
+            {coin.entryPrice ? formatPrice(coin.entryPrice) : '—'}
+          </Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SL</Text>
+          <Text style={[scanStyles.condValue, { color: colors.bearish }]}>
+            {coin.stopLoss ? formatPrice(coin.stopLoss) : '—'}
+          </Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP1</Text>
+          <Text style={[scanStyles.condValue, { color: colors.bullish }]}>
+            {coin.takeProfit1 ? formatPrice(coin.takeProfit1) : '—'}
+          </Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP2</Text>
+          <Text style={[scanStyles.condValue, { color: colors.gold }]}>
+            {coin.takeProfit2 ? formatPrice(coin.takeProfit2) : '—'}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+// ─── Scan Tab ─────────────────────────────────────────────────────────────────
+
+function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const insets = useSafeAreaInsets();
+  const bottomPadding = insets.bottom + 80;
+  const { data, isLoading, isError, refetch } = useGetSniperScan({
+    query: { staleTime: 5 * 60 * 1000 },
+  });
+
+  const handleCoinPress = useCallback((coin: SniperResult) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push({
+      pathname: '/(tabs)/sniper',
+      params: { tab: 'analisa', symbol: coin.symbol },
+    });
+  }, []);
+
+  if (isLoading) {
+    return (
+      <View style={scanStyles.center}>
+        <ActivityIndicator color={colors.primary} size="large" />
+        <Text style={[scanStyles.loadingText, { color: colors.mutedForeground }]}>Scanning sniper setup...</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa H4→H1→15M tiap koin</Text>
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={scanStyles.center}>
+        <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const coins = data?.coins ?? [];
+
+  if (coins.length === 0) {
+    return (
+      <View style={scanStyles.center}>
+        <Feather name="crosshair" size={36} color={colors.mutedForeground} />
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Tidak ada setup valid</Text>
+        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>
+          Tidak ada koin dengan probabilitas ≥ 30% saat ini.
+        </Text>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // Group by probability tier
+  const high = coins.filter(c => (c.profitProbability ?? 0) >= 75);
+  const mid = coins.filter(c => (c.profitProbability ?? 0) >= 50 && (c.profitProbability ?? 0) < 75);
+  const low = coins.filter(c => (c.profitProbability ?? 0) >= 30 && (c.profitProbability ?? 0) < 50);
+
+  return (
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: bottomPadding }}
+      showsVerticalScrollIndicator={false}
+    >
+      {high.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🟢 PROBABILITAS TINGGI (≥75%)</Text>
+          {high.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+        </>
+      )}
+      {mid.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🟡 PROBABILITAS SEDANG (50–74%)</Text>
+          {mid.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+        </>
+      )}
+      {low.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.mutedForeground }]}>🔴 PROBABILITAS RENDAH (30–49%)</Text>
+          {low.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+const scanStyles = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  loadingText: { fontSize: 14, fontFamily: 'Inter_500Medium', marginTop: 8 },
+  loadingSub: { fontSize: 12, fontFamily: 'Inter_400Regular' },
+  emptyTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center', marginTop: 8 },
+  emptySub: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
+  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 8 },
+  retryText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  groupHeader: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
+  card: { borderRadius: 12, borderWidth: 1, marginBottom: 8, overflow: 'hidden' },
+  cardRow1: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
+  cardBase: { fontSize: 16, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
+  cardQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  cardPrice: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  biasBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  biasBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.3 },
+  zoneBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  zoneBadgeText: { fontSize: 8, fontFamily: 'Inter_500Medium' },
+  probBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  probBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold' },
+  condRow: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 8, paddingHorizontal: 4 },
+  condItem: { flex: 1, alignItems: 'center', gap: 3 },
+  condLabel: { fontSize: 7, fontFamily: 'Inter_500Medium', letterSpacing: 0.3 },
+  condValue: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
+  condDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
+});
+
+// ─── Analisa Tab ──────────────────────────────────────────────────────────────
+
+function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useColors>; initialSymbol?: string }) {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ symbol?: string }>();
 
-  const [inputSymbol, setInputSymbol] = useState(params.symbol ?? '');
-  const [querySymbol, setQuerySymbol] = useState(params.symbol ?? '');
+  const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? params.symbol ?? '');
+  const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? params.symbol ?? '');
 
   // Update when navigated from screener
   useEffect(() => {
@@ -540,51 +764,39 @@ export default function SniperScreen() {
     setQuerySymbol(sym);
   }, [inputSymbol]);
 
-  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
   const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Sticky Header */}
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: topPadding + 12,
-            backgroundColor: colors.background,
-            borderBottomColor: colors.border,
-          },
-        ]}
-      >
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Entry</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-          Analisa top-down SMC presisi
-        </Text>
-
-        <View style={styles.searchRow}>
-          <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Feather name="crosshair" size={15} color={colors.primary} />
-            <TextInput
-              style={[styles.inputText, { color: colors.foreground }]}
-              placeholder="Masukkan pair (BTCUSDT)"
-              placeholderTextColor={colors.mutedForeground}
-              value={inputSymbol}
-              onChangeText={setInputSymbol}
-              autoCapitalize="characters"
-              returnKeyType="search"
-              onSubmitEditing={handleAnalyze}
-            />
-          </View>
-          <Pressable
-            onPress={handleAnalyze}
-            style={({ pressed }) => [
-              styles.analyzeBtn,
-              { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <Text style={[styles.analyzeBtnText, { color: colors.primaryForeground }]}>Analisa</Text>
-          </Pressable>
+    <View style={{ flex: 1 }}>
+      {/* Input bar */}
+      <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
+        <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Feather name="crosshair" size={15} color={colors.primary} />
+          <TextInput
+            style={[styles.inputText, { color: colors.foreground }]}
+            placeholder="Masukkan pair (BTCUSDT)"
+            placeholderTextColor={colors.mutedForeground}
+            value={inputSymbol}
+            onChangeText={setInputSymbol}
+            autoCapitalize="characters"
+            returnKeyType="search"
+            onSubmitEditing={handleAnalyze}
+          />
+          {inputSymbol.length > 0 && (
+            <Pressable onPress={() => setInputSymbol('')}>
+              <Feather name="x" size={14} color={colors.mutedForeground} />
+            </Pressable>
+          )}
         </View>
+        <Pressable
+          onPress={handleAnalyze}
+          style={({ pressed }) => [
+            styles.analyzeBtn,
+            { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+          ]}
+        >
+          <Text style={[styles.analyzeBtnText, { color: colors.primaryForeground }]}>Analisa</Text>
+        </Pressable>
       </View>
 
       {/* Content */}
@@ -654,27 +866,72 @@ export default function SniperScreen() {
   );
 }
 
+// ─── Main Screen ─────────────────────────────────────────────────────────────
+
+export default function SniperScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ tab?: string; symbol?: string }>();
+  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa'>(
+    params.tab === 'analisa' ? 'analisa' : 'scan'
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Entry</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>SMC Top-Down H4→H1→15M</Text>
+          </View>
+          {activeTab === 'scan' && (
+            <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
+              <View style={[styles.liveDotInner, { backgroundColor: colors.bullish }]} />
+              <Text style={[styles.liveText, { color: colors.bullish }]}>LIVE</Text>
+            </View>
+          )}
+        </View>
+        {/* Tab switcher */}
+        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {(['scan', 'analisa'] as const).map(tab => (
+            <Pressable
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[styles.tabBtn, activeTab === tab && { backgroundColor: colors.primary }]}
+            >
+              <Text style={[styles.tabBtnText, { color: activeTab === tab ? colors.primaryForeground : colors.mutedForeground }]}>
+                {tab === 'scan' ? 'SCAN' : 'ANALISA'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {activeTab === 'scan'
+        ? <ScanTab colors={colors} />
+        : <AnalisaTab colors={colors} initialSymbol={params.symbol ?? undefined} />
+      }
+    </View>
+  );
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.5,
-  },
-  headerSub: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    marginTop: 2,
-    marginBottom: 12,
-  },
-  searchRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  headerTitle: { fontSize: 26, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
+  headerSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  liveDot: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, gap: 5 },
+  liveDotInner: { width: 6, height: 6, borderRadius: 3 },
+  liveText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 1 },
+  tabSwitcher: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, overflow: 'hidden', height: 38 },
+  tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8 },
+  inputArea: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 8 },
   inputBox: {
     flex: 1,
     flexDirection: 'row',
