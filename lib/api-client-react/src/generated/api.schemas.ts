@@ -197,6 +197,44 @@ export interface BreakoutScanResponse {
   fetchedAt: number;
 }
 
+export type ScalpingResultStatus = 'waiting' | 'in_zone' | 'expired' | 'no_setup' | 'no_structure' | 'skip' | 'error';
+export type ScalpingResultBias = 'bullish' | 'bearish';
+
+export interface ScalpingOB5M {
+  low: number;
+  high: number;
+  mid: number;
+  fresh: boolean;
+}
+
+export interface ScalpingResult {
+  status: ScalpingResultStatus;
+  symbol: string;
+  bias?: ScalpingResultBias;
+  currentPrice: number;
+  timestamp: string;
+  message?: string;
+  score?: number;
+  maxScore: number;
+  structure15M?: string;
+  choch15M?: boolean;
+  ob5M?: ScalpingOB5M;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  takeProfit2?: number;
+  rr1?: number;
+  rr2?: number;
+  atr15MPct?: number;
+  spreadEstPct?: number;
+  filterResults?: string[];
+}
+
+export interface ScalpingScanResponse {
+  coins: ScalpingResult[];
+  fetchedAt: number;
+}
+
 export type GetBreakoutParams = { symbol: string };
 
 export interface PatternResult {

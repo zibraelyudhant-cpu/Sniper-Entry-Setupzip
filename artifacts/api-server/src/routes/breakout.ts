@@ -1,39 +1,47 @@
 import { Router } from 'express';
-import { analyzeBreakoutEntry } from '../lib/smc';
+import { analyzeScalpingEntry } from '../lib/smc';
 import { getUniverse } from './screener';
 
 const router = Router();
 
+// GET /api/breakout?symbol=BTCUSDT  (route name dipertahankan agar tidak perlu ubah index.ts)
 router.get('/breakout', async (req, res) => {
   const symbol = req.query['symbol'] as string;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
   const normalized = symbol.toUpperCase().endsWith('USDT')
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
-  const result = await analyzeBreakoutEntry(normalized);
-  res.json(result);
+  try {
+    const result = await analyzeScalpingEntry(normalized);
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: message });
+  }
 });
 
+// GET /api/breakout/scan
 router.get('/breakout/scan', async (req, res) => {
   try {
     const universe = await getUniverse();
-    const results: Awaited<ReturnType<typeof analyzeBreakoutEntry>>[] = [];
+    const results: Awaited<ReturnType<typeof analyzeScalpingEntry>>[] = [];
     const batchSize = 5;
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
-      const batchResults = await Promise.allSettled(batch.map(s => analyzeBreakoutEntry(s)));
+      const batchResults = await Promise.allSettled(batch.map(s => analyzeScalpingEntry(s)));
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status === 'ready' || val.status === 'in_zone' || val.status === 'approaching')
+          if (val.status === 'in_zone' || val.status === 'waiting')
             results.push(val);
         }
       }
     }
-    const order: Record<string, number> = { ready: 0, in_zone: 1, approaching: 2 };
+    // Sort: in_zone dulu, lalu waiting, sort by score desc
+    const order: Record<string, number> = { in_zone: 0, waiting: 1 };
     results.sort((a, b) => {
-      const ao = order[a.status] ?? 3, bo = order[b.status] ?? 3;
+      const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
       if (ao !== bo) return ao - bo;
-      return (b.volumeRatio ?? 0) - (a.volumeRatio ?? 0);
+      return (b.score ?? 0) - (a.score ?? 0);
     });
     res.json({ coins: results, fetchedAt: Date.now() });
   } catch (err) {

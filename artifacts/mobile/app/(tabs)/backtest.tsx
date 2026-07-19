@@ -198,7 +198,7 @@ const PERIODS = [
 
 const MENUS = [
   { label: 'Sniper', value: 'sniper' },
-  { label: 'Breakout', value: 'breakout' },
+  { label: 'Scalping', value: 'breakout' },
   { label: 'Keduanya', value: 'both' },
 ] as const;
 
@@ -442,7 +442,7 @@ export default function BacktestScreen() {
             {/* Hasil Breakout */}
             {result.breakoutResult && (
               <MenuResult
-                title="Menu 4 — Breakout Retest"
+                title="Menu 4 — Scalping SMC 15M"
                 result={result.breakoutResult}
                 colors={colors}
               />

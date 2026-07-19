@@ -19,6 +19,8 @@ import type {
   ErrorResponse,
   GetSmcAnalysisParams,
   SniperScanResponse,
+  ScalpingResult,
+  ScalpingScanResponse,
   HealthStatus,
   ScreenerResponse,
   SniperResult
@@ -404,6 +406,59 @@ export function useGetSniperScan<TData = Awaited<ReturnType<typeof getSniperScan
   options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSniperScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetSniperScanQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+// ─── Scalping Scanner hooks ───────────────────────────────────────────────────
+
+export const getGetScalpingUrl = (symbol: string) => `/api/breakout?symbol=${symbol}`;
+
+export const getScalping = async (symbol: string, options?: RequestInit): Promise<ScalpingResult> =>
+  customFetch<ScalpingResult>(getGetScalpingUrl(symbol), { ...options, method: 'GET' });
+
+export const getGetScalpingQueryKey = (symbol: string) => ['/api/breakout', symbol] as const;
+
+export const getGetScalpingQueryOptions = <TData = Awaited<ReturnType<typeof getScalping>>, TError = ErrorType<ErrorResponse>>(
+  symbol: string,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getScalping>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetScalpingQueryKey(symbol);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScalping>>> = ({ signal }) =>
+    getScalping(symbol, { signal, ...requestOptions });
+  return { queryKey, queryFn, enabled: !!symbol, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getScalping>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetScalping<TData = Awaited<ReturnType<typeof getScalping>>, TError = ErrorType<ErrorResponse>>(
+  symbol: string,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getScalping>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScalpingQueryOptions(symbol, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getScalpingScan = async (options?: RequestInit): Promise<ScalpingScanResponse> =>
+  customFetch<ScalpingScanResponse>('/api/breakout/scan', { ...options, method: 'GET' });
+
+export const getGetScalpingScanQueryKey = () => ['/api/breakout/scan'] as const;
+
+export const getGetScalpingScanQueryOptions = <TData = Awaited<ReturnType<typeof getScalpingScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getScalpingScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetScalpingScanQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScalpingScan>>> = ({ signal }) =>
+    getScalpingScan({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getScalpingScan>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetScalpingScan<TData = Awaited<ReturnType<typeof getScalpingScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getScalpingScan>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScalpingScanQueryOptions(options);
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
   return withQueryKey(query, queryOptions.queryKey);
 }

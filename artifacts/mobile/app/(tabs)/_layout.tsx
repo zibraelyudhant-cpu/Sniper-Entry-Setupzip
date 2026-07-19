@@ -24,8 +24,8 @@ function NativeTabLayout() {
         <Label>Kalkulator</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="breakout">
-        <Icon sf={{ default: 'bolt', selected: 'bolt.fill' }} />
-        <Label>Breakout</Label>
+        <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
+        <Label>Scalping</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="patterns">
         <Icon sf={{ default: 'waveform', selected: 'waveform' }} />
@@ -118,10 +118,10 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="breakout"
         options={{
-          title: 'Breakout',
+          title: 'Scalping',
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="bolt.fill" tintColor={color} size={22} />
+              <SymbolView name="bolt.horizontal.fill" tintColor={color} size={22} />
             ) : (
               <Feather name="zap" size={22} color={color} />
             ),

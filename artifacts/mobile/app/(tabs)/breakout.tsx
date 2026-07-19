@@ -1,59 +1,33 @@
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+  ActivityIndicator, Platform, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useGetBreakout, useGetBreakoutScan } from '@workspace/api-client-react';
-import type { BreakoutResult } from '@workspace/api-client-react';
+import { useGetScalping, useGetScalpingScan } from '@workspace/api-client-react';
+import type { ScalpingResult } from '@workspace/api-client-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 function formatPrice(price: number): string {
-  if (price >= 10000) return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (price >= 100) return price.toFixed(2);
+  if (price >= 1000) return price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (price >= 1) return price.toFixed(4);
+  if (price >= 0.01) return price.toFixed(5);
   return price.toFixed(6);
 }
 
-function formatSymbol(symbol: string) {
-  return { base: symbol.replace('USDT', ''), quote: 'USDT' };
-}
-
-// ─── Badge tipe breakout ──────────────────────────────────────────────────────
-
-function BreakoutTypeBadge({ type, colors }: { type: string; colors: ReturnType<typeof useColors> }) {
-  const map: Record<string, { label: string; color: string }> = {
-    sr_horizontal: { label: 'S/R HORIZONTAL', color: '#3B82F6' },
-    structure_hh: { label: 'STRUKTUR HH/LL', color: '#8B5CF6' },
-    range_squeeze: { label: 'RANGE SQUEEZE', color: '#F97316' },
-  };
-  const item = map[type] ?? { label: type.toUpperCase(), color: colors.mutedForeground };
-  return (
-    <View style={[styles.typeBadge, { borderColor: item.color, backgroundColor: `${item.color}18` }]}>
-      <Text style={[styles.typeBadgeText, { color: item.color }]}>{item.label}</Text>
-    </View>
-  );
-}
-
-// ─── Status badge ─────────────────────────────────────────────────────────────
+// ─── Status Badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status, colors }: { status: string; colors: ReturnType<typeof useColors> }) {
   const map: Record<string, { label: string; color: string }> = {
-    ready: { label: '✅ SIAP ENTRY', color: colors.bullish },
-    in_zone: { label: '👀 DI ZONA', color: '#14B8A6' },
-    approaching: { label: '⏳ MENUJU ZONA', color: colors.gold },
-    no_setup: { label: '🚫 FILTER TIDAK LOLOS', color: colors.bearish },
+    in_zone:  { label: '🎯 IN ZONE', color: colors.bullish },
+    waiting:  { label: '⏳ WAITING', color: colors.gold },
+    expired:  { label: '💨 EXPIRED', color: colors.mutedForeground },
+    no_setup: { label: '🚫 NO SETUP', color: colors.bearish },
+    skip:     { label: '⏭ SKIP', color: colors.mutedForeground },
   };
   const item = map[status] ?? { label: status.toUpperCase(), color: colors.mutedForeground };
   return (
@@ -63,149 +37,131 @@ function StatusBadge({ status, colors }: { status: string; colors: ReturnType<ty
   );
 }
 
-function PatternConfidenceBadge({ confidence, patterns, colors }: {
-  confidence: string;
-  patterns: string[];
-  colors: ReturnType<typeof useColors>;
-}) {
-  const map: Record<string, { label: string; color: string }> = {
-    HIGH: { label: '🔥 PATTERN HIGH', color: colors.bullish },
-    MEDIUM: { label: '📊 PATTERN MED', color: colors.gold },
-    LOW: { label: '⚠ PATTERN LOW', color: colors.mutedForeground },
-    NONE: { label: '— NO PATTERN', color: colors.mutedForeground },
-  };
-  const item = map[confidence] ?? { label: confidence, color: colors.mutedForeground };
+// ─── Score Badge ──────────────────────────────────────────────────────────────
+
+function ScoreBadge({ score, max, colors }: { score: number; max: number; colors: ReturnType<typeof useColors> }) {
+  const pct = score / max;
+  const color = pct >= 0.85 ? colors.bullish : pct >= 0.6 ? colors.gold : colors.bearish;
   return (
-    <View style={{ gap: 4 }}>
-      <View style={[styles.statusBadge, { borderColor: item.color, backgroundColor: `${item.color}18` }]}>
-        <Text style={[styles.statusBadgeText, { color: item.color }]}>{item.label}</Text>
-      </View>
-      {patterns.length > 0 && (
-        <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: 'Inter_400Regular' }}>
-          {patterns.join(' · ')}
-        </Text>
-      )}
+    <View style={[styles.scoreBadge, { borderColor: color, backgroundColor: `${color}18` }]}>
+      <Text style={[styles.scoreBadgeText, { color }]}>{score}/{max}</Text>
     </View>
   );
 }
 
-// ─── Coin Card ────────────────────────────────────────────────────────────────
+// ─── Scan Coin Card ───────────────────────────────────────────────────────────
 
-function CoinCard({ coin, onPress, colors }: { coin: BreakoutResult; onPress: () => void; colors: ReturnType<typeof useColors> }) {
-  const { base, quote } = formatSymbol(coin.symbol);
+function ScanCoinCard({ coin, onPress, colors }: { coin: ScalpingResult; onPress: () => void; colors: ReturnType<typeof useColors> }) {
+  const base = coin.symbol.replace('USDT', '');
+  const isBuy = coin.bias === 'bullish';
+  const biasColor = isBuy ? colors.bullish : colors.bearish;
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
+      style={({ pressed }) => [scanStyles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
     >
-      <View style={styles.cardRow1}>
+      <View style={scanStyles.cardRow1}>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-            <Text style={[styles.cardBase, { color: colors.foreground }]}>{base}</Text>
-            <Text style={[styles.cardQuote, { color: colors.mutedForeground }]}>/{quote}</Text>
+            <Text style={[scanStyles.cardBase, { color: colors.foreground }]}>{base}</Text>
+            <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-            {coin.breakoutType && <BreakoutTypeBadge type={coin.breakoutType} colors={colors} />}
-            <View style={[styles.volBadge, { borderColor: colors.border }]}>
-              <Text style={[styles.volText, { color: colors.mutedForeground }]}>Vol {coin.volumeRatio?.toFixed(1)}x</Text>
+            <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
+              <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
-            {coin.patternConfidence && coin.patternConfidence !== 'LOW' && coin.patternConfidence !== 'NONE' && (
-              <View style={[styles.volBadge, { borderColor: coin.patternConfidence === 'HIGH' ? colors.bullish : colors.gold }]}>
-                <Text style={[styles.volText, { color: coin.patternConfidence === 'HIGH' ? colors.bullish : colors.gold }]}>
-                  {coin.patternConfidence === 'HIGH' ? '🔥 PATTERN HIGH' : '📊 PATTERN MED'}
-                </Text>
+            {coin.structure15M && (
+              <View style={[scanStyles.zoneBadge, { borderColor: colors.border }]}>
+                <Text style={[scanStyles.zoneBadgeText, { color: colors.mutedForeground }]}>{coin.structure15M}</Text>
               </View>
             )}
           </View>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <StatusBadge status={coin.status} colors={colors} />
-          <Text style={[styles.cardPrice, { color: colors.foreground }]}>{formatPrice(coin.currentPrice)}</Text>
+          {coin.score !== undefined && <ScoreBadge score={coin.score} max={coin.maxScore} colors={colors} />}
         </View>
         <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
       </View>
 
-      {coin.entryPrice && (
-        <View style={[styles.cardRow2, { borderTopColor: colors.border }]}>
-          <View style={styles.levelItem}>
-            <Text style={[styles.levelLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
-            <Text style={[styles.levelValue, { color: colors.foreground }]}>{formatPrice(coin.entryPrice)}</Text>
-          </View>
-          <View style={[styles.levelDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.levelItem}>
-            <Text style={[styles.levelLabel, { color: colors.mutedForeground }]}>SL</Text>
-            <Text style={[styles.levelValue, { color: colors.bearish }]}>{coin.stopLoss ? formatPrice(coin.stopLoss) : '—'}</Text>
-          </View>
-          <View style={[styles.levelDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.levelItem}>
-            <Text style={[styles.levelLabel, { color: colors.mutedForeground }]}>TP1</Text>
-            <Text style={[styles.levelValue, { color: colors.bullish }]}>{coin.takeProfit1 ? formatPrice(coin.takeProfit1) : '—'}</Text>
-          </View>
-          <View style={[styles.levelDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.levelItem}>
-            <Text style={[styles.levelLabel, { color: colors.mutedForeground }]}>TP2</Text>
-            <Text style={[styles.levelValue, { color: colors.gold }]}>{coin.takeProfit2 ? formatPrice(coin.takeProfit2) : '—'}</Text>
-          </View>
+      <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
+          <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.entryPrice ? formatPrice(coin.entryPrice) : '—'}</Text>
         </View>
-      )}
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SL</Text>
+          <Text style={[scanStyles.condValue, { color: colors.bearish }]}>{coin.stopLoss ? formatPrice(coin.stopLoss) : '—'}</Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP1</Text>
+          <Text style={[scanStyles.condValue, { color: colors.bullish }]}>{coin.takeProfit1 ? formatPrice(coin.takeProfit1) : '—'}</Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP2</Text>
+          <Text style={[scanStyles.condValue, { color: colors.gold }]}>{coin.takeProfit2 ? formatPrice(coin.takeProfit2) : '—'}</Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RR</Text>
+          <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rr1 ? `1:${coin.rr1.toFixed(1)}` : '—'}</Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ATR</Text>
+          <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.atr15MPct ? `${coin.atr15MPct.toFixed(2)}%` : '—'}</Text>
+        </View>
+      </View>
     </Pressable>
   );
 }
 
-// ─── Tab SCAN ─────────────────────────────────────────────────────────────────
+// ─── Scan Tab ─────────────────────────────────────────────────────────────────
 
-function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string) => void }) {
   const insets = useSafeAreaInsets();
-  const bottomPadding = insets.bottom + 80;
-  const { data, isLoading, isError, refetch } = useGetBreakoutScan({
-    query: { staleTime: 5 * 60 * 1000 },
+  const { data, isLoading, isError, refetch } = useGetScalpingScan({
+    query: { staleTime: 3 * 60 * 1000 },
   });
-
-  const handleCoinPress = useCallback((coin: BreakoutResult) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({
-      pathname: '/(tabs)/breakout',
-      params: { tab: 'analisa', symbol: coin.symbol },
-    });
-  }, []);
-
-  const ready = (data?.coins ?? []).filter(c => c.status === 'ready');
-  const inZone = (data?.coins ?? []).filter(c => c.status === 'in_zone');
-  const approaching = (data?.coins ?? []).filter(c => c.status === 'approaching');
-  const total = ready.length + inZone.length + approaching.length;
 
   if (isLoading) {
     return (
-      <View style={styles.center}>
+      <View style={scanStyles.center}>
         <ActivityIndicator color={colors.primary} size="large" />
-        <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>Scanning breakout...</Text>
+        <Text style={[scanStyles.loadingText, { color: colors.mutedForeground }]}>Scanning scalping setup...</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa OB 5M dalam struktur 15M</Text>
       </View>
     );
   }
 
   if (isError) {
     return (
-      <View style={styles.center}>
+      <View style={scanStyles.center}>
         <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
-        <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-        <Pressable onPress={() => refetch()} style={[styles.retryBtn, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
         </Pressable>
       </View>
     );
   }
 
-  if (total === 0) {
+  const coins = data?.coins ?? [];
+  const inZone = coins.filter(c => c.status === 'in_zone');
+  const waiting = coins.filter(c => c.status === 'waiting');
+
+  if (coins.length === 0) {
     return (
-      <View style={styles.center}>
-        <Feather name="search" size={36} color={colors.mutedForeground} />
-        <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Tidak ada breakout valid</Text>
-        <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-          Market sedang konsolidasi atau tidak ada level yang ditembus dengan volume kuat.
-        </Text>
-        <Pressable onPress={() => refetch()} style={[styles.retryBtn, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
+      <View style={scanStyles.center}>
+        <Feather name="crosshair" size={36} color={colors.mutedForeground} />
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Tidak ada setup scalping</Text>
+        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Tidak ada koin yang lolos semua filter saat ini</Text>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
         </Pressable>
       </View>
     );
@@ -213,73 +169,84 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
 
   return (
     <ScrollView
-      contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: bottomPadding }}
+      contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }}
       showsVerticalScrollIndicator={false}
     >
-      {ready.length > 0 && (
-        <>
-          <Text style={[styles.sectionHeader, { color: colors.bullish }]}>✅ SIAP ENTRY — Retest Terkonfirmasi</Text>
-          {ready.map(c => <CoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
-        </>
-      )}
       {inZone.length > 0 && (
         <>
-          <Text style={[styles.sectionHeader, { color: '#14B8A6' }]}>👀 DI ZONA — Pantau Rejection</Text>
-          {inZone.map(c => <CoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+          <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 IN ZONE — Pasang limit sekarang</Text>
+          {inZone.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
         </>
       )}
-      {approaching.length > 0 && (
+      {waiting.length > 0 && (
         <>
-          <Text style={[styles.sectionHeader, { color: colors.gold }]}>⏳ MENUNGGU RETEST</Text>
-          {approaching.map(c => <CoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Harga belum di zona</Text>
+          {waiting.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
         </>
       )}
     </ScrollView>
   );
 }
 
-// ─── Tab ANALISA ──────────────────────────────────────────────────────────────
+const scanStyles = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  loadingText: { fontSize: 14, fontFamily: 'Inter_500Medium', marginTop: 8 },
+  loadingSub: { fontSize: 12, fontFamily: 'Inter_400Regular' },
+  emptyTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center', marginTop: 8 },
+  emptySub: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
+  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 8 },
+  retryText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  groupHeader: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
+  card: { borderRadius: 12, borderWidth: 1, marginBottom: 8, overflow: 'hidden' },
+  cardRow1: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
+  cardBase: { fontSize: 16, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
+  cardQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  biasBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  biasBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.3 },
+  zoneBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  zoneBadgeText: { fontSize: 8, fontFamily: 'Inter_500Medium' },
+  condRow: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 8, paddingHorizontal: 4 },
+  condItem: { flex: 1, alignItems: 'center', gap: 3 },
+  condLabel: { fontSize: 7, fontFamily: 'Inter_500Medium', letterSpacing: 0.3 },
+  condValue: { fontSize: 9, fontFamily: 'Inter_600SemiBold' },
+  condDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
+});
+
+// ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
 function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useColors>; initialSymbol?: string }) {
   const insets = useSafeAreaInsets();
-  const bottomPadding = insets.bottom + 80;
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
-  const [activeSymbol, setActiveSymbol] = useState(() => {
-    if (!initialSymbol) return '';
-    const raw = initialSymbol.trim().toUpperCase();
-    return raw.endsWith('USDT') ? raw : `${raw}USDT`;
+  const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
+
+  const { data, isLoading, isError, refetch } = useGetScalping(querySymbol, {
+    query: { enabled: !!querySymbol, staleTime: 60_000 },
   });
 
-  const { data, isLoading, refetch } = useGetBreakout(
-    { symbol: activeSymbol },
-    { query: { enabled: !!activeSymbol, staleTime: 0 } }
-  );
-
-  const handleAnalyze = () => {
-    if (!inputSymbol.trim()) return;
+  const handleAnalyze = useCallback(() => {
+    const sym = inputSymbol.trim().toUpperCase();
+    if (!sym) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const raw = inputSymbol.trim().toUpperCase();
-    const sym = raw.endsWith('USDT') ? raw : `${raw}USDT`;
-    setActiveSymbol(sym);
-  };
+    const normalized = sym.endsWith('USDT') ? sym : `${sym}USDT`;
+    setQuerySymbol(normalized);
+  }, [inputSymbol]);
 
-  const biasColor = data?.bias === 'bullish' ? colors.bullish : colors.bearish;
+  const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Input bar */}
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="search" size={15} color={colors.mutedForeground} />
+          <Feather name="crosshair" size={15} color={colors.primary} />
           <TextInput
             style={[styles.inputText, { color: colors.foreground }]}
-            placeholder="Contoh: BTC atau BTCUSDT"
+            placeholder="Masukkan pair (BTCUSDT)"
             placeholderTextColor={colors.mutedForeground}
             value={inputSymbol}
             onChangeText={setInputSymbol}
             autoCapitalize="characters"
-            onSubmitEditing={handleAnalyze}
             returnKeyType="search"
+            onSubmitEditing={handleAnalyze}
           />
           {inputSymbol.length > 0 && (
             <Pressable onPress={() => setInputSymbol('')}>
@@ -287,270 +254,187 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
             </Pressable>
           )}
         </View>
-        <Pressable onPress={handleAnalyze} style={[styles.analyzeBtn, { backgroundColor: colors.primary }]}>
+        <Pressable
+          onPress={handleAnalyze}
+          style={({ pressed }) => [styles.analyzeBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}
+        >
           <Text style={[styles.analyzeBtnText, { color: colors.primaryForeground }]}>Analisa</Text>
         </Pressable>
       </View>
 
-      {!activeSymbol ? (
-        <View style={styles.center}>
-          <Feather name="zap" size={36} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Masukkan Symbol</Text>
-          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Ketik symbol untuk cek breakout retest</Text>
+      {!querySymbol ? (
+        <View style={styles.emptyState}>
+          <Feather name="crosshair" size={40} color={colors.mutedForeground} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa OB 5M dalam struktur 15M</Text>
         </View>
       ) : isLoading ? (
-        <View style={styles.center}>
+        <View style={styles.emptyState}>
           <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>Menganalisa {activeSymbol}...</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Menganalisa {querySymbol}...</Text>
         </View>
-      ) : data ? (
-        <ScrollView
-          contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Header */}
-          <View style={styles.resultHeader}>
-            <Text style={[styles.resultSymbol, { color: colors.foreground }]}>
-              {data.symbol.replace('USDT', '/USDT')}
-            </Text>
-            <Pressable onPress={() => refetch()} style={styles.refreshBtn}>
-              <Feather name="refresh-cw" size={15} color={colors.mutedForeground} />
-            </Pressable>
+      ) : isError || !data ? (
+        <View style={styles.emptyState}>
+          <Feather name="alert-circle" size={36} color={colors.bearish} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal menganalisa</Text>
+          <Pressable onPress={() => refetch()} style={[styles.retryBtn, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
+          {/* Header result */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View>
+                <Text style={[styles.pairTitle, { color: colors.foreground }]}>
+                  {data.symbol.replace('USDT', '')}/USDT
+                </Text>
+                <Text style={[styles.timestamp, { color: colors.mutedForeground }]}>{data.timestamp}</Text>
+              </View>
+              <View style={{ gap: 6, alignItems: 'flex-end' }}>
+                <StatusBadge status={data.status} colors={colors} />
+                {data.score !== undefined && <ScoreBadge score={data.score} max={data.maxScore} colors={colors} />}
+              </View>
+            </View>
+            {data.message && (
+              <View style={[styles.messageBox, { backgroundColor: `${colors.primary}10`, borderLeftColor: colors.primary }]}>
+                <Text style={[styles.messageText, { color: colors.mutedForeground }]}>{data.message}</Text>
+              </View>
+            )}
           </View>
 
-          {/* Status tidak ada setup */}
-          {['no_trend', 'no_breakout', 'no_zone', 'skip', 'error', 'no_setup'].includes(data.status) && (
+          {/* Struktur 15M */}
+          {data.structure15M && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STATUS</Text>
-              <View style={styles.statusBlock}>
-                <Feather name="alert-circle" size={32} color={colors.warning} />
-                <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STRUKTUR 15M</Text>
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
+                <Text style={[styles.infoValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
+                  {data.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}
+                </Text>
               </View>
-              {data.status === 'no_setup' && (
-                <View style={{ marginTop: 12, gap: 8 }}>
-                  {[
-                    { label: 'CHoCH 15M', passed: data.choch15M === true, desc: data.choch15MDesc ?? 'Belum terdeteksi' },
-                    { label: 'Rejection 15M', passed: data.rejection15M === true, desc: data.rejection15MCandle ?? 'Belum ada candle rejection' },
-                    { label: 'Pattern Konfirmasi', passed: data.patternConfirmed === true, desc: data.patternName ?? 'Tidak ada pattern searah bias' },
-                  ].map((f, i) => (
-                    <View key={i} style={[styles.filterRow, { borderBottomColor: colors.border }]}>
-                      <Feather name={f.passed ? 'check-circle' : 'x-circle'} size={16}
-                        color={f.passed ? colors.bullish : colors.bearish} />
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={[styles.filterLabel, { color: colors.foreground }]}>{f.label}</Text>
-                        <Text style={[styles.filterDesc, { color: colors.mutedForeground }]}>{f.desc}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Struktur</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.structure15M}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>CHoCH 15M</Text>
+                <Text style={[styles.infoValue, { color: data.choch15M ? colors.bullish : colors.bearish }]}>
+                  {data.choch15M ? '✅ Terkonfirmasi' : '❌ Belum terbentuk'}
+                </Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>ATR 15M</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {data.atr15MPct ? `${data.atr15MPct.toFixed(2)}%` : '—'}
+                </Text>
+              </View>
             </View>
           )}
 
-          {/* Ada setup */}
-          {['approaching', 'in_zone', 'ready'].includes(data.status) && (
-            <>
-              {/* Breakout info */}
-              <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>BREAKOUT H1</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {data.breakoutType && <BreakoutTypeBadge type={data.breakoutType} colors={colors} />}
-                  <StatusBadge status={data.status} colors={colors} />
-                </View>
-                {data.patternConfidence && (
-                  <View style={{ marginBottom: 12 }}>
-                    <PatternConfidenceBadge
-                      confidence={data.patternConfidence}
-                      patterns={data.confirmingPatterns ?? []}
-                      colors={colors}
-                    />
-                  </View>
-                )}
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias H4</Text>
-                  <Text style={[styles.infoValue, { color: biasColor }]}>{data.bias?.toUpperCase()}</Text>
-                </View>
-                <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Level Ditembus</Text>
-                  <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                    {data.brokenLevel ? formatPrice(data.brokenLevel) : '—'}
-                  </Text>
-                </View>
-                <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Volume Breakout</Text>
-                  <Text style={[styles.infoValue, { color: (data.volumeRatio ?? 0) >= 2 ? colors.bullish : colors.foreground }]}>
-                    {data.volumeRatio?.toFixed(2)}x rata-rata
-                  </Text>
-                </View>
+          {/* OB 5M */}
+          {data.ob5M && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ORDER BLOCK 5M</Text>
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range OB</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {formatPrice(data.ob5M.low)} – {formatPrice(data.ob5M.high)}
+                </Text>
               </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Mid OB</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>{formatPrice(data.ob5M.mid)}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Status</Text>
+                <Text style={[styles.infoValue, { color: data.ob5M.fresh ? colors.bullish : colors.bearish }]}>
+                  {data.ob5M.fresh ? '✅ Fresh' : '⚠️ Sudah disentuh'}
+                </Text>
+              </View>
+            </View>
+          )}
 
-              {/* Zona retest */}
-              {data.retestZone && (
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ZONA RETEST</Text>
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Tipe Zona</Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                      {data.retestZone.type} (Tier {data.retestZone.tier})
-                    </Text>
-                  </View>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range Zona</Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                      {formatPrice(data.retestZone.zoneLow)} – {formatPrice(data.retestZone.zoneHigh)}
-                    </Text>
-                  </View>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Jarak dari Harga</Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                      {data.retestZone.distancePct.toFixed(2)}%
-                    </Text>
-                  </View>
-                  {data.retestZone.reason && (
-                    <View style={[styles.reasonBox, { borderLeftColor: colors.primary, backgroundColor: `${colors.primary}10` }]}>
-                      <Text style={[styles.reasonText, { color: colors.mutedForeground }]}>{data.retestZone.reason}</Text>
-                    </View>
-                  )}
-                </View>
-              )}
+          {/* Limit Order */}
+          {data.entryPrice && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER</Text>
+              <View style={[styles.levelCard, {
+                backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
+                borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish
+              }]}>
+                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
+                <Text style={[styles.levelCardPrice, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
+                  {formatPrice(data.entryPrice)}
+                </Text>
+                <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — tengah OB 5M
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.bearish }]}>Stop Loss</Text>
+                <Text style={[styles.infoValue, { color: colors.bearish }]}>{data.stopLoss ? formatPrice(data.stopLoss) : '—'}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 (RR 1:{data.rr1?.toFixed(1)})</Text>
+                <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1)})</Text>
+                <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2 ? formatPrice(data.takeProfit2) : '—'}</Text>
+              </View>
+            </View>
+          )}
 
-              {/* Teori Dow */}
-              {(data.dowPhase || data.volumeTrendValid !== undefined) && (
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>TEORI DOW</Text>
-                  {data.dowPhase && data.dowPhase !== 'unknown' && (
-                    <View style={styles.infoRow}>
-                      <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Fase</Text>
-                      <Text style={[styles.infoValue, { color:
-                        data.dowPhase === 'accumulation' ? colors.bullish :
-                        data.dowPhase === 'participation' ? colors.gold : colors.mutedForeground
-                      }]}>
-                        {data.dowPhase === 'accumulation' ? '✅ Accumulation' :
-                         data.dowPhase === 'participation' ? '⚡ Participation' : data.dowPhase}
-                      </Text>
-                    </View>
-                  )}
-                  {data.dowPhaseDesc && (
-                    <Text style={[styles.reasonText, { color: colors.mutedForeground, marginBottom: 8 }]}>{data.dowPhaseDesc}</Text>
-                  )}
-                  {data.volumeTrendValid !== undefined && (
-                    <View style={styles.infoRow}>
-                      <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Volume Dow</Text>
-                      <Text style={[styles.infoValue, { color: data.volumeTrendValid ? colors.bullish : colors.bearish }]}>
-                        {data.volumeTrendValid ? '✅ Valid' : '⚠️ Lemah'}
-                      </Text>
-                    </View>
-                  )}
-                  {data.volumeTrendDesc && (
-                    <Text style={[styles.reasonText, { color: colors.mutedForeground }]}>{data.volumeTrendDesc}</Text>
-                  )}
-                </View>
-              )}
-
-              {/* Limit order levels */}
-              {data.entryPrice && (
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER</Text>
-                  <View style={[styles.levelCard, { backgroundColor: `${biasColor}10`, borderColor: biasColor }]}>
-                    <View style={[styles.buySellBadge, { backgroundColor: biasColor }]}>
-                      <Text style={styles.buySellText}>
-                        {data.bias === 'bullish' ? '▲ BUY LIMIT' : '▼ SELL LIMIT'}
-                      </Text>
-                    </View>
-                    <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
-                    <Text style={[styles.levelCardPrice, { color: biasColor }]}>{formatPrice(data.entryPrice)}</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.bearish }]}>Stop Loss</Text>
-                    <Text style={[styles.infoValue, { color: colors.bearish }]}>
-                      {data.stopLoss ? formatPrice(data.stopLoss) : '—'}
-                    </Text>
-                  </View>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.bullish }]}>Take Profit 1</Text>
-                    <Text style={[styles.infoValue, { color: colors.bullish }]}>
-                      {data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}
-                    </Text>
-                  </View>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.gold }]}>Take Profit 2</Text>
-                    <Text style={[styles.infoValue, { color: colors.gold }]}>
-                      {data.takeProfit2 ? formatPrice(data.takeProfit2) : '—'}
-                    </Text>
-                  </View>
-                  {data.takeProfit3 && (
-                    <>
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                      <View style={styles.infoRow}>
-                        <Text style={[styles.infoLabel, { color: '#A78BFA' }]}>Take Profit 3 🚀</Text>
-                        <Text style={[styles.infoValue, { color: '#A78BFA' }]}>{formatPrice(data.takeProfit3)}</Text>
-                      </View>
-                    </>
-                  )}
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Expiry Setup</Text>
-                    <Text style={[styles.infoValue, { color: colors.mutedForeground }]}>{data.setupExpiryHours} jam</Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Tombol kalkulator */}
-              {data.entryPrice && (
-                <Pressable
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push({
-                      pathname: '/(tabs)/calculator',
-                      params: {
-                        entryPrice: String(data.entryPrice),
-                        stopLoss: String(data.stopLoss ?? ''),
-                        takeProfit1: String(data.takeProfit1 ?? ''),
-                        takeProfit2: String(data.takeProfit2 ?? ''),
-                        symbol: data.symbol,
-                        direction: data.bias,
-                      },
-                    });
-                  }}
-                  style={[styles.calcBtn, { borderColor: colors.border }]}
-                >
-                  <Feather name="percent" size={15} color={colors.mutedForeground} />
-                  <Text style={[styles.calcBtnText, { color: colors.foreground }]}>Kalkulator PnL →</Text>
-                </Pressable>
-              )}
-            </>
+          {/* Filter Results */}
+          {data.filterResults && data.filterResults.length > 0 && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>HASIL FILTER (Score: {data.score}/{data.maxScore})</Text>
+              {data.filterResults.map((f, i) => {
+                const isPassed = f.startsWith('✅');
+                return (
+                  <Text key={i} style={[styles.filterItem, { color: isPassed ? colors.foreground : colors.mutedForeground }]}>
+                    {f}
+                  </Text>
+                );
+              })}
+            </View>
           )}
         </ScrollView>
-      ) : null}
+      )}
     </View>
   );
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-  export default function BreakoutScreen() {
-    const colors = useColors();
-    const insets = useSafeAreaInsets();
-    const params = useLocalSearchParams<{ tab?: string; symbol?: string }>();
-    const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-    const [activeTab, setActiveTab] = useState<'scan' | 'analisa'>(
-      params.tab === 'analisa' ? 'analisa' : 'scan'
-    );
+export default function ScalpingScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa'>('scan');
+  const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
+
+  const handleSelectCoin = useCallback((symbol: string) => {
+    setSelectedSymbol(symbol);
+    setActiveTab('analisa');
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Breakout Scanner</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout + Retest Setups</Text>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>SMC Micro — OB 5M dalam struktur 15M</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -559,8 +443,6 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
             </View>
           )}
         </View>
-
-        {/* Tab switcher */}
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {(['scan', 'analisa'] as const).map(tab => (
             <Pressable
@@ -577,8 +459,8 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
       </View>
 
       {activeTab === 'scan'
-        ? <ScanTab colors={colors} />
-        : <AnalisaTab colors={colors} initialSymbol={params.symbol ?? undefined} />
+        ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
+        : <AnalisaTab colors={colors} initialSymbol={selectedSymbol} />
       }
     </View>
   );
@@ -598,60 +480,33 @@ const styles = StyleSheet.create({
   tabSwitcher: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, overflow: 'hidden', height: 38 },
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   tabBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8 },
-
-  card: { borderRadius: 12, borderWidth: 1, marginBottom: 8, overflow: 'hidden' },
-  cardRow1: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
-  cardBase: { fontSize: 16, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
-  cardQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
-  cardPrice: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
-  cardRow2: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 8, paddingHorizontal: 4 },
-  levelItem: { flex: 1, alignItems: 'center', gap: 2 },
-  levelLabel: { fontSize: 8, fontFamily: 'Inter_500Medium', letterSpacing: 0.4 },
-  levelValue: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
-  levelDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
-  typeBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  typeBadgeText: { fontSize: 8, fontFamily: 'Inter_700Bold', letterSpacing: 0.4 },
-  statusBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  statusBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.3 },
-  volBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  volText: { fontSize: 8, fontFamily: 'Inter_500Medium' },
-  sectionHeader: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
-
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
-  loadingText: { fontSize: 14, fontFamily: 'Inter_400Regular', marginTop: 8 },
-  emptyTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center', marginTop: 8 },
-  emptySub: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
-  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 8 },
-  retryText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
-
   inputArea: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 8 },
-  inputBox: { flex: 1, flexDirection: 'row', alignItems: 'center', borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
-  inputText: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', letterSpacing: 0.5 },
-  analyzeBtn: { borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12 },
+  inputBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  inputText: { flex: 1, fontSize: 15, fontFamily: 'Inter_400Regular' },
+  analyzeBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, justifyContent: 'center' },
   analyzeBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-
-  resultHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  resultSymbol: { fontSize: 20, fontFamily: 'Inter_700Bold', letterSpacing: -0.3 },
-  refreshBtn: { padding: 6 },
-
-  section: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 12 },
-  sectionTitle: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1.5, marginBottom: 12 },
-  statusBlock: { alignItems: 'center', gap: 10, paddingVertical: 8 },
-  filterRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
-  filterLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', marginBottom: 2 },
-  filterDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 18 },
-  statusMsg: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
+  emptyTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
+  emptyDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
+  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
+  retryText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  section: { marginHorizontal: 12, marginTop: 12, borderRadius: 12, borderWidth: 1, padding: 14 },
+  sectionTitle: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1, marginBottom: 10 },
+  pairTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
+  timestamp: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  messageBox: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 8, marginTop: 10, borderRadius: 4 },
+  messageText: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 20 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
   infoLabel: { fontSize: 13, fontFamily: 'Inter_400Regular' },
   infoValue: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
-  reasonBox: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 8, marginTop: 10, borderRadius: 4 },
-  reasonText: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 18 },
-  levelCard: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 12, alignItems: 'center' },
-  buySellBadge: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 5, marginBottom: 10 },
-  buySellText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff', letterSpacing: 0.5 },
-  levelCardLabel: { fontSize: 10, fontFamily: 'Inter_500Medium', letterSpacing: 1, marginBottom: 4 },
-  levelCardPrice: { fontSize: 24, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
-  calcBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12 },
-  calcBtnText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
+  levelCard: { borderRadius: 10, borderWidth: 1, padding: 14, marginBottom: 12, alignItems: 'center' },
+  levelCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1 },
+  levelCardPrice: { fontSize: 28, fontFamily: 'Inter_700Bold', marginVertical: 4 },
+  levelCardSub: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  filterItem: { fontSize: 12, fontFamily: 'Inter_400Regular', paddingVertical: 4, lineHeight: 20 },
+  statusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  statusBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
+  scoreBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  scoreBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
 });
