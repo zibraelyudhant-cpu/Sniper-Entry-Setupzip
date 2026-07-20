@@ -375,6 +375,7 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
                 takeProfit2: String(data.takeProfit2 ?? 0),
                 symbol: data.symbol,
                 direction: data.bias ?? 'bullish',
+                source: 'sniper',
               },
             });
           }}

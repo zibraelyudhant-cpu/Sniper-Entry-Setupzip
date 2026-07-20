@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
 import {
@@ -72,6 +72,7 @@ export default function CalculatorScreen() {
     takeProfit2?: string;
     symbol?: string;
     direction?: string;
+    source?: string;
   }>();
 
   const roundParam = (val: string | undefined): string => {
@@ -92,6 +93,7 @@ export default function CalculatorScreen() {
   const takeProfit2 = parseFloat(tp2Str) || 0;
   const symbol = params.symbol ?? '';
   const bias = (params.direction === 'bearish' ? 'bearish' : 'bullish') as 'bullish' | 'bearish';
+  const source = params.source ?? '';
   const base = symbol.replace('USDT', '') || 'Coin';
   const hasPrices = entryPrice > 0 && stopLoss > 0 && takeProfit1 > 0;
 
@@ -103,6 +105,17 @@ export default function CalculatorScreen() {
   const [lastEdited, setLastEdited] = useState<'modal' | 'contracts'>('modal');
 
   const [side, setSide] = useState<'long' | 'short'>(bias === 'bullish' ? 'long' : 'short');
+
+  // Reset semua field kalau params berubah (ganti koin dari Menu 2)
+  useEffect(() => {
+    setEntryStr(roundParam(params.entryPrice));
+    setSlStr(roundParam(params.stopLoss));
+    setTp1Str(roundParam(params.takeProfit1));
+    setTp2Str(roundParam(params.takeProfit2));
+    if (params.direction) {
+      setSide(params.direction === 'bearish' ? 'short' : 'long');
+    }
+  }, [params.entryPrice, params.stopLoss, params.takeProfit1, params.takeProfit2, params.symbol, params.direction]);
   const leverage = Math.min(Math.max(parseFloat(leverageStr) || 1, 1), 125);
   const showLevWarning = leverage > 20;
 
@@ -191,9 +204,34 @@ export default function CalculatorScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Kalkulator PnL</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-          {symbol ? symbol.replace('USDT', '/USDT') : 'Futures Perpetual'}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
+            {symbol ? symbol.replace('USDT', '/USDT') : 'Futures Perpetual'}
+          </Text>
+          {symbol && source ? (
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={{
+                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+                backgroundColor: side === 'long' ? '#16A34A22' : '#DC262622',
+                borderWidth: 1,
+                borderColor: side === 'long' ? '#16A34A' : '#DC2626',
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: side === 'long' ? '#16A34A' : '#DC2626' }}>
+                  {side === 'long' ? 'BUY' : 'SELL'}
+                </Text>
+              </View>
+              <View style={{
+                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+                backgroundColor: '#534AB722',
+                borderWidth: 1, borderColor: '#534AB7',
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '500', color: '#7F77DD' }}>
+                  {source === 'sniper' ? 'Sniper' : source === 'scalping' ? 'Scalping' : source}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
       </View>
 
         <ScrollView
