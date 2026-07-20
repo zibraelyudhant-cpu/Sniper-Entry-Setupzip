@@ -1,4 +1,5 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ActivityIndicator, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -7,8 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useGetScalping, useGetScalpingScan } from '@workspace/api-client-react';
-import type { ScalpingResult } from '@workspace/api-client-react';
+import { useGetScalping, useGetScalpingScan, type ScalpingResult } from '@workspace/api-client-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -244,7 +244,7 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useColors>; initialSymbol?: string }) {
+function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; onSignalReady?: (d: any) => void; onSave?: () => void }) {
   const insets = useSafeAreaInsets();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
@@ -252,6 +252,10 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
   const { data, isLoading, isError, refetch } = useGetScalping(querySymbol, {
     query: { enabled: !!querySymbol, staleTime: 60_000 },
   });
+
+  useEffect(() => {
+    if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'in_zone' ? data : null);
+  }, [data]);
 
   const handleAnalyze = useCallback(() => {
     const sym = inputSymbol.trim().toUpperCase();
@@ -391,6 +395,15 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
             </View>
           )}
 
+          {/* Simpan Sinyal */}
+          {(data.status === 'waiting' || data.status === 'in_zone') && onSave && (
+            <Pressable onPress={onSave}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
+              <Feather name="bookmark" size={15} color={colors.primaryForeground} />
+              <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
+            </Pressable>
+          )}
+
           {/* Limit Order */}
           {data.entryPrice && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -446,12 +459,189 @@ function AnalisaTab({ colors, initialSymbol }: { colors: ReturnType<typeof useCo
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
+
+// ─── Signal Log ───────────────────────────────────────────────────────────────
+
+type ScalpingLogStatus = 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';
+
+interface ScalpingLog {
+  id: string;
+  symbol: string;
+  bias: 'bullish' | 'bearish';
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit1: number;
+  takeProfit2?: number;
+  currentPriceAtSignal: number;
+  timestamp: string;
+  savedAt: number;
+  score?: number;
+  status: ScalpingLogStatus;
+  evaluatedAt?: string;
+  exitPrice?: number;
+  rr?: number;
+}
+
+const SCALPING_LOG_KEY = 'signal_logs_scalping';
+
+async function scalpLoadLogs(): Promise<ScalpingLog[]> {
+  try { const r = await AsyncStorage.getItem(SCALPING_LOG_KEY); return r ? JSON.parse(r) : []; }
+  catch { return []; }
+}
+async function scalpSaveLog(log: ScalpingLog): Promise<ScalpingLog[]> {
+  const all = await scalpLoadLogs();
+  const updated = [log, ...all].slice(0, 100);
+  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
+  return updated;
+}
+async function scalpUpdateLog(id: string, patch: Partial<ScalpingLog>): Promise<ScalpingLog[]> {
+  const all = await scalpLoadLogs();
+  const updated = all.map(l => l.id === id ? { ...l, ...patch } : l);
+  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
+  return updated;
+}
+async function scalpDeleteLog(id: string): Promise<ScalpingLog[]> {
+  const all = await scalpLoadLogs();
+  const updated = all.filter(l => l.id !== id);
+  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
+  return updated;
+}
+async function scalpEvalLog(log: ScalpingLog): Promise<Partial<ScalpingLog>> {
+  try {
+    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=15m&startTime=${log.savedAt}&endTime=${Date.now()}&limit=200`;
+    const res = await fetch(url);
+    if (!res.ok) return { status: 'pending' };
+    const klines: number[][] = await res.json();
+    const risk = Math.abs(log.entryPrice - log.stopLoss);
+    const evalAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+    for (const k of klines) {
+      const high = k[2] as number, low = k[3] as number;
+      if (log.bias === 'bullish') {
+        if (low <= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
+        if (log.takeProfit2 && high >= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.takeProfit2-log.entryPrice)/risk).toFixed(1), evaluatedAt: evalAt };
+        if (high >= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1-log.entryPrice)/risk).toFixed(1), evaluatedAt: evalAt };
+      } else {
+        if (high >= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
+        if (log.takeProfit2 && low <= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.entryPrice-log.takeProfit2)/risk).toFixed(1), evaluatedAt: evalAt };
+        if (low <= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice-log.takeProfit1)/risk).toFixed(1), evaluatedAt: evalAt };
+      }
+    }
+    return { status: 'pending' };
+  } catch { return { status: 'pending' }; }
+}
+
+function ScalpingLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const insets = useSafeAreaInsets();
+  const [logs, setLogs] = useState<ScalpingLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [evaluating, setEvaluating] = useState<string | null>(null);
+
+  useEffect(() => { scalpLoadLogs().then(l => { setLogs(l); setLoading(false); }); }, []);
+  const doEval = async (log: ScalpingLog) => { setEvaluating(log.id); const p = await scalpEvalLog(log); setLogs(await scalpUpdateLog(log.id, p)); setEvaluating(null); };
+  const doDelete = async (id: string) => setLogs(await scalpDeleteLog(id));
+
+  const sc = (s: ScalpingLogStatus) => s === 'win_tp1' || s === 'win_tp2' ? '#22c55e' : s === 'lose' ? '#ef4444' : '#888';
+  const sl = (s: ScalpingLogStatus) => s === 'win_tp1' ? 'WIN TP1' : s === 'win_tp2' ? 'WIN TP2' : s === 'lose' ? 'LOSE' : s === 'expired' ? 'EXPIRED' : 'PENDING';
+  const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
+
+  const wins = logs.filter(l => l.status==='win_tp1'||l.status==='win_tp2').length;
+  const loses = logs.filter(l => l.status==='lose').length;
+  const wr = wins+loses>0 ? Math.round(wins/(wins+loses)*100) : 0;
+  const rrs = logs.filter(l => (l.rr??0)>0);
+  const avgRR = rrs.length ? (rrs.reduce((a,b)=>a+(b.rr??0),0)/rrs.length).toFixed(2) : '—';
+
+  if (loading) return <View style={{flex:1,alignItems:'center',justifyContent:'center'}}><ActivityIndicator color={colors.primary}/></View>;
+
+  return (
+    <ScrollView contentContainerStyle={{paddingBottom:insets.bottom+80}} showsVerticalScrollIndicator={false}>
+      {logs.length>0&&<View style={{flexDirection:'row',margin:12,borderRadius:12,borderWidth:1,borderColor:colors.border,backgroundColor:colors.card,padding:14,justifyContent:'space-around'}}>
+        {[{v:`${wins}W`,c:'#22c55e',l:'Win'},{v:`${loses}L`,c:'#ef4444',l:'Lose'},{v:`${logs.filter(x=>x.status==='pending').length}`,c:colors.mutedForeground,l:'Pending'},{v:`${wr}%`,c:colors.foreground,l:'Win Rate'},{v:avgRR,c:colors.foreground,l:'Avg R:R'}].map(item=>(
+          <View key={item.l} style={{alignItems:'center',gap:4}}>
+            <Text style={{fontSize:18,fontFamily:'Inter_700Bold',color:item.c}}>{item.v}</Text>
+            <Text style={{fontSize:10,fontFamily:'Inter_400Regular',color:colors.mutedForeground}}>{item.l}</Text>
+          </View>
+        ))}
+      </View>}
+      {logs.length===0 ? (
+        <View style={{flex:1,alignItems:'center',justifyContent:'center',padding:32,gap:10,minHeight:300}}>
+          <Feather name="bookmark" size={36} color={colors.mutedForeground}/>
+          <Text style={{fontSize:16,fontFamily:'Inter_600SemiBold',color:colors.foreground,textAlign:'center'}}>Belum ada sinyal tersimpan</Text>
+          <Text style={{fontSize:13,fontFamily:'Inter_400Regular',color:colors.mutedForeground,textAlign:'center',lineHeight:20}}>Simpan sinyal dari tab Analisa</Text>
+        </View>
+      ) : (
+        <View style={{paddingHorizontal:12,paddingTop:10,gap:8}}>
+          {logs.map(log=>(
+            <View key={log.id} style={{borderRadius:12,borderWidth:1,borderColor:colors.border,backgroundColor:colors.card,overflow:'hidden'}}>
+              <View style={{flexDirection:'row',padding:12,alignItems:'flex-start'}}>
+                <View style={{flex:1}}>
+                  <Text style={{fontSize:16,fontFamily:'Inter_600SemiBold',color:colors.foreground}}>{log.symbol.replace('USDT','')}/USDT</Text>
+                  <Text style={{fontSize:11,fontFamily:'Inter_400Regular',color:colors.mutedForeground,marginTop:2}}>{log.timestamp}</Text>
+                </View>
+                <View style={{alignItems:'flex-end',gap:4}}>
+                  <View style={{paddingHorizontal:8,paddingVertical:3,borderRadius:20,borderWidth:1,borderColor:sc(log.status),backgroundColor:sc(log.status)+'18'}}>
+                    <Text style={{fontSize:10,fontFamily:'Inter_700Bold',letterSpacing:0.5,color:sc(log.status)}}>{sl(log.status)}</Text>
+                  </View>
+                  <Text style={{fontSize:11,fontFamily:'Inter_600SemiBold',color:log.bias==='bullish'?'#22c55e':'#ef4444'}}>{log.bias==='bullish'?'▲ LONG':'▼ SHORT'}</Text>
+                </View>
+              </View>
+              <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,paddingVertical:8,paddingHorizontal:12}}>
+                {([['Entry',log.entryPrice,colors.foreground],['SL',log.stopLoss,'#ef4444'],['TP1',log.takeProfit1,'#22c55e'],['TP2',log.takeProfit2,'#3b82f6']] as [string,number|undefined,string][]).map(([lbl,val,col])=>val?(
+                  <View key={lbl} style={{flex:1,alignItems:'center'}}>
+                    <Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>{lbl}</Text>
+                    <Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:col,marginTop:2}}>{fp(val)}</Text>
+                  </View>
+                ):null)}
+                {log.rr!==undefined&&<View style={{flex:1,alignItems:'center'}}><Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>R:R</Text><Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:log.rr>0?'#22c55e':'#ef4444',marginTop:2}}>{log.rr>0?`1:${log.rr}`:'-1'}</Text></View>}
+              </View>
+              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Score: {log.score}/6</Text>}
+              {log.evaluatedAt&&<Text style={{fontSize:10,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:6,fontFamily:'Inter_400Regular'}}>Dievaluasi: {log.evaluatedAt}</Text>}
+              <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,padding:8,gap:8,alignItems:'center'}}>
+                {log.status==='pending'&&(
+                  <Pressable onPress={()=>doEval(log)} disabled={evaluating===log.id}
+                    style={({pressed})=>[{flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:5,paddingVertical:7,borderRadius:8,borderWidth:1,borderColor:colors.primary,backgroundColor:colors.primary+'15',opacity:pressed||evaluating===log.id?0.7:1}]}>
+                    {evaluating===log.id?<ActivityIndicator size={12} color={colors.primary}/>:<Feather name="search" size={12} color={colors.primary}/>}
+                    <Text style={{fontSize:12,fontFamily:'Inter_600SemiBold',color:colors.primary}}>{evaluating===log.id?'Evaluasi...':'Evaluasi'}</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={()=>doDelete(log.id)} style={({pressed})=>[{padding:8,opacity:pressed?0.7:1}]}>
+                  <Feather name="trash-2" size={12} color="#ef4444"/>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 export default function ScalpingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-  const [activeTab, setActiveTab] = useState<'scan' | 'analisa'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
   const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
+  const [currentSignal, setCurrentSignal] = useState<any>(null);
+
+  const handleSaveSignal = useCallback(async () => {
+    if (!currentSignal || !currentSignal.entryPrice) return;
+    const log: ScalpingLog = {
+      id: `${Date.now()}_${currentSignal.symbol}`,
+      symbol: currentSignal.symbol,
+      bias: currentSignal.bias ?? 'bullish',
+      entryPrice: currentSignal.entryPrice,
+      stopLoss: currentSignal.stopLoss ?? 0,
+      takeProfit1: currentSignal.takeProfit1 ?? 0,
+      takeProfit2: currentSignal.takeProfit2,
+      currentPriceAtSignal: currentSignal.currentPrice,
+      timestamp: currentSignal.timestamp,
+      savedAt: Date.now(),
+      score: currentSignal.score,
+      status: 'pending',
+    };
+    await scalpSaveLog(log);
+    setActiveTab('log');
+  }, [currentSignal]);
 
   const handleSelectCoin = useCallback((symbol: string) => {
     setSelectedSymbol(symbol);
@@ -474,14 +664,14 @@ export default function ScalpingScreen() {
           )}
         </View>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['scan', 'analisa'] as const).map(tab => (
+          {(['scan', 'analisa', 'log'] as const).map(tab => (
             <Pressable
               key={tab}
               onPress={() => setActiveTab(tab)}
               style={[styles.tabBtn, activeTab === tab && { backgroundColor: colors.primary }]}
             >
               <Text style={[styles.tabBtnText, { color: activeTab === tab ? colors.primaryForeground : colors.mutedForeground }]}>
-                {tab === 'scan' ? 'SCAN' : 'ANALISA'}
+                {tab === 'scan' ? 'SCAN' : tab === 'analisa' ? 'ANALISA' : 'LOG'}
               </Text>
             </Pressable>
           ))}
@@ -490,7 +680,9 @@ export default function ScalpingScreen() {
 
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
-        : <AnalisaTab colors={colors} initialSymbol={selectedSymbol} />
+        : activeTab === 'analisa'
+        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        : <ScalpingLogTab colors={colors} />
       }
     </View>
   );

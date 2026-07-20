@@ -16,7 +16,7 @@ export interface KlineData {
 
 export interface PriceStructure {
   bias: "bullish" | "bearish" | "ranging";
-  strength: "strong" | "weak" | "neutral";
+  strength: "strong" | "moderate" | "weak" | "neutral";
   description: string;
 }
 
@@ -348,50 +348,54 @@ export function analyzePriceActionStructure(
   lows: number[],
   closes: number[]
 ): PriceStructure {
-  const swingHighs = findSwingHighs(highs, 6);
-  const swingLows = findSwingLows(lows, 6);
+  // Pakai lookback lebih besar (8) untuk stabilitas sinyal
+  const swingHighs = findSwingHighs(highs, 8);
+  const swingLows = findSwingLows(lows, 8);
 
-  if (swingHighs.length < 2 || swingLows.length < 2) {
+  if (swingHighs.length < 3 || swingLows.length < 3) {
     return { bias: "ranging", strength: "neutral", description: "Insufficient swing data" };
   }
 
-  // Check last 3 swing highs and lows for HH/HL or LH/LL
-  const lastHighs = swingHighs.slice(-3);
-  const lastLows = swingLows.slice(-3);
+  // Cek 4 swing terakhir (bukan 3) untuk konsistensi lebih kuat
+  const lastHighs = swingHighs.slice(-4);
+  const lastLows = swingLows.slice(-4);
 
   let bullishSignals = 0;
   let bearishSignals = 0;
 
-  // Check Higher Highs
+  // Higher Highs
   for (let i = 1; i < lastHighs.length; i++) {
     if (lastHighs[i] > lastHighs[i - 1]) bullishSignals++;
     else if (lastHighs[i] < lastHighs[i - 1]) bearishSignals++;
   }
 
-  // Check Higher Lows
+  // Higher Lows
   for (let i = 1; i < lastLows.length; i++) {
     if (lastLows[i] > lastLows[i - 1]) bullishSignals++;
     else if (lastLows[i] < lastLows[i - 1]) bearishSignals++;
   }
 
-  // Recent momentum from closes
-  const recentCloses = closes.slice(-10);
-  const firstHalf = recentCloses.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
-  const secondHalf = recentCloses.slice(5).reduce((a, b) => a + b, 0) / 5;
-  if (secondHalf > firstHalf * 1.001) bullishSignals++;
-  else if (secondHalf < firstHalf * 0.999) bearishSignals++;
+  // Momentum dari EMA — lebih stabil dari close slice
+  // EMA 10 vs EMA 20: kalau EMA10 > EMA20 = bullish momentum
+  const ema10 = calcEMA(closes, 10);
+  const ema20 = calcEMA(closes, 20);
+  const lastEma10 = ema10[ema10.length - 1];
+  const lastEma20 = ema20[ema20.length - 1];
+  if (lastEma10 > lastEma20 * 1.001) bullishSignals++;
+  else if (lastEma10 < lastEma20 * 0.999) bearishSignals++;
 
   const total = bullishSignals + bearishSignals;
   if (total === 0) return { bias: "ranging", strength: "neutral", description: "No clear structure" };
 
   const dominance = Math.max(bullishSignals, bearishSignals) / total;
 
+  // Threshold strength lebih ketat: strong >= 0.8 (dari 5/6+ sinyal searah)
   if (bullishSignals > bearishSignals) {
-    const strength = dominance >= 0.75 ? "strong" : "weak";
-    return { bias: "bullish", strength, description: "HH+HL terbentuk" };
+    const strength = dominance >= 0.8 ? "strong" : dominance >= 0.6 ? "moderate" : "weak";
+    return { bias: "bullish", strength, description: `HH+HL terbentuk (${bullishSignals}/${total} sinyal bullish)` };
   } else if (bearishSignals > bullishSignals) {
-    const strength = dominance >= 0.75 ? "strong" : "weak";
-    return { bias: "bearish", strength, description: "LH+LL terbentuk" };
+    const strength = dominance >= 0.8 ? "strong" : dominance >= 0.6 ? "moderate" : "weak";
+    return { bias: "bearish", strength, description: `LH+LL terbentuk (${bearishSignals}/${total} sinyal bearish)` };
   }
 
   return { bias: "ranging", strength: "neutral", description: "Struktur ranging/sideways" };
@@ -1680,6 +1684,17 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         h4: { bias: structH4.bias, strength: structH4.strength },
       };
     }
+    // Hard filter: H4 strength harus minimal moderate — weak = trend belum cukup kuat
+    if (structH4.strength === "weak") {
+      return {
+        status: "no_trend",
+        message: `Trend H4 terlalu lemah (${structH4.description}) — tunggu struktur lebih solid`,
+        symbol,
+        currentPrice,
+        timestamp,
+        h4: { bias: structH4.bias, strength: structH4.strength },
+      };
+    }
 
     const bias = structH4.bias as "bullish" | "bearish";
 
@@ -1781,9 +1796,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     ].filter(p => p !== null && validPatterns.includes(p!.name));
     const confirmedPattern = allPatterns.length > 0 ? allPatterns[0] : null;
 
-    // STEP 4d: Jam sesi (London/NY = 14.00-23.00 WIB)
-    const nowWIBHour = (new Date().getUTCHours() + 7) % 24;
-    const isLondonNYSession = nowWIBHour >= 14 && nowWIBHour <= 23;
+
 
     // STEP 4e: Konfirmasi 5M (opsional)
     const confirmation = checkEntryConfirmation5M(
@@ -1820,12 +1833,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       probabilityFactors.push("⚠️ Tidak ada pattern konfirmasi");
     }
 
-    if (isLondonNYSession) {
-      profitProbability += 15;
-      probabilityFactors.push("✅ Sesi London/NY (+15%)");
-    } else {
-      probabilityFactors.push(`⚠️ Asian session — di luar jam London/NY (sekarang ${nowWIBHour}:00 WIB)`);
-    }
+    // Jam sesi dihapus — crypto 24 jam, jam tidak relevan
 
     if (selectedZone.tier <= 2) {
       profitProbability += 10;
@@ -2801,9 +2809,7 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
     if (t.zoneTier > 2) {
       causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] = (causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] ?? 0) + 1;
     }
-    if (!isLondonNY(t.hour)) {
-      causeCounts['Entry di luar jam London/NY (Asian session)'] = (causeCounts['Entry di luar jam London/NY (Asian session)'] ?? 0) + 1;
-    }
+
     if (t.volumeRatio !== undefined && t.volumeRatio < 2) {
       causeCounts['Volume breakout rendah (< 2x)'] = (causeCounts['Volume breakout rendah (< 2x)'] ?? 0) + 1;
     }
@@ -2844,7 +2850,7 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
     }
     if (bd.londonNY.winRate > bd.asian.winRate + 10 && bd.asian.trades > 3) {
       recommendations.push(
-        `Win rate London/NY session (${bd.londonNY.winRate}%) lebih tinggi dari Asian session (${bd.asian.winRate}%) → Hindari entry jam 00.00-13.00 WIB`
+        `Breakdown sesi: London/NY ${bd.londonNY.winRate}% vs Asian ${bd.asian.winRate}%`
       );
     }
     if (bd.highVolume.winRate > bd.lowVolume.winRate + 10 && bd.lowVolume.trades > 3) {
