@@ -623,6 +623,30 @@ function ScanCoinCard({ coin, onPress, colors }: { coin: SniperResult; onPress: 
 
 // ─── Scan Tab ─────────────────────────────────────────────────────────────────
 
+function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; isLoading: boolean; colors: ReturnType<typeof useColors> }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isLoading}
+      style={({ pressed }) => [{
+        flexDirection: 'row', alignItems: 'center', gap: 5,
+        paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+        backgroundColor: `${colors.primary}15`,
+        borderWidth: 1, borderColor: colors.primary,
+        opacity: pressed || isLoading ? 0.6 : 1,
+      }]}
+    >
+      {isLoading
+        ? <ActivityIndicator size={10} color={colors.primary} />
+        : <Feather name="refresh-cw" size={11} color={colors.primary} />
+      }
+      <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.primary, letterSpacing: 0.5 }}>
+        {isLoading ? 'SCANNING...' : 'SCAN NOW'}
+      </Text>
+    </Pressable>
+  );
+}
+
 function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const insets = useSafeAreaInsets();
   const bottomPadding = insets.bottom + 80;
@@ -661,6 +685,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   }
 
   const coins = data?.coins ?? [];
+  const fetchedAt = data ? new Date((data as any).fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
 
   if (coins.length === 0) {
     return (
@@ -687,6 +712,11 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: bottomPadding }}
       showsVerticalScrollIndicator={false}
     >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
+        <ScanNowButton onPress={() => refetch()} isLoading={isLoading} colors={colors} />
+      </View>
+
       {high.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🟢 PROBABILITAS TINGGI (≥75%)</Text>

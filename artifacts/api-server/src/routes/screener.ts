@@ -180,7 +180,7 @@ router.get("/screener", async (req, res) => {
     const candidates = allTickers
       .filter((t) => cryptoSymbols.has(t.symbol))
       .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-      .slice(0, 50);
+      .slice(0, 100);
 
     const batchSize = 5;
     const results: ScreenerEntry[] = [];
@@ -336,16 +336,43 @@ router.get("/screener", async (req, res) => {
 
 export default router;
 
+// Cache universe 10 menit supaya tidak spam Binance
+let universeCache: { symbols: string[]; ts: number } | null = null;
+const UNIVERSE_CACHE_MS = 10 * 60 * 1000;
+
 export async function getUniverse(): Promise<string[]> {
-  const [cryptoSymbols, tickersRes] = await Promise.all([
-    getCryptoPerpetualSymbols(),
-    fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr`),
-  ]);
-  if (!tickersRes.ok) throw new Error('Failed to fetch tickers');
-  const allTickers: Array<{ symbol: string; quoteVolume: string }> = await tickersRes.json();
-  return allTickers
-    .filter(t => cryptoSymbols.has(t.symbol))
-    .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-    .slice(0, 50)
-    .map(t => t.symbol);
+  if (universeCache && Date.now() - universeCache.ts < UNIVERSE_CACHE_MS) {
+    return universeCache.symbols;
+  }
+
+  // Retry max 2x dengan timeout 8 detik
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const [cryptoSymbols, tickersRes] = await Promise.all([
+        getCryptoPerpetualSymbols(),
+        fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr`, { signal: controller.signal }),
+      ]);
+      clearTimeout(timeout);
+      if (!tickersRes.ok) {
+        if (attempt < 1) { await new Promise(r => setTimeout(r, 1000)); continue; }
+        throw new Error(`Failed to fetch tickers (${tickersRes.status})`);
+      }
+      const allTickers: Array<{ symbol: string; quoteVolume: string }> = await tickersRes.json();
+      const symbols = allTickers
+        .filter(t => cryptoSymbols.has(t.symbol))
+        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+        .slice(0, 100)
+        .map(t => t.symbol);
+      universeCache = { symbols, ts: Date.now() };
+      return symbols;
+    } catch (err) {
+      if (attempt < 1) { await new Promise(r => setTimeout(r, 1000)); continue; }
+      // Kalau cache lama masih ada, pakai itu daripada throw
+      if (universeCache) return universeCache.symbols;
+      throw err;
+    }
+  }
+  throw new Error('Failed to fetch universe after retries');
 }

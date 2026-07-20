@@ -249,9 +249,30 @@ export default function ScreenerScreen() {
               H4+H1 Multi-Filter
             </Text>
           </View>
-          <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}22` }]}>
-            <View style={[styles.liveDotInner, { backgroundColor: colors.bullish }]} />
-            <Text style={[styles.liveText, { color: colors.bullish }]}>LIVE</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Pressable
+              onPress={handleRefresh}
+              disabled={isLoading || refreshing}
+              style={({ pressed }) => [{
+                flexDirection: 'row', alignItems: 'center', gap: 5,
+                paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+                backgroundColor: `${colors.primary}15`,
+                borderWidth: 1, borderColor: colors.primary,
+                opacity: pressed || isLoading || refreshing ? 0.6 : 1,
+              }]}
+            >
+              {(isLoading || refreshing)
+                ? <ActivityIndicator size={10} color={colors.primary} />
+                : <Feather name="refresh-cw" size={11} color={colors.primary} />
+              }
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.primary, letterSpacing: 0.5 }}>
+                {isLoading || refreshing ? 'SCANNING...' : 'SCAN NOW'}
+              </Text>
+            </Pressable>
+            <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}22` }]}>
+              <View style={[styles.liveDotInner, { backgroundColor: colors.bullish }]} />
+              <Text style={[styles.liveText, { color: colors.bullish }]}>LIVE</Text>
+            </View>
           </View>
         </View>
 
