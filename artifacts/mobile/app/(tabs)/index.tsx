@@ -49,8 +49,14 @@ function CoinCard({ coin, onPress }: CoinCardProps) {
   const { base, quote } = formatSymbol(coin.symbol);
   const isPositive = coin.change24h >= 0;
 
+  // bias = trend utama H4, correctionBias = arah koreksi H1 (berlawanan)
   const biasColor = coin.bias === 'bullish' ? colors.bullish : colors.bearish;
-  const biasLabel = coin.bias === 'bullish' ? 'BULLISH' : 'BEARISH';
+  const biasLabel = coin.bias === 'bullish' ? '▲ UPTREND' : '▼ DOWNTREND';
+  const corrLabel = coin.bias === 'bullish' ? '↘ PULLBACK' : '↗ BOUNCE';
+  const corrColor = coin.bias === 'bullish' ? colors.bearish : colors.bullish;
+  const depthStr = (coin as any).correctionDepthPct != null
+    ? `${((coin as any).correctionDepthPct as number).toFixed(1)}% koreksi`
+    : '';
 
   const confidenceColor =
     coin.confidence === 'HIGH'
@@ -65,15 +71,6 @@ function CoinCard({ coin, onPress }: CoinCardProps) {
       : coin.confidence === 'MODERATE'
       ? `${colors.gold}20`
       : `${colors.mutedForeground}18`;
-
-  const oiIcon =
-    coin.oiDirection === 'up' ? '↑' : coin.oiDirection === 'down' ? '↓' : '→';
-  const oiColor =
-    coin.oiDirection === 'up'
-      ? coin.bias === 'bullish' ? colors.bullish : colors.bearish
-      : coin.oiDirection === 'down'
-      ? coin.bias === 'bearish' ? colors.bullish : colors.bearish
-      : colors.mutedForeground;
 
   return (
     <Pressable
@@ -105,14 +102,19 @@ function CoinCard({ coin, onPress }: CoinCardProps) {
           <View style={[styles.badge, { backgroundColor: confidenceBg, borderColor: confidenceColor }]}>
             <Text style={[styles.badgeText, { color: confidenceColor }]}>{coin.confidence}</Text>
           </View>
-          <View style={[styles.badge, { backgroundColor: `${biasColor}15`, borderColor: biasColor, marginTop: 4 }]}>
-            <Text style={[styles.badgeText, { color: biasColor }]}>{biasLabel}</Text>
+          <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+            <View style={[styles.badge, { backgroundColor: `${biasColor}15`, borderColor: biasColor }]}>
+              <Text style={[styles.badgeText, { color: biasColor }]}>{biasLabel}</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: `${corrColor}15`, borderColor: corrColor, flexShrink: 1 }]}>
+              <Text style={[styles.badgeText, { color: corrColor }]} numberOfLines={1}>{corrLabel}{depthStr ? ` · ${depthStr}` : ''}</Text>
+            </View>
           </View>
         </View>
 
         {/* Price + Change */}
         <View style={styles.priceCol}>
-          <Text style={[styles.price, { color: colors.foreground }]}>
+          <Text style={[styles.price, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
             ${formatPrice(coin.price)}
           </Text>
           <View style={[
@@ -154,16 +156,6 @@ function CoinCard({ coin, onPress }: CoinCardProps) {
 
         <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
 
-        {/* MACD H4 */}
-        <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>MACD H4</Text>
-          <Text style={[styles.metricValue, { color: coin.macdValidH4 ? colors.bullish : colors.bearish }]}>
-            {coin.macdValidH4 ? '✓' : '✗'}
-          </Text>
-        </View>
-
-        <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
-
         {/* ADX */}
         <View style={styles.metricItem}>
           <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>ADX H4</Text>
@@ -184,10 +176,12 @@ function CoinCard({ coin, onPress }: CoinCardProps) {
 
         <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
 
-        {/* OI direction */}
+        {/* Koreksi % */}
         <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>OI</Text>
-          <Text style={[styles.metricValue, { color: oiColor }]}>{oiIcon}</Text>
+          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>KOREKS</Text>
+          <Text style={[styles.metricValue, { color: corrColor }]}>
+            {(coin as any).correctionDepthPct != null ? `${((coin as any).correctionDepthPct as number).toFixed(1)}%` : '—'}
+          </Text>
         </View>
       </View>
     </Pressable>
@@ -452,12 +446,12 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     gap: 8,
   },
-  symbolCol: { flex: 1 },
+  symbolCol: { width: 80 },
   symbolRow: { flexDirection: 'row', alignItems: 'baseline' },
   symbolBase: { fontSize: 16, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
   symbolQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   volumeText: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
-  badgeCol: { alignItems: 'flex-start' },
+  badgeCol: { flex: 1, alignItems: 'flex-start', minWidth: 0 },
   badge: {
     borderWidth: 1,
     borderRadius: 4,
@@ -465,7 +459,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   badgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
-  priceCol: { alignItems: 'flex-end' },
+  priceCol: { alignItems: 'flex-end', width: 80 },
   price: { fontSize: 13, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
   changePill: {
     flexDirection: 'row',

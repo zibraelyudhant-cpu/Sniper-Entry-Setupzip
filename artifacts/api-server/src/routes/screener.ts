@@ -137,7 +137,8 @@ function calcADX(highs: number[], lows: number[], closes: number[], period = 14)
 
 interface ScreenerEntry {
   symbol: string;
-  bias: "bullish" | "bearish";
+  bias: "bullish" | "bearish";       // trend utama H4
+  correctionBias: "bullish" | "bearish"; // arah koreksi H1 (berlawanan dengan bias)
   score: number;
   confidence: "HIGH" | "MODERATE" | "LOW";
   price: number;
@@ -148,6 +149,7 @@ interface ScreenerEntry {
   atrH4: number;
   atrH4Pct: number;
   adxH4: number;
+  correctionDepthPct: number; // seberapa dalam koreksi dari high/low terakhir
   volumeValid: boolean;
   oiDirection: "up" | "down" | "neutral";
   fundingRate: number;
@@ -196,48 +198,82 @@ router.get("/screener", async (req, res) => {
               fetchKlines(ticker.symbol, "1h", 50),
             ]);
 
-            // ── Filter 1: H4 dan H1 harus searah, keduanya tidak ranging ─────
+            // ── Filter 1: H4 harus trend jelas (tidak ranging) ───────────────
             const strH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
-            const strH1 = analyzePriceActionStructure(h1.highs, h1.lows, h1.closes);
             if (strH4.bias === "ranging") return null;
-            if (strH4.bias !== strH1.bias) return null;
             const bias = strH4.bias as "bullish" | "bearish";
 
-            // ── Filter 2: ADX H4 >= 25 ────────────────────────────────────────
+            // ── Filter 2: H1 harus berlawanan dengan H4 (koreksi sedang terjadi)
+            const strH1 = analyzePriceActionStructure(h1.highs, h1.lows, h1.closes);
+            // H1 harus bearish kalau H4 bullish (pullback), atau H1 bullish kalau H4 bearish (bounce)
+            // H1 ranging juga ok — bisa berarti konsolidasi sebelum lanjut trend
+            const h1IsCorrection = strH1.bias !== bias;
+            const h1IsRanging = strH1.bias === "ranging";
+            if (!h1IsCorrection && !h1IsRanging) return null; // H1 searah H4 = belum koreksi
+
+            const correctionBias = bias === "bullish" ? "bearish" : "bullish";
+
+            // ── Filter 3: ADX H4 >= 25 (trend kuat) ──────────────────────────
             const adxH4 = calcADX(h4.highs, h4.lows, h4.closes);
             if (adxH4 < 25) return null;
 
-            // ── Filter 3: RSI H4 valid range ──────────────────────────────────
-            const rsiH4 = calcRSI(h4.closes);
+            // ── Filter 4: RSI H1 belum oversold/overbought ekstrem ────────────
+            // Koreksi masih sehat: RSI H1 tidak boleh melewati level ekstrem
+            // Bullish trend: RSI H1 pullback tapi tidak < 25 (terlalu dalam = reversal)
+            // Bearish trend: RSI H1 bounce tapi tidak > 75 (terlalu tinggi = reversal)
             const rsiH1 = calcRSI(h1.closes);
-            if (bias === "bullish" && (rsiH4 < 50 || rsiH4 > 80)) return null;
-            if (bias === "bearish" && (rsiH4 < 30 || rsiH4 > 50)) return null;
+            const rsiH4 = calcRSI(h4.closes);
+            if (bias === "bullish" && rsiH1 < 25) return null; // koreksi terlalu dalam
+            if (bias === "bearish" && rsiH1 > 75) return null; // bounce terlalu tinggi
 
-            // ── Filter 4: ATR H4 >= 0.5% dari harga ──────────────────────────
+            // ── Filter 5: ATR H4 >= 0.5% (volatilitas cukup) ─────────────────
             const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
             const atrH4Pct = (atrH4 / price) * 100;
             if (atrH4Pct < 0.5) return null;
 
+            // ── Hitung kedalaman koreksi dari high/low H4 terakhir ────────────
+            const recentH4Highs = h4.highs.slice(-20);
+            const recentH4Lows = h4.lows.slice(-20);
+            let correctionDepthPct = 0;
+            if (bias === "bullish") {
+              const swingHigh = Math.max(...recentH4Highs);
+              correctionDepthPct = ((swingHigh - price) / swingHigh) * 100;
+            } else {
+              const swingLow = Math.min(...recentH4Lows);
+              correctionDepthPct = ((price - swingLow) / swingLow) * 100;
+            }
+
             const fundingRate = 0;
             const oiDirection: "up" | "down" | "neutral" = "neutral";
 
-            // ── Volume ratio: H4 last 24h vs prev 24h (6 candles x 4h = 24h) ─
+            // ── Volume ratio ──────────────────────────────────────────────────
             const recent24h = h4.volumes.slice(-6).reduce((a, b) => a + b, 0);
             const prev24h = h4.volumes.slice(-12, -6).reduce((a, b) => a + b, 0);
-            const volumeValid = prev24h > 0 && recent24h >= prev24h * 1.2;
+            const volumeValid = prev24h > 0 && recent24h >= prev24h * 0.8; // volume koreksi wajar lebih kecil
 
-            // ── Scoring ───────────────────────────────────────────────────────
+            // ── Scoring (max 8) ───────────────────────────────────────────────
             let score = 0;
+            // H4 trend kuat
             if (strH4.strength === "strong") score += 2;
-            if (strH1.strength === "strong") score += 1;
-            if (adxH4 > 30) score += 2;
+            else if (strH4.strength === "moderate") score += 1;
+            // ADX kuat
+            if (adxH4 > 35) score += 2;
             else if (adxH4 > 25) score += 1;
-            const rsiH4Optimal =
-              bias === "bullish" ? rsiH4 >= 55 && rsiH4 <= 70 : rsiH4 >= 30 && rsiH4 <= 45;
-            if (rsiH4Optimal) score += 1;
-            const rsiH1Optimal =
-              bias === "bullish" ? rsiH1 >= 50 && rsiH1 <= 70 : rsiH1 >= 30 && rsiH1 <= 50;
-            if (rsiH1Optimal) score += 1;
+            // RSI H4 di zona trend sehat
+            const rsiH4Healthy = bias === "bullish"
+              ? rsiH4 >= 50 && rsiH4 <= 75  // trend bullish sehat
+              : rsiH4 >= 25 && rsiH4 <= 50; // trend bearish sehat
+            if (rsiH4Healthy) score += 1;
+            // Koreksi belum terlalu dalam (masih dalam range normal 3–15%)
+            const correctionHealthy = correctionDepthPct >= 3 && correctionDepthPct <= 15;
+            if (correctionHealthy) score += 1;
+            // H1 sudah mulai melemah (koreksi mau selesai)
+            // RSI H1 di area oversold ringan untuk bullish, overbought ringan untuk bearish
+            const rsiH1Exhausted = bias === "bullish"
+              ? rsiH1 >= 25 && rsiH1 <= 45  // pullback hampir habis
+              : rsiH1 >= 55 && rsiH1 <= 75; // bounce hampir habis
+            if (rsiH1Exhausted) score += 1;
+            // Volume koreksi sehat
             if (volumeValid) score += 1;
 
             const confidence: "HIGH" | "MODERATE" | "LOW" =
@@ -246,6 +282,7 @@ router.get("/screener", async (req, res) => {
             return {
               symbol: ticker.symbol,
               bias,
+              correctionBias,
               score,
               confidence,
               price,
@@ -256,6 +293,7 @@ router.get("/screener", async (req, res) => {
               atrH4,
               atrH4Pct,
               adxH4,
+              correctionDepthPct,
               volumeValid,
               oiDirection,
               fundingRate,

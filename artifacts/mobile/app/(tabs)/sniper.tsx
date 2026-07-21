@@ -572,13 +572,22 @@ async function sniperEvaluateLog(log: SignalLog): Promise<Partial<SignalLog>> {
     for (const k of klines) {
       const high = k[2] as number, low = k[3] as number;
       if (log.bias === 'bullish') {
-        if (low <= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (log.takeProfit2 && high >= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.takeProfit2 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
-        if (high >= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
+        // SL selalu dicek duluan — kalau candle menyentuh SL dan TP di candle yang sama, SL menang
+        const hitSL = low <= log.stopLoss;
+        const hitTP2 = log.takeProfit2 != null && high >= log.takeProfit2;
+        const hitTP1 = high >= log.takeProfit1;
+        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
+        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.takeProfit2! - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
+        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
+        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
       } else {
-        if (high >= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (log.takeProfit2 && low <= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.entryPrice - log.takeProfit2) / risk).toFixed(1), evaluatedAt: evalAt };
-        if (low <= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice - log.takeProfit1) / risk).toFixed(1), evaluatedAt: evalAt };
+        const hitSL = high >= log.stopLoss;
+        const hitTP2 = log.takeProfit2 != null && low <= log.takeProfit2;
+        const hitTP1 = low <= log.takeProfit1;
+        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
+        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.entryPrice - log.takeProfit2!) / risk).toFixed(1), evaluatedAt: evalAt };
+        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice - log.takeProfit1) / risk).toFixed(1), evaluatedAt: evalAt };
+        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
       }
     }
     return { status: 'pending' };
@@ -663,6 +672,7 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
                   </View>
                 )}
               </View>
+              {log.currentPriceAtSignal > 0 && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 2, fontFamily: 'Inter_400Regular' }}>Harga saat sinyal: {log.currentPriceAtSignal >= 1000 ? log.currentPriceAtSignal.toFixed(2) : log.currentPriceAtSignal >= 1 ? log.currentPriceAtSignal.toFixed(4) : log.currentPriceAtSignal.toFixed(6)}</Text>}
               {log.probabilityOrScore !== undefined && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 4, fontFamily: 'Inter_400Regular' }}>Probabilitas saat sinyal: {log.probabilityOrScore}%</Text>}
               {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 6, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
               <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>

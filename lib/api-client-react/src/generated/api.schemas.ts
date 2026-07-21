@@ -16,23 +16,15 @@ export interface ErrorResponse {
 export type ScreenerCoinBias = typeof ScreenerCoinBias[keyof typeof ScreenerCoinBias];
 
 
-export const ScreenerCoinBias = {
-  bullish: 'bullish',
-  bearish: 'bearish',
-} as const;
 
 export type ScreenerCoinConfidence = typeof ScreenerCoinConfidence[keyof typeof ScreenerCoinConfidence];
 
 
-export const ScreenerCoinConfidence = {
-  HIGH: 'HIGH',
-  MODERATE: 'MODERATE',
-  LOW: 'LOW',
-} as const;
 
 export interface ScreenerCoin {
   symbol: string;
   bias: ScreenerCoinBias;
+  correctionBias?: ScreenerCoinBias;
   score: number;
   confidence: ScreenerCoinConfidence;
   price: number;
@@ -40,11 +32,10 @@ export interface ScreenerCoin {
   volume24h: number;
   rsiH4: number;
   rsiH1: number;
-  macdValidH4: boolean;
-  macdValidH1: boolean;
   atrH4: number;
   atrH4Pct: number;
   adxH4: number;
+  correctionDepthPct?: number;
   volumeValid: boolean;
   oiDirection: 'up' | 'down' | 'neutral';
   fundingRate: number;
@@ -58,20 +49,10 @@ export interface ScreenerResponse {
 export type TrendInfoBias = typeof TrendInfoBias[keyof typeof TrendInfoBias];
 
 
-export const TrendInfoBias = {
-  bullish: 'bullish',
-  bearish: 'bearish',
-  ranging: 'ranging',
-} as const;
 
 export type TrendInfoStrength = typeof TrendInfoStrength[keyof typeof TrendInfoStrength];
 
 
-export const TrendInfoStrength = {
-  strong: 'strong',
-  weak: 'weak',
-  neutral: 'neutral',
-} as const;
 
 export interface TrendInfo {
   bias: TrendInfoBias;
@@ -86,21 +67,10 @@ export interface ZoneRange {
 export type SniperResultStatus = typeof SniperResultStatus[keyof typeof SniperResultStatus];
 
 
-export const SniperResultStatus = {
-  ready: 'ready',
-  no_trend: 'no_trend',
-  no_zone: 'no_zone',
-  skip_conditions: 'skip_conditions',
-  error: 'error',
-} as const;
 
 export type SniperResultBias = typeof SniperResultBias[keyof typeof SniperResultBias];
 
 
-export const SniperResultBias = {
-  bullish: 'bullish',
-  bearish: 'bearish',
-} as const;
 
 export interface SniperResult {
   status: SniperResultStatus;
@@ -295,6 +265,7 @@ export interface BacktestResult {
   totalCandles: number;
   sniperResult?: BacktestAnalysis;
   breakoutResult?: BacktestAnalysis;
+  scalpingResult?: BacktestAnalysis;
   comparison?: {
     better: 'sniper' | 'breakout' | 'equal';
     sniperWinRate: number;
@@ -304,8 +275,8 @@ export interface BacktestResult {
   timestamp: string;
 }
 
-export type BacktestPeriod = '1m' | '3m' | '6m' | '1y';
-export type BacktestMenu = 'sniper' | 'breakout' | 'both';
+export type BacktestPeriod = '1m' | '3m' | '6m' | '1y' | 'all';
+export type BacktestMenu = 'sniper' | 'breakout' | 'scalping' | 'both';
 
 export interface BacktestParams {
   symbol: string;

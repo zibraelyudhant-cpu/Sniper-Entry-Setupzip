@@ -1602,12 +1602,8 @@ export async function checkSkipConditions(
     }
   }
 
-  // 2. CHoCH on H1
+  // CHoCH H1 dihapus dari skip condition — justru ini yang kita cari (koreksi/pullback)
   const chochDetected = detectCHoCH(h1Highs, h1Lows, h1Closes, bias);
-  if (chochDetected) {
-    reasons.push("CHoCH terbentuk di H1 — struktur H1 sudah berbalik arah");
-    shouldSkip = true;
-  }
 
   // CHoCH H4 dihapus — sudah dicek di Step 1 (trend H4 harus valid sebelum masuk sini)
   const chochH4Detected = false;
