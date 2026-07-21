@@ -179,23 +179,45 @@ export interface SniperResult {
 
 // ─── Data Fetching ────────────────────────────────────────────────────────────
 
+// Cache klines untuk kurangi request ke Binance
+const klinesCache = new Map<string, { data: KlineData; ts: number }>();
+const KLINES_CACHE_MS = 2 * 60 * 1000; // 2 menit
+
 export async function fetchKlines(
   symbol: string,
   interval: string,
   limit: number
 ): Promise<KlineData> {
+  const cacheKey = `${symbol}_${interval}_${limit}`;
+  const cached = klinesCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < KLINES_CACHE_MS) return cached.data;
+
   const url = `${BINANCE_FUTURES_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Klines fetch failed: ${res.status}`);
-  const data: unknown[][] = await res.json();
-  return {
-    opens: data.map((k) => parseFloat(k[1] as string)),
-    highs: data.map((k) => parseFloat(k[2] as string)),
-    lows: data.map((k) => parseFloat(k[3] as string)),
-    closes: data.map((k) => parseFloat(k[4] as string)),
-    volumes: data.map((k) => parseFloat(k[5] as string)),
-    times: data.map((k) => k[0] as number),
-  };
+
+  // Retry max 2x dengan delay kalau kena rate limit (418/429)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (res.status === 418 || res.status === 429) {
+      // Rate limited — tunggu sebentar lalu retry
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Klines fetch failed: ${res.status}`);
+    const data: unknown[][] = await res.json();
+    const result: KlineData = {
+      opens: data.map((k) => parseFloat(k[1] as string)),
+      highs: data.map((k) => parseFloat(k[2] as string)),
+      lows: data.map((k) => parseFloat(k[3] as string)),
+      closes: data.map((k) => parseFloat(k[4] as string)),
+      volumes: data.map((k) => parseFloat(k[5] as string)),
+      times: data.map((k) => k[0] as number),
+    };
+    klinesCache.set(cacheKey, { data: result, ts: Date.now() });
+    return result;
+  }
+  throw new Error(`Klines fetch failed after retries: rate limited`);
 }
 
 // ─── Utility Calculations ─────────────────────────────────────────────────────
@@ -375,27 +397,26 @@ export function analyzePriceActionStructure(
     else if (lastLows[i] < lastLows[i - 1]) bearishSignals++;
   }
 
-  // Momentum dari EMA — lebih stabil dari close slice
-  // EMA 10 vs EMA 20: kalau EMA10 > EMA20 = bullish momentum
-  const ema10 = calcEMA(closes, 10);
-  const ema20 = calcEMA(closes, 20);
-  const lastEma10 = ema10[ema10.length - 1];
-  const lastEma20 = ema20[ema20.length - 1];
-  if (lastEma10 > lastEma20 * 1.001) bullishSignals++;
-  else if (lastEma10 < lastEma20 * 0.999) bearishSignals++;
+  // Momentum: bandingkan rata-rata 10 close terakhir vs 20 close terakhir
+  // Lebih stabil dari slice candle tunggal
+  const recent20 = closes.slice(-20);
+  const avg10 = recent20.slice(-10).reduce((a, b) => a + b, 0) / 10;
+  const avg20 = recent20.reduce((a, b) => a + b, 0) / 20;
+  if (avg10 > avg20 * 1.001) bullishSignals++;
+  else if (avg10 < avg20 * 0.999) bearishSignals++;
 
   const total = bullishSignals + bearishSignals;
   if (total === 0) return { bias: "ranging", strength: "neutral", description: "No clear structure" };
 
   const dominance = Math.max(bullishSignals, bearishSignals) / total;
 
-  // Threshold strength lebih ketat: strong >= 0.8 (dari 5/6+ sinyal searah)
+  // strong >= 0.7 (5/7 sinyal), moderate >= 0.55 (4/7), weak = sisanya
   if (bullishSignals > bearishSignals) {
-    const strength = dominance >= 0.8 ? "strong" : dominance >= 0.6 ? "moderate" : "weak";
-    return { bias: "bullish", strength, description: `HH+HL terbentuk (${bullishSignals}/${total} sinyal bullish)` };
+    const strength = dominance >= 0.7 ? "strong" : dominance >= 0.55 ? "moderate" : "weak";
+    return { bias: "bullish", strength, description: `HH+HL (${bullishSignals}/${total} sinyal bullish)` };
   } else if (bearishSignals > bullishSignals) {
-    const strength = dominance >= 0.8 ? "strong" : dominance >= 0.6 ? "moderate" : "weak";
-    return { bias: "bearish", strength, description: `LH+LL terbentuk (${bearishSignals}/${total} sinyal bearish)` };
+    const strength = dominance >= 0.7 ? "strong" : dominance >= 0.55 ? "moderate" : "weak";
+    return { bias: "bearish", strength, description: `LH+LL (${bearishSignals}/${total} sinyal bearish)` };
   }
 
   return { bias: "ranging", strength: "neutral", description: "Struktur ranging/sideways" };
@@ -962,6 +983,125 @@ export function refineZone15M(
   };
 }
 
+
+// ─── Multi-TF Zone Refinement: H1 → 15M → 5M ────────────────────────────────
+// Cari zona terkuat di setiap TF dalam batas zona TF lebih tinggi
+// Hierarki zona per TF: OB > FVG > S&R > Fib > UFO
+
+function findBestZoneInRange(
+  opens: number[], highs: number[], lows: number[], closes: number[], volumes: number[],
+  bias: "bullish" | "bearish",
+  zoneLow: number, zoneHigh: number,
+  tfLabel: string,
+  parentZoneType: string,
+  currentPrice: number
+): RefinedZone | null {
+  const range = zoneHigh - zoneLow;
+  if (range <= 0) return null;
+  const margin = range * 0.15; // toleransi 15% keluar zona parent
+
+  // 1. OB dalam zona
+  const obs = detectOrderBlocksH1(opens, highs, lows, closes, bias, 50);
+  for (const ob of obs) {
+    const inZone = bias === "bullish"
+      ? ob.high <= zoneHigh + margin && ob.low >= zoneLow - margin && ob.high < currentPrice
+      : ob.low >= zoneLow - margin && ob.high <= zoneHigh + margin && ob.low > currentPrice;
+    if (inZone) {
+      const entry = bias === "bullish"
+        ? ob.low + (ob.high - ob.low) * 0.382
+        : ob.high - (ob.high - ob.low) * 0.382;
+      return { high: ob.high, low: ob.low, mid: (ob.high + ob.low) / 2, entryPrice: entry, zoneType: `OB ${tfLabel} (${parentZoneType})`, refined: true };
+    }
+  }
+
+  // 2. FVG dalam zona
+  const fvgs = detectFVGH1(highs, lows, bias, 50);
+  for (const fvg of fvgs) {
+    const inZone = fvg.low >= zoneLow - margin && fvg.high <= zoneHigh + margin;
+    if (inZone) {
+      const inPriceRange = bias === "bullish" ? fvg.high < currentPrice : fvg.low > currentPrice;
+      if (inPriceRange) return { high: fvg.high, low: fvg.low, mid: fvg.mid, entryPrice: fvg.mid, zoneType: `FVG ${tfLabel} (${parentZoneType})`, refined: true };
+    }
+  }
+
+  // 3. S&R dalam zona
+  const srLevels = detectSRLevels(highs, lows, closes);
+  for (const sr of srLevels) {
+    const inZone = sr.price >= zoneLow - margin && sr.price <= zoneHigh + margin;
+    if (inZone) {
+      const isRelevant = bias === "bullish" ? sr.price < currentPrice : sr.price > currentPrice;
+      if (isRelevant) {
+        const hw = range * 0.1;
+        return { high: sr.price + hw, low: sr.price - hw, mid: sr.price, entryPrice: sr.price, zoneType: `S&R ${tfLabel} ${sr.type} (${parentZoneType})`, refined: true };
+      }
+    }
+  }
+
+  // 4. Fibonacci dalam zona
+  const fib = calcFibonacci(highs, lows, closes);
+  if (fib) {
+    const fibKeys = bias === "bullish" ? ["0.618", "0.5", "0.382"] : ["0.382", "0.5", "0.618"];
+    for (const k of fibKeys) {
+      const lvl = fib.levels[k as keyof typeof fib.levels];
+      if (lvl && lvl >= zoneLow - margin && lvl <= zoneHigh + margin) {
+        const inPriceRange = bias === "bullish" ? lvl < currentPrice : lvl > currentPrice;
+        if (inPriceRange) {
+          const hw = range * 0.08;
+          return { high: lvl + hw, low: lvl - hw, mid: lvl, entryPrice: lvl, zoneType: `Fib ${k} ${tfLabel} (${parentZoneType})`, refined: true };
+        }
+      }
+    }
+  }
+
+  // 5. UFO — cari volume void dalam zona (low volume area = unfilled)
+  const avgVol = volumes.length > 0 ? volumes.slice(-50).reduce((a, b) => a + b, 0) / Math.min(50, volumes.length) : 0;
+  if (avgVol > 0) {
+    for (let i = Math.max(0, highs.length - 50); i < highs.length - 3; i++) {
+      const candleHigh = highs[i], candleLow = lows[i];
+      const vol = volumes[i] ?? 0;
+      const inZone = candleLow >= zoneLow - margin && candleHigh <= zoneHigh + margin;
+      const isLowVol = vol < avgVol * 0.4; // volume < 40% avg = area tidak terisi
+      const isGap = highs[i + 1] > candleHigh * 1.001 || lows[i + 1] < candleLow * 0.999; // ada gap setelahnya
+      if (inZone && isLowVol && isGap) {
+        const inPriceRange = bias === "bullish" ? candleHigh < currentPrice : candleLow > currentPrice;
+        if (inPriceRange) return { high: candleHigh, low: candleLow, mid: (candleHigh + candleLow) / 2, entryPrice: (candleHigh + candleLow) / 2, zoneType: `UFO ${tfLabel} (${parentZoneType})`, refined: true };
+      }
+    }
+  }
+
+  return null;
+}
+
+export function refineZoneMultiTF(
+  h1Zone: SelectedZone,
+  opens15m: number[], highs15m: number[], lows15m: number[], closes15m: number[], volumes15m: number[],
+  opens5m: number[], highs5m: number[], lows5m: number[], closes5m: number[], volumes5m: number[],
+  bias: "bullish" | "bearish",
+  currentPrice: number
+): RefinedZone {
+  // Step 1: Cari zona terkuat di 15M dalam range H1
+  const zone15M = findBestZoneInRange(
+    opens15m, highs15m, lows15m, closes15m, volumes15m,
+    bias, h1Zone.low, h1Zone.high, "15M", h1Zone.zoneType, currentPrice
+  );
+
+  if (zone15M) {
+    // Step 2: Cari zona terkuat di 5M dalam range zona 15M yang ditemukan
+    const zone5M = findBestZoneInRange(
+      opens5m, highs5m, lows5m, closes5m, volumes5m,
+      bias, zone15M.low, zone15M.high, "5M", zone15M.zoneType, currentPrice
+    );
+    if (zone5M) return zone5M; // Zona 5M paling presisi
+    return zone15M; // Fallback ke 15M
+  }
+
+  // Fallback ke H1 zone langsung
+  return {
+    high: h1Zone.high, low: h1Zone.low, mid: h1Zone.mid,
+    entryPrice: h1Zone.entryPrice, zoneType: h1Zone.zoneType, refined: false,
+  };
+}
+
 // ─── Step 4: Entry Confirmation at 5M ────────────────────────────────────────
 
 export interface Rejection15M {
@@ -1154,33 +1294,37 @@ export function checkEntryConfirmation5M(
     h1Highs: number[],
     h1Lows: number[],
     atrH1: number,
+    h4Highs: number[] = [],
+    h4Lows: number[] = [],
 ): SniperLevels {
     let stopLoss: number;
 
-    // SL berdasarkan swing high/low H1 terdekat (20 candle lookback)
-    const swingHighs = findSwingHighs(h1Highs, 20);
-    const swingLows = findSwingLows(h1Lows, 20);
-    const buffer = atrH1 * 0.2;
+    // SL berdasarkan swing high/low H4 terdekat (20 candle lookback)
+    const h4HighsToUse = h4Highs.length >= 5 ? h4Highs : h1Highs;
+    const h4LowsToUse = h4Lows.length >= 5 ? h4Lows : h1Lows;
+    const swingHighs = findSwingHighs(h4HighsToUse, 20);
+    const swingLows = findSwingLows(h4LowsToUse, 20);
+    const buffer = atrH4 * 0.2;
 
     if (bias === "bullish") {
-      // Cari swing low H1 terdekat di bawah entry
+      // Cari swing low H4 terdekat di bawah entry
       const relevantLows = swingLows.filter(l => l < entryPrice);
       const nearestSwingLow = relevantLows.length > 0
         ? Math.max(...relevantLows)
-        : Math.min(...h1Lows.slice(-20));
+        : Math.min(...h4LowsToUse.slice(-20));
       const rawSl = nearestSwingLow - buffer;
-      // Minimum SL = 1x ATR H2 dari entry
-      const minSl = entryPrice - atrSl;
+      // Minimum SL = 1x ATR H4 dari entry
+      const minSl = entryPrice - atrH4;
       stopLoss = Math.min(rawSl, minSl);
     } else {
-      // Cari swing high H1 terdekat di atas entry
+      // Cari swing high H4 terdekat di atas entry
       const relevantHighs = swingHighs.filter(h => h > entryPrice);
       const nearestSwingHigh = relevantHighs.length > 0
         ? Math.min(...relevantHighs)
-        : Math.max(...h1Highs.slice(-20));
+        : Math.max(...h4HighsToUse.slice(-20));
       const rawSl = nearestSwingHigh + buffer;
-      // Minimum SL = 1x ATR H2 dari entry
-      const minSl = entryPrice + atrSl;
+      // Minimum SL = 1x ATR H4 dari entry
+      const minSl = entryPrice + atrH4;
       stopLoss = Math.max(rawSl, minSl);
     }
 
@@ -1465,14 +1609,8 @@ export async function checkSkipConditions(
     shouldSkip = true;
   }
 
-  // 2b. CHoCH on H4 (Teori Dow: primary trend reversal — hard filter lebih kuat)
-  const chochH4Detected = h4Highs.length > 0
-    ? detectCHoCH(h4Highs, h4Lows, h4Closes, bias)
-    : false;
-  if (chochH4Detected) {
-    reasons.push("CHoCH terbentuk di H4 — primary trend sudah berbalik, setup invalid");
-    shouldSkip = true;
-  }
+  // CHoCH H4 dihapus — sudah dicek di Step 1 (trend H4 harus valid sebelum masuk sini)
+  const chochH4Detected = false;
 
   // 2c. Dow Phase Detection
   const dowResult = h4Closes.length > 0
@@ -1490,85 +1628,11 @@ export async function checkSkipConditions(
     ? checkVolumeTrend(h4Closes, h4Volumes, bias)
     : { valid: true, description: 'Data volume tidak tersedia' };
 
-  // 3. OI + Accumulation Detection
-  let oiChange = 0;
-  let oiAccumulation = false;
-  let oiAccumulationDesc = "Data OI tidak tersedia";
-  try {
-    const oiUrl = `${BINANCE_FUTURES_BASE}/fapi/v1/openInterest?symbol=${symbol}`;
-    const oiHistUrl = `${BINANCE_FUTURES_BASE}/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=8`;
-    const [oiRes, oiHistRes] = await Promise.all([fetch(oiUrl), fetch(oiHistUrl)]);
-    if (oiRes.ok && oiHistRes.ok) {
-      const oiHist: Array<{ sumOpenInterest: string; sumOpenInterestValue: string }> = await oiHistRes.json();
-      if (oiHist.length >= 2) {
-        const latest = parseFloat(oiHist[oiHist.length - 1].sumOpenInterest);
-        const prev = parseFloat(oiHist[0].sumOpenInterest);
-        oiChange = ((latest - prev) / prev) * 100;
-
-        // Skip conditions
-        if (bias === "bullish" && oiChange < -2) {
-          reasons.push(`OI turun ${oiChange.toFixed(1)}% saat harga naik (kemungkinan short covering)`);
-          shouldSkip = true;
-        } else if (bias === "bearish" && oiChange < -2) {
-          reasons.push(`OI turun ${oiChange.toFixed(1)}% saat harga turun (kemungkinan long liquidation)`);
-          shouldSkip = true;
-        }
-
-        // OI Accumulation Detection
-        // Cek apakah OI naik konsisten dalam 5 jam terakhir saat harga ranging
-        if (oiHist.length >= 5) {
-          const recent5 = oiHist.slice(-5);
-          const oiValues = recent5.map(d => parseFloat(d.sumOpenInterest));
-
-          // OI naik konsisten: tiap jam OI >= jam sebelumnya (minimal 3 dari 4 step naik)
-          let risingCount = 0;
-          for (let i = 1; i < oiValues.length; i++) {
-            if (oiValues[i] >= oiValues[i - 1]) risingCount++;
-          }
-          const oiRising = risingCount >= 3;
-
-          // OI naik signifikan dalam 5 jam (>= 1.5%)
-          const oiChange5h = ((oiValues[oiValues.length - 1] - oiValues[0]) / oiValues[0]) * 100;
-          const oiSignificant = oiChange5h >= 1.5;
-
-          if (oiRising && oiSignificant) {
-            oiAccumulation = true;
-            oiAccumulationDesc = `OI naik ${oiChange5h.toFixed(2)}% dalam 5 jam — akumulasi posisi terdeteksi`;
-          } else if (oiChange5h < -1.5) {
-            oiAccumulationDesc = `OI turun ${Math.abs(oiChange5h).toFixed(2)}% dalam 5 jam — distribusi/likuidasi`;
-          } else {
-            oiAccumulationDesc = `OI stabil (${oiChange5h >= 0 ? '+' : ''}${oiChange5h.toFixed(2)}% dalam 5 jam)`;
-          }
-        }
-      }
-    }
-  } catch { /* OI check failed silently */ }
-
-  // 4. Funding rate
-  let fundingRate = 0;
-  try {
-    const frUrl = `${BINANCE_FUTURES_BASE}/fapi/v1/fundingRate?symbol=${symbol}&limit=1`;
-    const frRes = await fetch(frUrl);
-    if (frRes.ok) {
-      const frData: Array<{ fundingRate: string }> = await frRes.json();
-      if (frData.length > 0) {
-        fundingRate = parseFloat(frData[0].fundingRate) * 100;
-        if (bias === "bullish" && fundingRate < -0.1) {
-          reasons.push(`Funding rate sangat negatif (${fundingRate.toFixed(3)}%) — pasar bet turun`);
-          shouldSkip = true;
-        } else if (bias === "bearish" && fundingRate > 0.1) {
-          reasons.push(`Funding rate sangat positif (${fundingRate.toFixed(3)}%) — pasar bet naik`);
-          shouldSkip = true;
-        }
-      }
-    }
-  } catch { /* Funding rate check failed silently */ }
-
   return {
     shouldSkip, reasons, rsi, rsiDivergence,
     chochDetected, chochH4Detected,
-    oiChange, oiAccumulation, oiAccumulationDesc,
-    fundingRate,
+    oiChange: 0, oiAccumulation: false, oiAccumulationDesc: '',
+    fundingRate: 0,
     dowPhase: dowResult.phase,
     dowPhaseDesc: dowResult.description,
     volumeTrendValid: volTrend.valid,
@@ -1654,12 +1718,12 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
   try {
     // Fetch all data in parallel
-    const [h4, h2, h1, m15, m5, currentTickerRes] = await Promise.all([
+    const [h4, h1, h2, m15, m5, currentTickerRes] = await Promise.all([
       fetchKlines(symbol, "4h", 100),
-      fetchKlines(symbol, "2h", 50),
       fetchKlines(symbol, "1h", 200),
+      fetchKlines(symbol, "2h", 50),
       fetchKlines(symbol, "15m", 100),
-      fetchKlines(symbol, "5m", 50),
+      fetchKlines(symbol, "5m", 200),
       fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
 
@@ -1684,17 +1748,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         h4: { bias: structH4.bias, strength: structH4.strength },
       };
     }
-    // Hard filter: H4 strength harus minimal moderate — weak = trend belum cukup kuat
-    if (structH4.strength === "weak") {
-      return {
-        status: "no_trend",
-        message: `Trend H4 terlalu lemah (${structH4.description}) — tunggu struktur lebih solid`,
-        symbol,
-        currentPrice,
-        timestamp,
-        h4: { bias: structH4.bias, strength: structH4.strength },
-      };
-    }
+    // H4 weak = tetap lanjut tapi dicatat di h4 field untuk info ke user
 
     const bias = structH4.bias as "bullish" | "bearish";
 
@@ -1751,9 +1805,13 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       };
     }
 
-    // STEP 3: Refine at 15M
-    const refinedZone = refineZone15M(
-      selectedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias
+    // STEP 3: Refine zona H1 → 15M → 5M
+    // Cari konfluens terkuat: OB > FVG > S&R > Fib > UFO per TF
+    const refinedZone = refineZoneMultiTF(
+      selectedZone,
+      m15.opens, m15.highs, m15.lows, m15.closes, m15.volumes,
+      m5.opens, m5.highs, m5.lows, m5.closes, m5.volumes,
+      bias, currentPrice
     );
 
     // STEP 4a: Multi-TF Confluence — H4 approaching H1 zone
@@ -1770,35 +1828,35 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       refinedZone, m15.opens, m15.highs, m15.lows, m15.closes, bias, m15.volumes
     );
 
-    // STEP 4c: Pattern konfirmasi H1/H4 (scoring, bukan hard filter)
+    // STEP 4c: Pattern konfirmasi 15M/5M (scoring, bukan hard filter)
     const validPatterns = bias === "bullish"
       ? ["Bull Flag", "Ascending Triangle", "Double Bottom", "Inverse H&S", "Falling Wedge", "Pennant"]
       : ["Bear Flag", "Descending Triangle", "Double Top", "Head & Shoulders", "Rising Wedge", "Pennant"];
 
     const allPatterns = [
-      detectBullFlag(h1.highs, h1.lows, h1.closes, h1.volumes),
-      detectBearFlag(h1.highs, h1.lows, h1.closes, h1.volumes),
-      detectAscendingTriangle(h1.highs, h1.lows, h1.closes),
-      detectDescendingTriangle(h1.highs, h1.lows, h1.closes),
-      detectDoubleBottom(h1.highs, h1.lows, h1.closes),
-      detectDoubleTop(h1.highs, h1.lows, h1.closes),
-      detectInverseHS(h1.highs, h1.lows, h1.closes),
-      detectHeadAndShoulders(h1.highs, h1.lows, h1.closes),
-      detectFallingWedge(h1.highs, h1.lows, h1.closes),
-      detectRisingWedge(h1.highs, h1.lows, h1.closes),
-      detectPennant(h1.highs, h1.lows, h1.closes, h1.volumes),
-      detectBullFlag(h4.highs, h4.lows, h4.closes, h4.volumes),
-      detectBearFlag(h4.highs, h4.lows, h4.closes, h4.volumes),
-      detectAscendingTriangle(h4.highs, h4.lows, h4.closes),
-      detectDescendingTriangle(h4.highs, h4.lows, h4.closes),
-      detectDoubleBottom(h4.highs, h4.lows, h4.closes),
-      detectDoubleTop(h4.highs, h4.lows, h4.closes),
+      detectBullFlag(m15.highs, m15.lows, m15.closes, m15.volumes),
+      detectBearFlag(m15.highs, m15.lows, m15.closes, m15.volumes),
+      detectAscendingTriangle(m15.highs, m15.lows, m15.closes),
+      detectDescendingTriangle(m15.highs, m15.lows, m15.closes),
+      detectDoubleBottom(m15.highs, m15.lows, m15.closes),
+      detectDoubleTop(m15.highs, m15.lows, m15.closes),
+      detectInverseHS(m15.highs, m15.lows, m15.closes),
+      detectHeadAndShoulders(m15.highs, m15.lows, m15.closes),
+      detectFallingWedge(m15.highs, m15.lows, m15.closes),
+      detectRisingWedge(m15.highs, m15.lows, m15.closes),
+      detectPennant(m15.highs, m15.lows, m15.closes, m15.volumes),
+      detectBullFlag(m5.highs, m5.lows, m5.closes, m5.volumes),
+      detectBearFlag(m5.highs, m5.lows, m5.closes, m5.volumes),
+      detectAscendingTriangle(m5.highs, m5.lows, m5.closes),
+      detectDescendingTriangle(m5.highs, m5.lows, m5.closes),
+      detectDoubleBottom(m5.highs, m5.lows, m5.closes),
+      detectDoubleTop(m5.highs, m5.lows, m5.closes),
     ].filter(p => p !== null && validPatterns.includes(p!.name));
     const confirmedPattern = allPatterns.length > 0 ? allPatterns[0] : null;
 
 
 
-    // STEP 4e: Konfirmasi 5M (opsional)
+    // STEP 4e: Konfirmasi 5M
     const confirmation = checkEntryConfirmation5M(
       refinedZone, m5.opens, m5.highs, m5.lows, m5.closes, bias
     );
@@ -1894,12 +1952,13 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // STEP 6: Calculate SL/TP
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
-    const atrH2 = calcATR(h2.highs, h2.lows, h2.closes);
+    const atrH2 = calcATR(h2.highs, h2.lows, h2.closes); // ATR H2 untuk SL
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
 
     const sniperLevels = calcSniperLevels(
       finalEntryPrice, refinedZone, atrH2, atrH4, bias,
-      h1.highs, h1.lows, atrH1
+      h1.highs, h1.lows, atrH1,
+      h4.highs, h4.lows
     );
 
     // Estimate time to hit entry

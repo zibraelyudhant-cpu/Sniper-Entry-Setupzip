@@ -24,10 +24,11 @@ router.get('/breakout/scan', async (req, res) => {
   try {
     const universe = await getUniverse();
     const results: Awaited<ReturnType<typeof analyzeScalpingEntry>>[] = [];
-    const batchSize = 5;
+    const batchSize = 3;
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(batch.map(s => analyzeScalpingEntry(s)));
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300));
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;

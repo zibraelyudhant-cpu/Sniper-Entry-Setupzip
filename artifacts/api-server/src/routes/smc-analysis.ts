@@ -26,14 +26,16 @@ router.get('/sniper/scan', async (req, res) => {
     const { getUniverse } = await import('./screener');
     const universe = await getUniverse();
     const results: Awaited<ReturnType<typeof analyzeSniperEntry>>[] = [];
-    const batchSize = 5;
+    const batchSize = 3; // kurangi batch size untuk hindari rate limit
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(batch.map(s => analyzeSniperEntry(s)));
+      // Delay antar batch untuk hindari rate limit Binance
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300));
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status === 'ready' && (val.profitProbability ?? 0) >= 30) {
+          if (val.status === 'ready' && (val.profitProbability ?? 0) >= 15) {
             results.push(val);
           }
         }

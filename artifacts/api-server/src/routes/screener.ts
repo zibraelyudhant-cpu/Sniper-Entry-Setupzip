@@ -145,8 +145,6 @@ interface ScreenerEntry {
   volume24h: number;
   rsiH4: number;
   rsiH1: number;
-  emaValidH4: boolean;
-  emaValidH1: boolean;
   atrH4: number;
   atrH4Pct: number;
   adxH4: number;
@@ -180,7 +178,7 @@ router.get("/screener", async (req, res) => {
     const candidates = allTickers
       .filter((t) => cryptoSymbols.has(t.symbol))
       .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-      .slice(0, 100);
+      .slice(0, 50);
 
     const batchSize = 5;
     const results: ScreenerEntry[] = [];
@@ -193,11 +191,9 @@ router.get("/screener", async (req, res) => {
           try {
             const price = parseFloat(ticker.lastPrice);
 
-            const [h4, h1, oiHistRes, frRes] = await Promise.all([
+            const [h4, h1] = await Promise.all([
               fetchKlines(ticker.symbol, "4h", 100),
               fetchKlines(ticker.symbol, "1h", 50),
-              fetch(`${BINANCE_FUTURES_BASE}/futures/data/openInterestHist?symbol=${ticker.symbol}&period=1h&limit=6`),
-              fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/fundingRate?symbol=${ticker.symbol}&limit=1`),
             ]);
 
             // ── Filter 1: H4 dan H1 harus searah, keduanya tidak ranging ─────
@@ -217,59 +213,13 @@ router.get("/screener", async (req, res) => {
             if (bias === "bullish" && (rsiH4 < 50 || rsiH4 > 80)) return null;
             if (bias === "bearish" && (rsiH4 < 30 || rsiH4 > 50)) return null;
 
-            // ── Filter 4: EMA 21/34/61 H4 ────────────────────────────────────
-            const ema21H4 = calcEMA(h4.closes, 21);
-            const ema34H4 = calcEMA(h4.closes, 34);
-            const ema61H4 = calcEMA(h4.closes, 61);
-            const lastEma21H4 = ema21H4[ema21H4.length - 1];
-            const lastEma34H4 = ema34H4[ema34H4.length - 1];
-            const lastEma61H4 = ema61H4[ema61H4.length - 1];
-            const emaValidH4 = bias === "bullish"
-              ? price > lastEma21H4 && lastEma21H4 > lastEma34H4 && lastEma34H4 > lastEma61H4
-              : price < lastEma21H4 && lastEma21H4 < lastEma34H4 && lastEma34H4 < lastEma61H4;
-            if (!emaValidH4) return null;
-
-            // ── Filter 4b: EMA 21/34/61 H1 ───────────────────────────────────
-            const ema21H1 = calcEMA(h1.closes, 21);
-            const ema34H1 = calcEMA(h1.closes, 34);
-            const ema61H1 = calcEMA(h1.closes, 61);
-            const lastEma21H1 = ema21H1[ema21H1.length - 1];
-            const lastEma34H1 = ema34H1[ema34H1.length - 1];
-            const lastEma61H1 = ema61H1[ema61H1.length - 1];
-            const emaValidH1 = bias === "bullish"
-              ? price > lastEma21H1 && lastEma21H1 > lastEma34H1 && lastEma34H1 > lastEma61H1
-              : price < lastEma21H1 && lastEma21H1 < lastEma34H1 && lastEma34H1 < lastEma61H1;
-            if (!emaValidH1) return null;
-
-            // ── Filter 5: ATR H4 >= 0.5% dari harga ──────────────────────────
+            // ── Filter 4: ATR H4 >= 0.5% dari harga ──────────────────────────
             const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
             const atrH4Pct = (atrH4 / price) * 100;
             if (atrH4Pct < 0.5) return null;
 
-            // ── Filter 6: OI + Funding ────────────────────────────────────────
-            let fundingRate = 0;
-            let oiDirection: "up" | "down" | "neutral" = "neutral";
-
-            if (frRes.ok) {
-              const frData: Array<{ fundingRate: string }> = await frRes.json();
-              if (frData.length > 0) {
-                fundingRate = parseFloat(frData[0].fundingRate) * 100;
-                if (bias === "bullish" && fundingRate > 0.1) return null;
-                if (bias === "bearish" && fundingRate < -0.1) return null;
-              }
-            }
-
-            if (oiHistRes.ok) {
-              const oiHist: Array<{ sumOpenInterest: string }> = await oiHistRes.json();
-              if (oiHist.length >= 2) {
-                const latest = parseFloat(oiHist[oiHist.length - 1].sumOpenInterest);
-                const first = parseFloat(oiHist[0].sumOpenInterest);
-                const oiChange = ((latest - first) / first) * 100;
-                oiDirection = oiChange > 0.5 ? "up" : oiChange < -0.5 ? "down" : "neutral";
-                if (bias === "bullish" && oiChange < -2) return null;
-                if (bias === "bearish" && oiChange < -2) return null;
-              }
-            }
+            const fundingRate = 0;
+            const oiDirection: "up" | "down" | "neutral" = "neutral";
 
             // ── Volume ratio: H4 last 24h vs prev 24h (6 candles x 4h = 24h) ─
             const recent24h = h4.volumes.slice(-6).reduce((a, b) => a + b, 0);
@@ -303,8 +253,6 @@ router.get("/screener", async (req, res) => {
               volume24h: parseFloat(ticker.quoteVolume),
               rsiH4,
               rsiH1,
-              emaValidH4,
-              emaValidH1,
               atrH4,
               atrH4Pct,
               adxH4,
@@ -363,7 +311,7 @@ export async function getUniverse(): Promise<string[]> {
       const symbols = allTickers
         .filter(t => cryptoSymbols.has(t.symbol))
         .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-        .slice(0, 100)
+        .slice(0, 50)
         .map(t => t.symbol);
       universeCache = { symbols, ts: Date.now() };
       return symbols;
