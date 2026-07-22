@@ -1288,43 +1288,43 @@ export function checkEntryConfirmation5M(
   export function calcSniperLevels(
     entryPrice: number,
     refinedZone: RefinedZone,
-    atrSl: number,
+    atrSl: number,     // ATR D1 untuk SL
     atrH4: number,
     bias: "bullish" | "bearish",
     h1Highs: number[],
     h1Lows: number[],
     atrH1: number,
-    h4Highs: number[] = [],
-    h4Lows: number[] = [],
+    d1Highs: number[] = [],
+    d1Lows: number[] = [],
 ): SniperLevels {
     let stopLoss: number;
 
-    // SL berdasarkan swing high/low H4 terdekat (20 candle lookback)
-    const h4HighsToUse = h4Highs.length >= 5 ? h4Highs : h1Highs;
-    const h4LowsToUse = h4Lows.length >= 5 ? h4Lows : h1Lows;
-    const swingHighs = findSwingHighs(h4HighsToUse, 20);
-    const swingLows = findSwingLows(h4LowsToUse, 20);
-    const buffer = atrH4 * 0.2;
+    // SL berdasarkan swing high/low D1 terdekat (20 candle lookback = 20 hari)
+    const d1HighsToUse = d1Highs.length >= 3 ? d1Highs : h1Highs;
+    const d1LowsToUse = d1Lows.length >= 3 ? d1Lows : h1Lows;
+    const swingHighs = findSwingHighs(d1HighsToUse, 10);
+    const swingLows = findSwingLows(d1LowsToUse, 10);
+    const buffer = atrSl * 0.2; // buffer 20% ATR D1
 
     if (bias === "bullish") {
-      // Cari swing low H4 terdekat di bawah entry
+      // Cari swing low D1 terdekat di bawah entry
       const relevantLows = swingLows.filter(l => l < entryPrice);
       const nearestSwingLow = relevantLows.length > 0
         ? Math.max(...relevantLows)
-        : Math.min(...h4LowsToUse.slice(-20));
+        : Math.min(...d1LowsToUse.slice(-10));
       const rawSl = nearestSwingLow - buffer;
-      // Minimum SL = 1x ATR H4 dari entry
-      const minSl = entryPrice - atrH4;
+      // Minimum SL = 1x ATR D1 dari entry
+      const minSl = entryPrice - atrSl;
       stopLoss = Math.min(rawSl, minSl);
     } else {
-      // Cari swing high H4 terdekat di atas entry
+      // Cari swing high D1 terdekat di atas entry
       const relevantHighs = swingHighs.filter(h => h > entryPrice);
       const nearestSwingHigh = relevantHighs.length > 0
         ? Math.min(...relevantHighs)
-        : Math.max(...h4HighsToUse.slice(-20));
+        : Math.max(...d1HighsToUse.slice(-10));
       const rawSl = nearestSwingHigh + buffer;
-      // Minimum SL = 1x ATR H4 dari entry
-      const minSl = entryPrice + atrH4;
+      // Minimum SL = 1x ATR D1 dari entry
+      const minSl = entryPrice + atrSl;
       stopLoss = Math.max(rawSl, minSl);
     }
 
@@ -1714,12 +1714,12 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
   try {
     // Fetch all data in parallel
-    const [h4, h1, h2, m15, m5, currentTickerRes] = await Promise.all([
-      fetchKlines(symbol, "4h", 100),
-      fetchKlines(symbol, "1h", 200),
-      fetchKlines(symbol, "2h", 50),
-      fetchKlines(symbol, "15m", 100),
-      fetchKlines(symbol, "5m", 200),
+    const [d1, h4, h1, m15, m5, currentTickerRes] = await Promise.all([
+      fetchKlines(symbol, "1d", 50),   // D1 — trend utama
+      fetchKlines(symbol, "4h", 100),  // H4 — zona entry
+      fetchKlines(symbol, "1h", 100),  // H1 — refine zona
+      fetchKlines(symbol, "15m", 100), // 15M — refine lebih presisi
+      fetchKlines(symbol, "5m", 200),  // 5M — entry presisi
       fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
 
@@ -1731,33 +1731,34 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       currentPrice = h1.closes[h1.closes.length - 1];
     }
 
-    // STEP 1: Confirm trend H4
-    const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
+    // STEP 1: Confirm trend D1 (trend utama)
+    const structD1 = analyzePriceActionStructure(d1.highs, d1.lows, d1.closes);
 
-    if (structH4.bias === "ranging") {
+    if (structD1.bias === "ranging") {
       return {
         status: "no_trend",
-        message: `Struktur H4 ranging, tidak ada trend jelas untuk ${symbol}`,
+        message: `Struktur D1 ranging, tidak ada trend jelas untuk ${symbol}`,
         symbol,
         currentPrice,
         timestamp,
-        h4: { bias: structH4.bias, strength: structH4.strength },
+        h4: { bias: structD1.bias, strength: structD1.strength },
       };
     }
-    // H4 weak = tetap lanjut tapi dicatat di h4 field untuk info ke user
 
-    const bias = structH4.bias as "bullish" | "bearish";
+    const bias = structD1.bias as "bullish" | "bearish";
+    // Catat juga struktur H4 untuk info
+    const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
 
-    // STEP 2: Detect zones at H1
+    // STEP 2: Detect zones at H4 (zona entry utama, lebih besar dari H1)
     const [obs, fvgs, unfilledOrders] = await Promise.all([
-      Promise.resolve(detectOrderBlocksH1(h1.opens, h1.highs, h1.lows, h1.closes, bias)),
-      Promise.resolve(detectFVGH1(h1.highs, h1.lows, bias)),
+      Promise.resolve(detectOrderBlocksH1(h4.opens, h4.highs, h4.lows, h4.closes, bias)),
+      Promise.resolve(detectFVGH1(h4.highs, h4.lows, bias)),
       detectUnfilledOrdersH1(symbol, currentPrice, bias),
     ]);
 
-    const srLevels = detectSRLevels(h1.highs, h1.lows, h1.closes);
-    const sndZones = detectSnDZones(h1.opens, h1.highs, h1.lows, h1.closes);
-    const fibLevels = calcFibonacci(h4.highs, h4.lows, h4.closes);
+    const srLevels = detectSRLevels(h4.highs, h4.lows, h4.closes);
+    const sndZones = detectSnDZones(h4.opens, h4.highs, h4.lows, h4.closes);
+    const fibLevels = calcFibonacci(d1.highs, d1.lows, d1.closes);
 
     const selectedZone = selectBestZoneH1(
       obs, fvgs, unfilledOrders, srLevels, sndZones, fibLevels, bias, currentPrice
@@ -1778,8 +1779,8 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     // STEP 3: Check skip conditions (after zone found)
     const skipConds = await checkSkipConditions(
       symbol, bias,
-      h1.closes, h1.highs, h1.lows,
-      h4.highs, h4.lows, h4.closes, h4.volumes
+      d1.closes, d1.highs, d1.lows,
+      d1.highs, d1.lows, d1.closes, d1.volumes
     );
 
     if (skipConds.shouldSkip) {
@@ -1801,10 +1802,18 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       };
     }
 
-    // STEP 3: Refine zona H1 → 15M → 5M
+    // STEP 3: Refine zona H4 → H1 → 15M → 5M
     // Cari konfluens terkuat: OB > FVG > S&R > Fib > UFO per TF
+    // Step 3a: H4 zona → cari yang terkuat di H1
+    const zoneH1 = findBestZoneInRange(
+      h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes,
+      bias, selectedZone.low, selectedZone.high, "H1", selectedZone.zoneType, currentPrice
+    );
+    const zoneForRefine = zoneH1 ?? { ...selectedZone, refined: false };
+
+    // Step 3b: H1 zona → refine ke 15M → 5M
     const refinedZone = refineZoneMultiTF(
-      selectedZone,
+      zoneForRefine,
       m15.opens, m15.highs, m15.lows, m15.closes, m15.volumes,
       m5.opens, m5.highs, m5.lows, m5.closes, m5.volumes,
       bias, currentPrice
@@ -1812,7 +1821,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // STEP 4a: Multi-TF Confluence — H4 approaching H1 zone
     const h4Confluence = detectH4Confluence(
-      h4.highs, h4.lows, h4.closes, h4.volumes,
+      d1.highs, d1.lows, d1.closes, d1.volumes,
       selectedZone.low, selectedZone.high, bias
     );
 
@@ -1948,18 +1957,18 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // STEP 6: Calculate SL/TP
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
-    const atrH2 = calcATR(h2.highs, h2.lows, h2.closes); // ATR H2 untuk SL
+    const atrD1 = calcATR(d1.highs, d1.lows, d1.closes); // ATR D1 untuk SL (hold 2-3 hari)
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
 
     const sniperLevels = calcSniperLevels(
-      finalEntryPrice, refinedZone, atrH2, atrH4, bias,
-      h1.highs, h1.lows, atrH1,
-      h4.highs, h4.lows
+      finalEntryPrice, refinedZone, atrD1, atrH4, bias,
+      h4.highs, h4.lows, atrH4, // pakai H4 untuk swing reference
+      d1.highs, d1.lows
     );
 
-    // Estimate time to hit entry
+    // Estimate time to hit entry (pakai atrH4 untuk estimasi jam)
     const distanceToEntry = Math.abs(currentPrice - sniperLevels.entryPrice);
-    const estimatedHitHours = Math.max(1, Math.round(distanceToEntry / atrH2));
+    const estimatedHitHours = Math.max(1, Math.round(distanceToEntry / atrH4));
 
     // Build reasoning
     const reasoning = [
@@ -2072,10 +2081,11 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
   const maxScore = 6;
 
   try {
-    const [m15, m5, h4, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '15m', 100),
-      fetchKlines(symbol, '5m', 200),
-      fetchKlines(symbol, '4h', 50),
+    const [d1, h4, m15, m5, tickerRes] = await Promise.all([
+      fetchKlines(symbol, '1d', 30),   // D1 — trend utama
+      fetchKlines(symbol, '4h', 50),   // H4 — struktur
+      fetchKlines(symbol, '15m', 100), // 15M — OB entry
+      fetchKlines(symbol, '5m', 200),  // 5M — presisi
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -2085,13 +2095,19 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const filterResults: string[] = [];
     let score = 0;
 
-    // Filter 0: Trend H4 — scalping harus searah trend inti
-    const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
-    if (structH4.bias === 'ranging') {
-      return { status: 'skip', symbol, currentPrice, timestamp, message: 'H4 ranging — tidak ada trend inti yang jelas', score, maxScore, filterResults };
+    // Filter 0: Trend D1 — scalping harus searah trend utama D1
+    const structD1 = analyzePriceActionStructure(d1.highs, d1.lows, d1.closes);
+    if (structD1.bias === 'ranging') {
+      return { status: 'skip', symbol, currentPrice, timestamp, message: 'D1 ranging — tidak ada trend utama yang jelas', score, maxScore, filterResults };
     }
-    const h4Bias = structH4.bias as 'bullish' | 'bearish';
-    filterResults.push(`✅ Trend H4: ${h4Bias === 'bullish' ? 'Bullish' : 'Bearish'} (${structH4.strength})`);
+    const h4Bias = structD1.bias as 'bullish' | 'bearish';
+    filterResults.push(`✅ Trend D1: ${h4Bias === 'bullish' ? 'Bullish' : 'Bearish'} (${structD1.strength})`);
+
+    // Cek H4 searah D1 (konfirmasi struktur menengah)
+    const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
+    if (structH4.bias !== 'ranging' && structH4.bias !== h4Bias) {
+      filterResults.push(`⚠️ H4 (${structH4.bias}) berlawanan D1 — koreksi sedang terjadi, waspadai`);
+    }
 
     // Filter 1: ATR 15M >= 0.5%
     const atr15M = calcATR(m15.highs, m15.lows, m15.closes);
@@ -2120,13 +2136,13 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     else if (llFormed) { bias='bearish'; structure15M='Bearish (LL)'; }
     if (!bias) return { status: 'no_structure', symbol, currentPrice, timestamp, message: 'Bias 15M tidak jelas', score, maxScore, filterResults };
 
-    // Validasi: bias 15M harus searah trend H4
+    // Validasi: bias 15M harus searah trend D1
     if (bias !== h4Bias) {
-      filterResults.push(`❌ Bias 15M (${bias}) berlawanan dengan trend H4 (${h4Bias}) — counter trend`);
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: `Counter trend — 15M ${bias} vs H4 ${h4Bias}`, score, maxScore, filterResults };
+      filterResults.push(`❌ Bias 15M (${bias}) berlawanan dengan trend D1 (${h4Bias}) — counter trend`);
+      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: `Counter trend — 15M ${bias} vs D1 ${h4Bias}`, score, maxScore, filterResults };
     }
     score++;
-    filterResults.push(`✅ Struktur 15M: ${structure15M} — searah H4`);
+    filterResults.push(`✅ Struktur 15M: ${structure15M} — searah D1`);
 
     // Filter 3: Momentum candle terakhir searah bias
     const last2C = m15.closes.slice(-2);
@@ -3066,6 +3082,7 @@ export async function runBacktest(
       if (h4Slice.closes.length < 10) continue;
 
       // Step 1: H4 trend
+      // Backtest: pakai H4 slice sebagai proxy D1 (tidak fetch D1 terpisah)
       const structH4 = analyzePriceActionStructure(h4Slice.highs, h4Slice.lows, h4Slice.closes);
       if (structH4.bias === 'ranging') continue;
       const bias = structH4.bias as 'bullish' | 'bearish';
