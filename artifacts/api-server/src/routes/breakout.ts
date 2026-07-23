@@ -32,6 +32,7 @@ router.get('/breakout/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
+          // Expired tidak ditampilkan — hanya in_zone (BAGUS) dan waiting
           if (val.status === 'in_zone' || val.status === 'waiting')
             results.push(val);
         }

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import { useGetScalping, useGetScalpingScan, type ScalpingResult } from '@workspace/api-client-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -23,7 +24,7 @@ function formatPrice(price: number): string {
 
 function StatusBadge({ status, colors }: { status: string; colors: ReturnType<typeof useColors> }) {
   const map: Record<string, { label: string; color: string }> = {
-    in_zone:  { label: '🎯 IN ZONE', color: colors.bullish },
+    in_zone:  { label: '🎯 BAGUS', color: colors.bullish },
     waiting:  { label: '⏳ WAITING', color: colors.gold },
     expired:  { label: '💨 EXPIRED', color: colors.mutedForeground },
     no_setup: { label: '🚫 NO SETUP', color: colors.bearish },
@@ -62,27 +63,27 @@ function ScanCoinCard({ coin, onPress, colors }: { coin: ScalpingResult; onPress
       style={({ pressed }) => [scanStyles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
     >
       <View style={scanStyles.cardRow1}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
             <Text style={[scanStyles.cardBase, { color: colors.foreground }]}>{base}</Text>
             <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+          <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
-            {coin.structure15M && (
-              <View style={[scanStyles.zoneBadge, { borderColor: colors.border }]}>
-                <Text style={[scanStyles.zoneBadgeText, { color: colors.mutedForeground }]}>{coin.structure15M}</Text>
-              </View>
-            )}
           </View>
+          {coin.structure15M && (
+            <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
+              {coin.structure15M}
+            </Text>
+          )}
         </View>
-        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+        <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <StatusBadge status={coin.status} colors={colors} />
           {coin.score !== undefined && <ScoreBadge score={coin.score} max={coin.maxScore} colors={colors} />}
         </View>
-        <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
+        <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
       </View>
 
       <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
@@ -204,7 +205,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
       {inZone.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 IN ZONE — Pasang limit sekarang</Text>
+          <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 BAGUS — Siap Entry Sekarang</Text>
           {inZone.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
         </>
       )}
@@ -238,7 +239,7 @@ const scanStyles = StyleSheet.create({
   condRow: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 8, paddingHorizontal: 4 },
   condItem: { flex: 1, alignItems: 'center', gap: 3 },
   condLabel: { fontSize: 7, fontFamily: 'Inter_500Medium', letterSpacing: 0.3 },
-  condValue: { fontSize: 9, fontFamily: 'Inter_600SemiBold' },
+  condValue: { fontSize: 8, fontFamily: 'Inter_600SemiBold' },
   condDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
 });
 
@@ -373,7 +374,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           {/* OB 5M */}
           {data.ob5M && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ORDER BLOCK 5M</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ZONA ENTRY (M30/M15)</Text>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range OB</Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
@@ -450,6 +451,39 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
                 );
               })}
             </View>
+          )}
+
+          {/* Kalkulator PnL button */}
+          {data.entryPrice && (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: '/(tabs)/calculator',
+                  params: {
+                    entryPrice: String(data.entryPrice ?? 0),
+                    stopLoss: String(data.stopLoss ?? 0),
+                    takeProfit1: String(data.takeProfit1 ?? 0),
+                    takeProfit2: String(data.takeProfit2 ?? 0),
+                    symbol: data.symbol,
+                    direction: data.bias ?? 'bullish',
+                    source: 'scalping',
+                  },
+                });
+              }}
+              style={({ pressed }) => [{
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                margin: 12, marginTop: 4, padding: 14, borderRadius: 12,
+                borderWidth: 1, borderColor: colors.mutedForeground,
+                backgroundColor: pressed ? `${colors.mutedForeground}15` : 'transparent',
+              }]}
+            >
+              <Feather name="percent" size={15} color={colors.mutedForeground} />
+              <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>
+                Kalkulator PnL
+              </Text>
+              <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
+            </Pressable>
           )}
         </ScrollView>
       )}
@@ -654,7 +688,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>SMC Micro — OB 5M dalam struktur 15M</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>D1 Trend → H4 Koreksi → Zona M30 → Refine M15</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -727,7 +761,7 @@ const styles = StyleSheet.create({
   levelCardPrice: { fontSize: 28, fontFamily: 'Inter_700Bold', marginVertical: 4 },
   levelCardSub: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   filterItem: { fontSize: 12, fontFamily: 'Inter_400Regular', paddingVertical: 4, lineHeight: 20 },
-  statusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  statusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, flexShrink: 1 },
   statusBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
   scoreBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
   scoreBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
