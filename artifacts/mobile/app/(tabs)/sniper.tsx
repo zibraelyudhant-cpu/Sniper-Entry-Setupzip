@@ -535,6 +535,7 @@ interface SignalLog {
   evaluatedAt?: string;
   exitPrice?: number;
   rr?: number;
+  explanation?: string; // penjelasan kenapa win/lose
 }
 
 const SNIPER_LOG_KEY = 'signal_logs_sniper';
@@ -571,23 +572,31 @@ async function sniperEvaluateLog(log: SignalLog): Promise<Partial<SignalLog>> {
     const evalAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
     for (const k of klines) {
       const high = k[2] as number, low = k[3] as number;
+      const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
       if (log.bias === 'bullish') {
-        // SL selalu dicek duluan — kalau candle menyentuh SL dan TP di candle yang sama, SL menang
         const hitSL = low <= log.stopLoss;
         const hitTP2 = log.takeProfit2 != null && high >= log.takeProfit2;
         const hitTP1 = high >= log.takeProfit1;
-        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.takeProfit2! - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
-        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
-        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
+        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
+          explanation: `❌ LOSE — Harga turun ke SL ${fp(log.stopLoss)}. Low candle ${fp(low)} menyentuh stop loss. Entry ${fp(log.entryPrice)} tidak terkonfirmasi, harga melanjutkan turun.` };
+        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.takeProfit2! - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt,
+          explanation: `✅ WIN TP2 — Harga naik ke TP2 ${fp(log.takeProfit2!)}. Trend kuat berlanjut melewati TP1 hingga target penuh. R:R ${+((log.takeProfit2! - log.entryPrice) / risk).toFixed(1)}.` };
+        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt,
+          explanation: `✅ WIN TP1 — Harga naik ke TP1 ${fp(log.takeProfit1)}. Pullback selesai dan trend bullish berlanjut. R:R ${+((log.takeProfit1 - log.entryPrice) / risk).toFixed(1)}.` };
+        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
+          explanation: `❌ LOSE — SL ${fp(log.stopLoss)} kena di candle yang sama dengan TP. Harga volatile, entry prematur atau zona tidak kuat.` };
       } else {
         const hitSL = high >= log.stopLoss;
         const hitTP2 = log.takeProfit2 != null && low <= log.takeProfit2;
         const hitTP1 = low <= log.takeProfit1;
-        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.entryPrice - log.takeProfit2!) / risk).toFixed(1), evaluatedAt: evalAt };
-        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice - log.takeProfit1) / risk).toFixed(1), evaluatedAt: evalAt };
-        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
+        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
+          explanation: `❌ LOSE — Harga naik ke SL ${fp(log.stopLoss)}. High candle ${fp(high)} menyentuh stop loss. Harga tidak melanjutkan penurunan.` };
+        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.entryPrice - log.takeProfit2!) / risk).toFixed(1), evaluatedAt: evalAt,
+          explanation: `✅ WIN TP2 — Harga turun ke TP2 ${fp(log.takeProfit2!)}. Trend bearish kuat berlanjut hingga target penuh. R:R ${+((log.entryPrice - log.takeProfit2!) / risk).toFixed(1)}.` };
+        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice - log.takeProfit1) / risk).toFixed(1), evaluatedAt: evalAt,
+          explanation: `✅ WIN TP1 — Harga turun ke TP1 ${fp(log.takeProfit1)}. Bounce selesai dan trend bearish berlanjut. R:R ${+((log.entryPrice - log.takeProfit1) / risk).toFixed(1)}.` };
+        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
+          explanation: `❌ LOSE — SL ${fp(log.stopLoss)} kena bersamaan dengan TP. Volatilitas tinggi, zona tidak cukup kuat menahan harga.` };
       }
     }
     return { status: 'pending' };
@@ -674,7 +683,12 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
               </View>
               {log.currentPriceAtSignal > 0 && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 2, fontFamily: 'Inter_400Regular' }}>Harga saat sinyal: {log.currentPriceAtSignal >= 1000 ? log.currentPriceAtSignal.toFixed(2) : log.currentPriceAtSignal >= 1 ? log.currentPriceAtSignal.toFixed(4) : log.currentPriceAtSignal.toFixed(6)}</Text>}
               {log.probabilityOrScore !== undefined && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 4, fontFamily: 'Inter_400Regular' }}>Probabilitas saat sinyal: {log.probabilityOrScore}%</Text>}
-              {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 6, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
+              {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 2, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
+              {log.explanation && (
+                <View style={{ marginHorizontal: 12, marginBottom: 8, padding: 10, borderRadius: 8, backgroundColor: (log.status === 'win_tp1' || log.status === 'win_tp2') ? '#16A34A15' : log.status === 'lose' ? '#DC262615' : `${colors.card}`, borderLeftWidth: 3, borderLeftColor: (log.status === 'win_tp1' || log.status === 'win_tp2') ? '#22c55e' : log.status === 'lose' ? '#ef4444' : colors.mutedForeground }}>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>{log.explanation}</Text>
+                </View>
+              )}
               <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>
                 {log.status === 'pending' && (
                   <Pressable onPress={() => doEval(log)} disabled={evaluating === log.id}

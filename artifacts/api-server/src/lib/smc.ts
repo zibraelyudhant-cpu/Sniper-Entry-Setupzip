@@ -1957,12 +1957,12 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
 
     // STEP 6: Calculate SL/TP
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
-    const atrD1 = calcATR(d1.highs, d1.lows, d1.closes); // ATR D1 untuk SL (hold 2-3 hari)
-    const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
+    const atrD1 = calcATR(d1.highs, d1.lows, d1.closes); // ATR D1 untuk SL
+    const atrH4 = calcATR(h4.highs, h4.lows, h4.closes); // ATR H4 untuk estimasi waktu
 
     const sniperLevels = calcSniperLevels(
-      finalEntryPrice, refinedZone, atrD1, atrH4, bias,
-      h4.highs, h4.lows, atrH4, // pakai H4 untuk swing reference
+      finalEntryPrice, refinedZone, atrD1, atrD1, bias,
+      d1.highs, d1.lows, atrD1, // swing D1 untuk SL
       d1.highs, d1.lows
     );
 
