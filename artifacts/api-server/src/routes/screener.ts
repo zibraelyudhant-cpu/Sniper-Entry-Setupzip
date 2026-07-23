@@ -213,9 +213,9 @@ router.get("/screener", async (req, res) => {
 
             const correctionBias = bias === "bullish" ? "bearish" : "bullish";
 
-            // ── Filter 3: ADX D1 >= 20 (trend kuat di D1) ────────────────────
+            // ── Filter 3: ADX D1 >= 25 (trend kuat di D1) ────────────────────
             const adxH4 = calcADX(d1.highs, d1.lows, d1.closes);
-            if (adxH4 < 20) return null;
+            if (adxH4 < 25) return null;
 
             // ── Filter 4: RSI H4 belum oversold/overbought ekstrem ────────────
             const rsiH1 = calcRSI(h4.closes);

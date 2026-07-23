@@ -181,7 +181,7 @@ export interface SniperResult {
 
 // Cache klines untuk kurangi request ke Binance
 const klinesCache = new Map<string, { data: KlineData; ts: number }>();
-const KLINES_CACHE_MS = 2 * 60 * 1000; // 2 menit
+const KLINES_CACHE_MS = 5 * 60 * 1000; // 5 menit
 
 export async function fetchKlines(
   symbol: string,
@@ -201,7 +201,7 @@ export async function fetchKlines(
     });
     if (res.status === 418 || res.status === 429) {
       // Rate limited — tunggu sebentar lalu retry
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
       continue;
     }
     if (!res.ok) throw new Error(`Klines fetch failed: ${res.status}`);
@@ -1715,9 +1715,9 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
   try {
     // Fetch all data in parallel
     const [d1, h4, h1, m15, m5, currentTickerRes] = await Promise.all([
-      fetchKlines(symbol, "1d", 50),   // D1 — trend utama
+      fetchKlines(symbol, "1d", 30),   // D1 — trend utama
       fetchKlines(symbol, "4h", 100),  // H4 — zona entry
-      fetchKlines(symbol, "1h", 100),  // H1 — refine zona
+      fetchKlines(symbol, "1h", 50),   // H1 — refine zona
       fetchKlines(symbol, "15m", 100), // 15M — refine lebih presisi
       fetchKlines(symbol, "5m", 200),  // 5M — entry presisi
       fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/price?symbol=${symbol}`),
@@ -1772,7 +1772,8 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         currentPrice,
         timestamp,
         bias,
-        h4: { bias: structH4.bias, strength: structH4.strength },
+        h4: { bias: structD1.bias, strength: structD1.strength }, // D1 trend
+        h4Actual: { bias: structH4.bias, strength: structH4.strength }, // H4 info
       };
     }
 
@@ -1791,7 +1792,8 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
         currentPrice,
         timestamp,
         bias,
-        h4: { bias: structH4.bias, strength: structH4.strength },
+        h4: { bias: structD1.bias, strength: structD1.strength }, // D1 trend utama
+      h4Actual: { bias: structH4.bias, strength: structH4.strength }, // H4 info tambahan
         zoneType: selectedZone.zoneType,
         rsi: skipConds.rsi,
         rsiDivergence: skipConds.rsiDivergence,
@@ -1995,7 +1997,8 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       stopLoss: sniperLevels.stopLoss,
       takeProfit1: sniperLevels.takeProfit1,
       takeProfit2: sniperLevels.takeProfit2,
-      h4: { bias: structH4.bias, strength: structH4.strength },
+      h4: { bias: structD1.bias, strength: structD1.strength }, // D1 trend utama
+      h4Actual: { bias: structH4.bias, strength: structH4.strength }, // H4 zona info
       zoneType: selectedZone.zoneType,
       zoneRange: { low: selectedZone.low, high: selectedZone.high },
       refinedZoneType: refinedZone.zoneType,

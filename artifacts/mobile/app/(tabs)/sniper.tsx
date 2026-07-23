@@ -81,7 +81,7 @@ function NoTrendScreen({ data, colors }: { data: SniperResult; colors: ReturnTyp
         <Text style={[styles.statusTitle, { color: colors.warning }]}>Tidak Ada Trend Jelas</Text>
         <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
         <View style={styles.trendRow}>
-          <TrendBadge label="H4" bias={data.h4?.bias ?? 'ranging'} strength={data.h4?.strength ?? 'neutral'} colors={colors} />
+          <TrendBadge label="D1" bias={data.h4?.bias ?? 'ranging'} strength={data.h4?.strength ?? 'neutral'} colors={colors} />
         </View>
       </View>
     </Section>
@@ -212,7 +212,10 @@ function TrendSection({ data, colors }: { data: SniperResult; colors: ReturnType
   return (
     <Section title="TREND">
       <View style={styles.trendRow}>
-        {data.h4 && <TrendBadge label="H4" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
+        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {data.h4 && <TrendBadge label="D1" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
+                {(data as any).h4Actual && <TrendBadge label="H4" bias={(data as any).h4Actual.bias} strength={(data as any).h4Actual.strength} colors={colors} />}
+              </View>
       </View>
     </Section>
   );

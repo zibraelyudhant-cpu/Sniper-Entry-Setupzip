@@ -83,7 +83,8 @@ export interface SniperResult {
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
-  h4?: TrendInfo;
+  h4?: TrendInfo;       // D1 trend utama
+  h4Actual?: TrendInfo;  // H4 info
   zoneType?: string;
   zoneRange?: ZoneRange;
   refinedZoneType?: string;
