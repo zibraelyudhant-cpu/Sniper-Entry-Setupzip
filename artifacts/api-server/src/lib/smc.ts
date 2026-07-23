@@ -2084,9 +2084,10 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
   const maxScore = 7;
 
   try {
-    const [d1, h4, m30, m15, tickerRes] = await Promise.all([
+    const [d1, h4, h1, m30, m15, tickerRes] = await Promise.all([
       fetchKlines(symbol, '1d', 50),    // D1 — trend utama
       fetchKlines(symbol, '4h', 100),   // H4 — koreksi & SL
+      fetchKlines(symbol, '1h', 50),    // H1 — RSI divergence
       fetchKlines(symbol, '30m', 100),  // M30 — zona entry
       fetchKlines(symbol, '15m', 100),  // M15 — refine
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
@@ -2201,33 +2202,34 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       detectDoubleTop(m15.highs, m15.lows, m15.closes),
     ].filter(p => p && validPatterns.includes(p!.name));
 
-    // Juga cek RSI divergence M30
-    const rsiM30 = calcRSI(m30.closes);
-    const rsiM15 = calcRSI(m15.closes);
-    const recentHighsM30 = m30.highs.slice(-6);
-    const recentLowsM30 = m30.lows.slice(-6);
-    const recentRsiM30 = m30.closes.slice(-6).map((_, i, arr) => calcRSI(arr.slice(0, i + 1)));
+    // RSI divergence H1 (bukan M30)
+    const rsiH1 = calcRSI(h1.closes);
+    const recentHighsH1 = h1.highs.slice(-8);
+    const recentLowsH1 = h1.lows.slice(-8);
     let rsiDivergence = false;
     if (bias === 'bullish') {
-      // Bullish divergence: harga LH tapi RSI HH
-      const priceLH = recentLowsM30[recentLowsM30.length - 1] < recentLowsM30[recentLowsM30.length - 2];
-      const rsiHH = rsiM30 > 35; // RSI sudah mulai naik dari oversold
-      rsiDivergence = priceLH && rsiHH;
+      // Bullish divergence: harga LH tapi RSI H1 sudah naik dari oversold
+      const priceLH = recentLowsH1[recentLowsH1.length - 1] < recentLowsH1[recentLowsH1.length - 3];
+      const rsiRecovering = rsiH1 > 30 && rsiH1 < 55; // RSI naik dari zona oversold
+      rsiDivergence = priceLH && rsiRecovering;
     } else {
-      // Bearish divergence: harga HH tapi RSI LH
-      const priceHH = recentHighsM30[recentHighsM30.length - 1] > recentHighsM30[recentHighsM30.length - 2];
-      const rsiLH = rsiM30 < 65; // RSI sudah mulai turun dari overbought
-      rsiDivergence = priceHH && rsiLH;
+      // Bearish divergence: harga HH tapi RSI H1 sudah turun dari overbought
+      const priceHH = recentHighsH1[recentHighsH1.length - 1] > recentHighsH1[recentHighsH1.length - 3];
+      const rsiWeakening = rsiH1 < 70 && rsiH1 > 45; // RSI turun dari zona overbought
+      rsiDivergence = priceHH && rsiWeakening;
     }
 
+    // Hard filter: harus ada pattern reversal M30/M15 ATAU RSI divergence H1
     const hasConfirmation = pats30.length > 0 || rsiDivergence;
-    if (hasConfirmation) {
-      score++;
-      const confDesc = pats30.length > 0 ? `Pattern: ${pats30[0]!.name}` : 'RSI Divergence M30';
-      filterResults.push(`✅ Konfirmasi reversal: ${confDesc}`);
-    } else {
-      filterResults.push(`⚠️ Belum ada pattern reversal atau RSI divergence`);
+    if (!hasConfirmation) {
+      filterResults.push(`❌ Tidak ada konfirmasi reversal (pattern M30/M15 atau RSI divergence H1)`);
+      return { status: 'no_setup', symbol, bias, currentPrice, timestamp,
+        message: 'Tidak ada konfirmasi reversal — tunggu pattern atau RSI divergence H1',
+        score, maxScore, filterResults };
     }
+    score++;
+    const confDesc = pats30.length > 0 ? `Pattern: ${pats30[0]!.name}` : `RSI Divergence H1 (${rsiH1.toFixed(0)})`;
+    filterResults.push(`✅ Konfirmasi reversal: ${confDesc}`);
 
     // ── Refine zona M30 → M15 ────────────────────────────────────────────
     const refinedZone = findBestZoneInRange(
