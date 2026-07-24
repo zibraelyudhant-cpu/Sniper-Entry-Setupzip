@@ -27,9 +27,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
         <Label>Scalping</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="patterns">
-        <Icon sf={{ default: 'waveform', selected: 'waveform' }} />
-        <Label>Pattern</Label>
+      <NativeTabs.Trigger name="insight">
+        <Icon sf={{ default: 'sparkles', selected: 'sparkles' }} />
+        <Label>Insight</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="backtest">
         <Icon sf={{ default: 'chart.xyaxis.line', selected: 'chart.xyaxis.line' }} />
@@ -128,17 +128,22 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="patterns"
+        name="insight"
         options={{
-          title: 'Pattern',
+          title: 'Insight',
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="waveform" tintColor={color} size={22} />
+              <SymbolView name="sparkles" tintColor={color} size={22} />
             ) : (
-              <Feather name="activity" size={22} color={color} />
+              <Feather name="eye" size={22} color={color} />
             ),
         }}
       />
+      {/* Hidden screens — file di (tabs) tapi jangan muncul di tab bar */}
+      <Tabs.Screen name="_monitoring-view" options={{ href: null }} />
+      <Tabs.Screen name="_patterns-view" options={{ href: null }} />
+      <Tabs.Screen name="monitoring-helpers" options={{ href: null }} />
+      <Tabs.Screen name="signal-log-helpers" options={{ href: null }} />
       <Tabs.Screen
         name="backtest"
         options={{

@@ -442,7 +442,7 @@ export default function BacktestScreen() {
             {/* Hasil Breakout */}
             {result.breakoutResult && (
               <MenuResult
-                title="Menu 4 — Scalping SMC 15M"
+                title="Menu 4 — Scalping SMC M30→M5"
                 result={result.breakoutResult}
                 colors={colors}
               />

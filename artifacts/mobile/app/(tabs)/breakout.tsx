@@ -24,8 +24,9 @@ function formatPrice(price: number): string {
 
 function StatusBadge({ status, colors }: { status: string; colors: ReturnType<typeof useColors> }) {
   const map: Record<string, { label: string; color: string }> = {
-    in_zone:  { label: '🎯 BAGUS', color: colors.bullish },
-    waiting:  { label: '⏳ WAITING', color: colors.gold },
+    in_zone:    { label: '🎯 BAGUS', color: colors.bullish },
+    approaching: { label: '⚡ MENDEKATI', color: colors.primary },
+    waiting:    { label: '⏳ WAITING', color: colors.gold },
     expired:  { label: '💨 EXPIRED', color: colors.mutedForeground },
     no_setup: { label: '🚫 NO SETUP', color: colors.bearish },
     skip:     { label: '⏭ SKIP', color: colors.mutedForeground },
@@ -158,7 +159,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       <View style={scanStyles.center}>
         <ActivityIndicator color={colors.primary} size="large" />
         <Text style={[scanStyles.loadingText, { color: colors.mutedForeground }]}>Scanning scalping setup...</Text>
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa OB 5M dalam struktur 15M</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa zona retest M30 → refine M5</Text>
       </View>
     );
   }
@@ -177,8 +178,9 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date((data as any).fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
-  const inZone = coins.filter(c => c.status === 'in_zone');
-  const waiting = coins.filter(c => c.status === 'waiting');
+  const inZone     = coins.filter(c => c.status === 'in_zone');
+  const approaching = coins.filter(c => c.status === 'approaching');
+  const waiting    = coins.filter(c => c.status === 'waiting');
 
   if (coins.length === 0) {
     return (
@@ -209,9 +211,15 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
           {inZone.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
         </>
       )}
+      {approaching.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.primary }]}>⚡ MENDEKATI — Siap Pasang Limit</Text>
+          {approaching.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+        </>
+      )}
       {waiting.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Harga belum di zona</Text>
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Harga belum mendekati zona</Text>
           {waiting.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
         </>
       )}
@@ -255,7 +263,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
   });
 
   useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'in_zone' ? data : null);
+    if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'approaching' || data?.status === 'in_zone' ? data : null);
   }, [data]);
 
   const handleAnalyze = useCallback(() => {
@@ -301,7 +309,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa OB 5M dalam struktur 15M</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa zona retest M30 → refine M5</Text>
         </View>
       ) : isLoading ? (
         <View style={styles.emptyState}>
@@ -342,7 +350,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           {/* Struktur 15M */}
           {data.structure15M && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STRUKTUR 15M</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STRUKTUR H4</Text>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
                 <Text style={[styles.infoValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
@@ -356,14 +364,14 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>CHoCH 15M</Text>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Konfirmasi Reversal</Text>
                 <Text style={[styles.infoValue, { color: data.choch15M ? colors.bullish : colors.bearish }]}>
                   {data.choch15M ? '✅ Terkonfirmasi' : '❌ Belum terbentuk'}
                 </Text>
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>ATR 15M</Text>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>ATR M5</Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
                   {data.atr15MPct ? `${data.atr15MPct.toFixed(2)}%` : '—'}
                 </Text>
@@ -374,7 +382,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           {/* OB 5M */}
           {data.ob5M && (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ZONA ENTRY (M30/M15)</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ZONA ENTRY (M30 → M5)</Text>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range OB</Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
@@ -397,7 +405,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           )}
 
           {/* Simpan Sinyal */}
-          {(data.status === 'waiting' || data.status === 'in_zone') && onSave && (
+          {(data.status === 'waiting' || data.status === 'approaching' || data.status === 'in_zone') && onSave && (
             <Pressable onPress={onSave}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
               <Feather name="bookmark" size={15} color={colors.primaryForeground} />
@@ -418,7 +426,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — tengah OB 5M
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — tengah zona M5
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -688,7 +696,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>D1 Trend → H4 Koreksi → Zona M30 → Refine M15</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4 Trend → M30 Koreksi → Zona M30 → Refine M5</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

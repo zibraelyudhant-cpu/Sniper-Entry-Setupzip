@@ -32,14 +32,14 @@ router.get('/breakout/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          // Expired tidak ditampilkan — hanya in_zone (BAGUS) dan waiting
-          if (val.status === 'in_zone' || val.status === 'waiting')
+          // Expired tidak ditampilkan — in_zone, approaching, waiting
+          if (val.status === 'in_zone' || val.status === 'approaching' || val.status === 'waiting')
             results.push(val);
         }
       }
     }
-    // Sort: in_zone dulu, lalu waiting, sort by score desc
-    const order: Record<string, number> = { in_zone: 0, waiting: 1 };
+    // Sort: in_zone → approaching → waiting, sort by score desc
+    const order: Record<string, number> = { in_zone: 0, approaching: 1, waiting: 2 };
     results.sort((a, b) => {
       const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
       if (ao !== bo) return ao - bo;

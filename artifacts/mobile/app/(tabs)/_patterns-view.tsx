@@ -596,15 +596,19 @@ function Legend({ colors }: { colors: ReturnType<typeof useColors> }) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function PatternsScreen() {
+export default function PatternsView({
+  initialSymbol,
+  topPadding: topPaddingProp,
+}: { initialSymbol?: string; topPadding?: number } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ symbol?: string }>();
-  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
+  const topPadding = topPaddingProp ?? insets.top + (Platform.OS === 'web' ? 67 : 0);
   const bottomPadding = insets.bottom + 80;
 
-  const [inputSymbol, setInputSymbol] = useState(params.symbol ?? '');
-  const [symbol, setSymbol] = useState(params.symbol ?? '');
+  const startSymbol = initialSymbol ?? params.symbol ?? '';
+  const [inputSymbol, setInputSymbol] = useState(startSymbol);
+  const [symbol, setSymbol] = useState(startSymbol);
 
   const handleSearch = useCallback(() => {
     if (!inputSymbol.trim()) return;
@@ -684,12 +688,9 @@ export default function PatternsScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Chart Pattern</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-              Multi-Timeframe Pattern Detector
-            </Text>
-          </View>
+          <Text style={[styles.headerSub, { color: colors.mutedForeground, flex: 1 }]}>
+            Multi-Timeframe Pattern Detector
+          </Text>
           {data && (
             <Pressable onPress={() => refetch()} style={styles.refreshBtn}>
               <Feather name="refresh-cw" size={15} color={colors.mutedForeground} />

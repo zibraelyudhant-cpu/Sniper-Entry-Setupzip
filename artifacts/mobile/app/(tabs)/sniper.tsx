@@ -403,8 +403,8 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push({
-              pathname: '/(tabs)/patterns',
-              params: { symbol: data.symbol },
+              pathname: '/(tabs)/insight',
+              params: { symbol: data.symbol, tab: 'pattern' },
             });
           }}
           style={({ pressed }) => [
