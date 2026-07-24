@@ -73,6 +73,11 @@ function ScanCoinCard({ coin, onPress, colors }: { coin: ScalpingResult; onPress
             <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
+            {coin.bbSqueezing && (
+              <View style={[scanStyles.biasBadge, { backgroundColor: `${colors.primary}18`, borderColor: colors.primary }]}>
+                <Text style={[scanStyles.biasBadgeText, { color: colors.primary }]}>⚡ SQUEEZE</Text>
+              </View>
+            )}
           </View>
           {coin.structure15M && (
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
@@ -376,6 +381,23 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
                   {data.atr15MPct ? `${data.atr15MPct.toFixed(2)}%` : '—'}
                 </Text>
               </View>
+              {data.bbSqueezing && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={[styles.infoRow, {
+                    backgroundColor: `${colors.primary}18`,
+                    marginHorizontal: -12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }]}>
+                    <Text style={[styles.infoLabel, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>⚡ BB SQUEEZE M30</Text>
+                    <Text style={[styles.infoValue, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>
+                      AKTIF — Eksplosif
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
           )}
 

@@ -313,7 +313,7 @@ function calcRSI(closes: number[], period = 14): number {
   const gains: number[] = [];
   const losses: number[] = [];
   for (let i = 1; i <= period; i++) {
-    const diff = closes[i] - closes[i - 1];
+    const diff = closes[i]! - closes[i - 1]!;
     gains.push(diff > 0 ? diff : 0);
     losses.push(diff < 0 ? -diff : 0);
   }
@@ -322,7 +322,7 @@ function calcRSI(closes: number[], period = 14): number {
   const recentCloses = closes.slice(period);
   const prevCloses = closes.slice(period - 1, -1);
   for (let i = 0; i < recentCloses.length; i++) {
-    const diff = recentCloses[i] - prevCloses[i];
+    const diff = recentCloses[i]! - prevCloses[i]!;
     const gain = diff > 0 ? diff : 0;
     const loss = diff < 0 ? -diff : 0;
     avgGain = (avgGain * (period - 1) + gain) / period;
@@ -331,6 +331,57 @@ function calcRSI(closes: number[], period = 14): number {
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
+}
+
+/**
+ * Hitung Bollinger Bands untuk candle terakhir.
+ * Return { upper, middle, lower, bandwidth } untuk candle terakhir.
+ */
+function calcBB(closes: number[], period = 20, stdDevMult = 2): {
+  upper: number; middle: number; lower: number; bandwidth: number;
+} {
+  if (closes.length < period) {
+    const last = closes[closes.length - 1] ?? 0;
+    return { upper: last, middle: last, lower: last, bandwidth: 0 };
+  }
+  const slice = closes.slice(-period);
+  const mean = slice.reduce((a, b) => a + b, 0) / period;
+  const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / period;
+  const stdDev = Math.sqrt(variance);
+  const upper = mean + stdDevMult * stdDev;
+  const lower = mean - stdDevMult * stdDev;
+  const bandwidth = mean > 0 ? (upper - lower) / mean : 0;
+  return { upper, middle: mean, lower, bandwidth };
+}
+
+/**
+ * Deteksi BB Squeeze aktif di candle terakhir.
+ * Squeeze = bandwidth sekarang < 50% dari rata-rata bandwidth 20 candle terakhir.
+ * Return { isSqueezing, currentBW, avgBW, ratio } 
+ */
+function detectBBSqueeze(closes: number[], period = 20, lookback = 20): {
+  isSqueezing: boolean;
+  currentBW: number;
+  avgBW: number;
+  ratio: number;
+} {
+  if (closes.length < period + lookback) {
+    return { isSqueezing: false, currentBW: 0, avgBW: 0, ratio: 1 };
+  }
+  // Hitung bandwidth untuk `lookback` candle terakhir
+  const bwHistory: number[] = [];
+  for (let i = lookback; i >= 0; i--) {
+    const slice = closes.slice(-(period + i), closes.length - i || undefined);
+    const { bandwidth } = calcBB(slice, period);
+    bwHistory.push(bandwidth);
+  }
+  const currentBW = bwHistory[bwHistory.length - 1] ?? 0;
+  const historicalBWs = bwHistory.slice(0, -1);
+  const avgBW = historicalBWs.reduce((a, b) => a + b, 0) / historicalBWs.length;
+  const ratio = avgBW > 0 ? currentBW / avgBW : 1;
+  // Squeeze = lebar band sekarang < 50% dari rata-rata historis
+  const isSqueezing = ratio < 0.5;
+  return { isSqueezing, currentBW, avgBW, ratio };
 }
 
 function findSwingHighs(highs: number[], lookback: number): number[] {
@@ -2074,6 +2125,7 @@ export interface ScalpingResult {
   atr15MPct?: number;
   spreadEstPct?: number;
   filterResults?: string[];
+  bbSqueezing?: boolean; // BB Squeeze M30 aktif
 }
 
 export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResult> {
@@ -2139,6 +2191,15 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     }
     score++;
     filterResults.push(`✅ ATR H4 ${atrH4Pct.toFixed(2)}%`);
+
+    // ── BB Squeeze M30 — scoring bonus (bukan hard filter) ───────────────
+    const bbSqueeze = detectBBSqueeze(m30.closes, 20, 20);
+    if (bbSqueeze.isSqueezing) {
+      score++;
+      filterResults.push(`⚡ BB Squeeze M30 aktif (BW: ${(bbSqueeze.currentBW * 100).toFixed(2)}% = ${(bbSqueeze.ratio * 100).toFixed(0)}% dari avg) — energy terakumulasi, potensi gerak eksplosif`);
+    } else {
+      filterResults.push(`ℹ️ Tidak ada BB Squeeze M30 (BW: ${(bbSqueeze.currentBW * 100).toFixed(2)}% vs avg ${(bbSqueeze.avgBW * 100).toFixed(2)}%)`);
+    }
 
     // ── Cek M30 vs H4 — koreksi atau searah ──────────────────────────────
     const structM30 = analyzePriceActionStructure(m30.highs, m30.lows, m30.closes);
@@ -2311,7 +2372,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       choch15M: hasConfirmation,
       ob5M: { low: finalZone.low, high: finalZone.high, mid: finalZone.mid, fresh: true },
       entryPrice, stopLoss, takeProfit1, takeProfit2, rr1: 1.5, rr2: 3.0,
-      atr15MPct: atrM5Pct, filterResults,
+      atr15MPct: atrM5Pct, filterResults, bbSqueezing: bbSqueeze.isSqueezing,
       message: trendWarning ? `${statusMsg} | ${trendWarning}` : statusMsg,
     };
 
