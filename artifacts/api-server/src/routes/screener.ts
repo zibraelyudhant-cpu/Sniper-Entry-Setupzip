@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { analyzePriceActionStructure, fetchKlines } from "../lib/smc";
+import { analyzePriceActionStructure, zigzagBias, fetchKlines } from "../lib/smc";
 
 const router = Router();
 const BINANCE_FUTURES_BASE = "https://fapi.binance.com";
@@ -203,6 +203,11 @@ router.get("/screener", async (req, res) => {
             const strD1 = analyzePriceActionStructure(d1.highs, d1.lows, d1.closes);
             if (strD1.bias === "ranging") return null;
             const bias = strD1.bias as "bullish" | "bearish";
+
+            // HARD FILTER: konfirmasi ZigZag D1 (threshold 5%) — filter noise
+            const zzD1 = zigzagBias(d1.highs, d1.lows, 5);
+            if (zzD1.bias === "ranging" || zzD1.bias !== bias) return null;
+
             const strH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
 
             // ── Filter 2: H4 harus berlawanan dengan D1 (koreksi sedang terjadi)

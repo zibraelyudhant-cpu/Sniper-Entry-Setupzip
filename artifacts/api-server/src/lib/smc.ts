@@ -334,6 +334,20 @@ function calcRSI(closes: number[], period = 14): number {
 }
 
 /**
+ * RSI dihitung untuk SETIAP candle (bukan cuma nilai terakhir).
+ * Perlu buat cek divergence yang presisi — bandingin RSI tepat di titik swing high/low,
+ * bukan cuma "RSI sekarang vs RSI beberapa candle lalu" yang gak akurat lokasinya.
+ */
+function calcRSISeries(closes: number[], period = 14): number[] {
+  const series: number[] = new Array(closes.length).fill(50);
+  if (closes.length < period + 1) return series;
+  for (let end = period + 1; end <= closes.length; end++) {
+    series[end - 1] = calcRSI(closes.slice(0, end), period);
+  }
+  return series;
+}
+
+/**
  * Hitung Bollinger Bands untuk candle terakhir.
  * Return { upper, middle, lower, bandwidth } untuk candle terakhir.
  */
@@ -414,6 +428,106 @@ function findSwingLows(lows: number[], lookback: number): number[] {
   return swings.slice(-lookback);
 }
 
+// ─── ZigZag — filter noise buat penentuan trend yang lebih presisi ───────────
+
+export interface ZigZagPoint {
+  idx: number;
+  value: number;
+  type: 'high' | 'low';
+}
+
+/**
+ * ZigZag klasik: nyambungin swing high/low yang BENERAN signifikan,
+ * ngabaikan gerakan kecil di bawah threshold%. Beda dari findSwingHighs/Lows
+ * yang fixed left-right bars — ZigZag pakai threshold pergerakan harga (%),
+ * jadi lebih adaptif ke volatilitas coin yang beda-beda.
+ */
+export function calcZigZag(highs: number[], lows: number[], thresholdPct: number): ZigZagPoint[] {
+  const points: ZigZagPoint[] = [];
+  const n = highs.length;
+  if (n < 2) return points;
+
+  let direction: 'up' | 'down' | 'unknown' = 'unknown';
+  let pendingIdx = 0;
+  let pendingHigh = highs[0]!;
+  let pendingLow = lows[0]!;
+
+  for (let i = 1; i < n; i++) {
+    const h = highs[i]!;
+    const l = lows[i]!;
+
+    if (direction === 'unknown') {
+      const upMove = pendingLow > 0 ? ((h - pendingLow) / pendingLow) * 100 : 0;
+      const downMove = pendingHigh > 0 ? ((pendingHigh - l) / pendingHigh) * 100 : 0;
+      if (upMove >= thresholdPct && upMove >= downMove) {
+        points.push({ idx: pendingIdx, value: pendingLow, type: 'low' });
+        direction = 'up';
+        pendingHigh = h; pendingIdx = i;
+      } else if (downMove >= thresholdPct) {
+        points.push({ idx: pendingIdx, value: pendingHigh, type: 'high' });
+        direction = 'down';
+        pendingLow = l; pendingIdx = i;
+      } else {
+        if (h > pendingHigh) pendingHigh = h;
+        if (l < pendingLow) pendingLow = l;
+      }
+    } else if (direction === 'up') {
+      if (h > pendingHigh) {
+        pendingHigh = h; pendingIdx = i;
+      } else {
+        const retrace = pendingHigh > 0 ? ((pendingHigh - l) / pendingHigh) * 100 : 0;
+        if (retrace >= thresholdPct) {
+          points.push({ idx: pendingIdx, value: pendingHigh, type: 'high' });
+          direction = 'down';
+          pendingLow = l; pendingIdx = i;
+        }
+      }
+    } else {
+      if (l < pendingLow) {
+        pendingLow = l; pendingIdx = i;
+      } else {
+        const retrace = pendingLow > 0 ? ((h - pendingLow) / pendingLow) * 100 : 0;
+        if (retrace >= thresholdPct) {
+          points.push({ idx: pendingIdx, value: pendingLow, type: 'low' });
+          direction = 'up';
+          pendingHigh = h; pendingIdx = i;
+        }
+      }
+    }
+  }
+  // Titik pending terakhir (belum terkonfirmasi reversal, tapi tetap dimasukin biar keliatan progress-nya)
+  if (direction === 'up') points.push({ idx: pendingIdx, value: pendingHigh, type: 'high' });
+  else if (direction === 'down') points.push({ idx: pendingIdx, value: pendingLow, type: 'low' });
+
+  return points;
+}
+
+/**
+ * Tentuin bias trend dari ZigZag point terakhir: HH+HL = bullish, LH+LL = bearish, selain itu ranging.
+ * Dipakai sebagai HARD FILTER konfirmasi trend — kalau ZigZag bilang ranging/gak searah
+ * sama structure biasa, sinyal di-skip.
+ */
+export function zigzagBias(highs: number[], lows: number[], thresholdPct: number): {
+  bias: 'bullish' | 'bearish' | 'ranging';
+  points: ZigZagPoint[];
+} {
+  const points = calcZigZag(highs, lows, thresholdPct);
+  const zzHighs = points.filter(p => p.type === 'high');
+  const zzLows = points.filter(p => p.type === 'low');
+  if (zzHighs.length < 2 || zzLows.length < 2) return { bias: 'ranging', points };
+
+  const h2 = zzHighs.slice(-2);
+  const l2 = zzLows.slice(-2);
+  const hh = h2[1]!.value > h2[0]!.value;
+  const hl = l2[1]!.value > l2[0]!.value;
+  const lh = h2[1]!.value < h2[0]!.value;
+  const ll = l2[1]!.value < l2[0]!.value;
+
+  if (hh && hl) return { bias: 'bullish', points };
+  if (lh && ll) return { bias: 'bearish', points };
+  return { bias: 'ranging', points };
+}
+
 // ─── Step 1: Price Action Structure ──────────────────────────────────────────
 
 export function analyzePriceActionStructure(
@@ -489,64 +603,89 @@ export function detectOrderBlocksH1(
   for (let i = start; i < opens.length - 3; i++) {
     if (bias === "bullish") {
       // Bearish OB: bearish candle followed by strong bullish impulse
-      const isBearishCandle = closes[i] < opens[i];
+      const isBearishCandle = closes[i]! < opens[i]!;
       if (!isBearishCandle) continue;
 
-      // Check for strong bullish move after
-      let maxClose = closes[i];
+      let maxClose = closes[i]!;
+      let impulseEndIdx = i;
       for (let j = i + 1; j < Math.min(i + 5, closes.length); j++) {
-        maxClose = Math.max(maxClose, closes[j]);
+        if (closes[j]! > maxClose) { maxClose = closes[j]!; impulseEndIdx = j; }
       }
 
-      const range = highs[i] - lows[i];
-      const impulse = maxClose - closes[i];
-      if (impulse > range * 1.5) {
-        const strength = impulse / range;
-        // Hitung touches: berapa kali harga masuk ke zona setelah OB terbentuk
-        let touches = 0;
-        for (let j = i + 1; j < closes.length; j++) {
-          if (lows[j] <= highs[i] && highs[j] >= lows[i]) touches++;
-        }
-        obs.push({
-          high: highs[i],
-          low: lows[i],
-          mid: (highs[i] + lows[i]) / 2,
-          index: i,
-          type: "bullish",
-          strength,
-          touches,
-          candlesAgo: opens.length - 1 - i,
-        });
+      const range = highs[i]! - lows[i]!;
+      const impulse = maxClose - closes[i]!;
+      if (range <= 0 || impulse <= range * 1.5) continue;
+
+      // ICT wajib: displacement harus tinggalkan FVG — ciri institutional move, bukan grinding retail
+      let hasFVG = false;
+      for (let j = i + 1; j < Math.min(impulseEndIdx, closes.length - 1); j++) {
+        if (highs[j - 1]! < lows[j + 1]!) { hasFVG = true; break; }
       }
+      if (!hasFVG) continue;
+
+      // Structure break wajib: impulse harus lewatin swing high sebelum OB (BOS beneran)
+      const priorSwingHighs = findSwingHighs(highs.slice(Math.max(0, i - 20), i), 5);
+      const priorSwingHigh = priorSwingHighs.length > 0 ? Math.max(...priorSwingHighs) : -Infinity;
+      if (maxClose <= priorSwingHigh) continue;
+
+      // Mitigasi 50% body: kalau harga udah pernah close nembus tengah body OB, zona dianggap invalid
+      const obMid = (opens[i]! + closes[i]!) / 2;
+      let mitigated = false;
+      for (let j = i + 1; j < closes.length; j++) {
+        if (closes[j]! < obMid) { mitigated = true; break; }
+      }
+      if (mitigated) continue;
+
+      const strength = impulse / range;
+      let touches = 0;
+      for (let j = i + 1; j < closes.length; j++) {
+        if (lows[j]! <= highs[i]! && highs[j]! >= lows[i]!) touches++;
+      }
+      obs.push({
+        high: highs[i]!, low: lows[i]!, mid: (highs[i]! + lows[i]!) / 2,
+        index: i, type: "bullish", strength, touches, candlesAgo: opens.length - 1 - i,
+      });
     } else {
       // Bullish OB: bullish candle followed by strong bearish impulse
-      const isBullishCandle = closes[i] > opens[i];
+      const isBullishCandle = closes[i]! > opens[i]!;
       if (!isBullishCandle) continue;
 
-      let minClose = closes[i];
+      let minClose = closes[i]!;
+      let impulseEndIdx = i;
       for (let j = i + 1; j < Math.min(i + 5, closes.length); j++) {
-        minClose = Math.min(minClose, closes[j]);
+        if (closes[j]! < minClose) { minClose = closes[j]!; impulseEndIdx = j; }
       }
 
-      const range = highs[i] - lows[i];
-      const impulse = closes[i] - minClose;
-      if (impulse > range * 1.5) {
-        const strength = impulse / range;
-        let touches = 0;
-        for (let j = i + 1; j < closes.length; j++) {
-          if (lows[j] <= highs[i] && highs[j] >= lows[i]) touches++;
-        }
-        obs.push({
-          high: highs[i],
-          low: lows[i],
-          mid: (highs[i] + lows[i]) / 2,
-          index: i,
-          type: "bearish",
-          strength,
-          touches,
-          candlesAgo: opens.length - 1 - i,
-        });
+      const range = highs[i]! - lows[i]!;
+      const impulse = closes[i]! - minClose;
+      if (range <= 0 || impulse <= range * 1.5) continue;
+
+      let hasFVG = false;
+      for (let j = i + 1; j < Math.min(impulseEndIdx, lows.length - 1); j++) {
+        if (lows[j - 1]! > highs[j + 1]!) { hasFVG = true; break; }
       }
+      if (!hasFVG) continue;
+
+      const priorSwingLows = findSwingLows(lows.slice(Math.max(0, i - 20), i), 5);
+      const priorSwingLow = priorSwingLows.length > 0 ? Math.min(...priorSwingLows) : Infinity;
+      if (minClose >= priorSwingLow) continue;
+
+      const obMid = (opens[i]! + closes[i]!) / 2;
+      let mitigated = false;
+      for (let j = i + 1; j < closes.length; j++) {
+        if (closes[j]! > obMid) { mitigated = true; break; }
+      }
+      if (mitigated) continue;
+
+      const strength = impulse / range;
+      let touches = 0;
+      for (let j = i + 1; j < closes.length; j++) {
+        if (lows[j]! <= highs[i]! && highs[j]! >= lows[i]!) touches++;
+      }
+      obs.push({
+        high: highs[i]!, low: lows[i]!, mid: (highs[i]! + lows[i]!) / 2,
+        index: i, type: "bearish", strength, touches, candlesAgo: opens.length - 1 - i,
+      });
     }
   }
 
@@ -573,24 +712,29 @@ export function detectFVGH1(
   for (let i = start; i < highs.length - 1; i++) {
     if (bias === "bullish") {
       // Bullish FVG: gap up — candle[i-1].high < candle[i+1].low
-      if (highs[i - 1] < lows[i + 1]) {
-        const low = highs[i - 1];
-        const high = lows[i + 1];
+      if (highs[i - 1]! < lows[i + 1]!) {
+        const low = highs[i - 1]!;
+        const high = lows[i + 1]!;
+        // Gap wajib punya ukuran signifikan (min 0.05% dari harga) — gap receh cuma noise, bukan imbalance beneran
+        const gapPct = (high - low) / low * 100;
+        if (gapPct < 0.05) continue;
         // Hitung touches: berapa kali harga masuk ke FVG setelah terbentuk
         let touches = 0;
         for (let j = i + 2; j < highs.length; j++) {
-          if (lows[j] <= high && highs[j] >= low) touches++;
+          if (lows[j]! <= high && highs[j]! >= low) touches++;
         }
         fvgs.push({ high, low, mid: (high + low) / 2, index: i, type: "bullish", touches, candlesAgo: highs.length - 1 - i });
       }
     } else {
       // Bearish FVG: gap down — candle[i-1].low > candle[i+1].high
-      if (lows[i - 1] > highs[i + 1]) {
-        const high = lows[i - 1];
-        const low = highs[i + 1];
+      if (lows[i - 1]! > highs[i + 1]!) {
+        const high = lows[i - 1]!;
+        const low = highs[i + 1]!;
+        const gapPct = (high - low) / low * 100;
+        if (gapPct < 0.05) continue;
         let touches = 0;
         for (let j = i + 2; j < highs.length; j++) {
-          if (lows[j] <= high && highs[j] >= low) touches++;
+          if (lows[j]! <= high && highs[j]! >= low) touches++;
         }
         fvgs.push({ high, low, mid: (high + low) / 2, index: i, type: "bearish", touches, candlesAgo: highs.length - 1 - i });
       }
@@ -1626,30 +1770,38 @@ export async function checkSkipConditions(
   const rsi = calcRSI(h1Closes);
   let rsiDivergence = false;
 
-  // Detect divergence: check last 5 candles
-  const recentCloses = h1Closes.slice(-10);
-  const recentHighs = h1Highs.slice(-10);
-  const recentLows = h1Lows.slice(-10);
-
-  // Calculate RSI for first half and second half
-  const firstRsi = calcRSI(h1Closes.slice(0, -5));
-  const secondRsi = calcRSI(h1Closes);
+  // Divergence presisi: bandingin RSI TEPAT di titik swing high/low, bukan RSI global
+  const rsiSeries = calcRSISeries(h1Closes);
+  const swingHighsIdx = findSwingPointsIdx(h1Highs, 'high', 2);
+  const swingLowsIdx = findSwingPointsIdx(h1Lows, 'low', 2);
 
   if (bias === "bullish") {
-    // Bearish divergence on bullish bias: price makes HH but RSI makes LH
-    const priceHigher = recentHighs[recentHighs.length - 1] > recentHighs[recentHighs.length - 6];
-    if (priceHigher && secondRsi < firstRsi * 0.95) {
-      rsiDivergence = true;
-      reasons.push("RSI divergence terdeteksi di H1 (harga HH tapi RSI LH)");
-      shouldSkip = true;
+    // Bearish divergence: 2 swing high terakhir — harga HH tapi RSI di titik itu LH
+    if (swingHighsIdx.length >= 2) {
+      const h1 = swingHighsIdx[swingHighsIdx.length - 2]!;
+      const h2 = swingHighsIdx[swingHighsIdx.length - 1]!;
+      const priceHH = h2.value > h1.value;
+      const rsiAtH1 = rsiSeries[h1.idx] ?? 50;
+      const rsiAtH2 = rsiSeries[h2.idx] ?? 50;
+      if (priceHH && rsiAtH2 < rsiAtH1 - 2) { // RSI turun minimal 2 poin di puncak lebih tinggi = divergence
+        rsiDivergence = true;
+        reasons.push(`RSI divergence terdeteksi di H1 (harga HH ${h1.value.toFixed(4)}→${h2.value.toFixed(4)}, RSI ${rsiAtH1.toFixed(0)}→${rsiAtH2.toFixed(0)})`);
+        shouldSkip = true;
+      }
     }
   } else {
-    // Bullish divergence on bearish bias: price makes LL but RSI makes HL
-    const priceLower = recentLows[recentLows.length - 1] < recentLows[recentLows.length - 6];
-    if (priceLower && secondRsi > firstRsi * 1.05) {
-      rsiDivergence = true;
-      reasons.push("RSI divergence terdeteksi di H1 (harga LL tapi RSI HL)");
-      shouldSkip = true;
+    // Bullish divergence: 2 swing low terakhir — harga LL tapi RSI di titik itu HL
+    if (swingLowsIdx.length >= 2) {
+      const l1 = swingLowsIdx[swingLowsIdx.length - 2]!;
+      const l2 = swingLowsIdx[swingLowsIdx.length - 1]!;
+      const priceLL = l2.value < l1.value;
+      const rsiAtL1 = rsiSeries[l1.idx] ?? 50;
+      const rsiAtL2 = rsiSeries[l2.idx] ?? 50;
+      if (priceLL && rsiAtL2 > rsiAtL1 + 2) {
+        rsiDivergence = true;
+        reasons.push(`RSI divergence terdeteksi di H1 (harga LL ${l1.value.toFixed(4)}→${l2.value.toFixed(4)}, RSI ${rsiAtL1.toFixed(0)}→${rsiAtL2.toFixed(0)})`);
+        shouldSkip = true;
+      }
     }
   }
 
@@ -1789,6 +1941,19 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       return {
         status: "no_trend",
         message: `Struktur D1 ranging, tidak ada trend jelas untuk ${symbol}`,
+        symbol,
+        currentPrice,
+        timestamp,
+        h4: { bias: structD1.bias, strength: structD1.strength },
+      };
+    }
+
+    // HARD FILTER: konfirmasi ZigZag D1 (threshold 5%) — filter noise, wajib searah sama structure biasa
+    const zzD1 = zigzagBias(d1.highs, d1.lows, 5);
+    if (zzD1.bias === "ranging" || zzD1.bias !== structD1.bias) {
+      return {
+        status: "no_trend",
+        message: `ZigZag D1 tidak konfirmasi trend (structure: ${structD1.bias}, zigzag: ${zzD1.bias}) — kemungkinan trend palsu/noise`,
         symbol,
         currentPrice,
         timestamp,
@@ -2170,6 +2335,12 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
 
     const bias = structH4.bias as 'bullish' | 'bearish';
 
+    // HARD FILTER: konfirmasi ZigZag H4 (threshold 3%) — filter noise, wajib searah sama structure biasa
+    const zzH4 = zigzagBias(h4.highs, h4.lows, 3);
+    if (zzH4.bias === 'ranging' || zzH4.bias !== bias) {
+      return { status: 'skip', symbol, currentPrice, timestamp, message: `ZigZag H4 tidak konfirmasi trend (structure: ${bias}, zigzag: ${zzH4.bias}) — kemungkinan trend palsu/noise`, score, maxScore, filterResults };
+    }
+
     // EMA 34 H4 — opsional, bukan hard filter. Konfirmasi tambahan saja.
     const ema34H4 = calcEMA(h4.closes, 34);
     const lastCloseH4 = h4.closes[h4.closes.length - 1] ?? currentPrice;
@@ -2253,38 +2424,50 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     filterResults.push(`✅ Zona M30: ${bestZone30.zoneType} ${bestZone30.low.toFixed(4)}–${bestZone30.high.toFixed(4)}`);
 
     // ── Filter 4: Konfirmasi reversal — Pattern M30 ATAU RSI divergence H1 ──
-    const bullPatterns = ['Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Bull Flag', 'Ascending Triangle'];
+    const bullPatterns = ['Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Bull Flag', 'Ascending Triangle', 'Cup and Handle'];
     const bearPatterns = ['Double Top', 'Head & Shoulders', 'Rising Wedge', 'Bear Flag', 'Descending Triangle'];
     const validPatterns = bias === 'bullish' ? bullPatterns : bearPatterns;
 
     const pats30 = [
       detectBullFlag(m30.highs, m30.lows, m30.closes, m30.volumes),
       detectBearFlag(m30.highs, m30.lows, m30.closes, m30.volumes),
-      detectDoubleBottom(m30.highs, m30.lows, m30.closes),
-      detectDoubleTop(m30.highs, m30.lows, m30.closes),
-      detectInverseHS(m30.highs, m30.lows, m30.closes),
-      detectHeadAndShoulders(m30.highs, m30.lows, m30.closes),
-      detectFallingWedge(m30.highs, m30.lows, m30.closes),
-      detectRisingWedge(m30.highs, m30.lows, m30.closes),
-      detectAscendingTriangle(m30.highs, m30.lows, m30.closes),
-      detectDescendingTriangle(m30.highs, m30.lows, m30.closes),
+      detectDoubleBottom(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectDoubleTop(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectInverseHS(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectHeadAndShoulders(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectFallingWedge(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectRisingWedge(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectAscendingTriangle(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectDescendingTriangle(m30.highs, m30.lows, m30.closes, m30.volumes),
+      detectCupAndHandle(m30.highs, m30.lows, m30.closes, m30.volumes),
     ].filter(p => p && validPatterns.includes(p!.name));
 
-    // RSI divergence H1 (diperketat)
+    // RSI divergence H1 — presisi, anchor ke titik swing high/low beneran (bukan cuma perbandingan kasar)
     const rsiH1 = calcRSI(h1.closes);
-    const recentHighsH1 = h1.highs.slice(-8);
-    const recentLowsH1 = h1.lows.slice(-8);
+    const rsiSeriesH1 = calcRSISeries(h1.closes);
+    const swingHighsH1 = findSwingPointsIdx(h1.highs, 'high', 2);
+    const swingLowsH1 = findSwingPointsIdx(h1.lows, 'low', 2);
     let rsiDivergence = false;
     if (bias === 'bullish') {
-      // Bullish divergence: harga lower low + RSI H1 < 45 (dari zona jenuh jelas)
-      const priceLH = recentLowsH1[recentLowsH1.length - 1]! < recentLowsH1[recentLowsH1.length - 3]!;
-      const rsiOversold = rsiH1 < 45;
-      rsiDivergence = priceLH && rsiOversold;
+      // Bullish divergence: harga lower low tapi RSI di titik itu higher low
+      if (swingLowsH1.length >= 2) {
+        const l1 = swingLowsH1[swingLowsH1.length - 2]!;
+        const l2 = swingLowsH1[swingLowsH1.length - 1]!;
+        const priceLL = l2.value < l1.value;
+        const rsiAtL1 = rsiSeriesH1[l1.idx] ?? 50;
+        const rsiAtL2 = rsiSeriesH1[l2.idx] ?? 50;
+        rsiDivergence = priceLL && rsiAtL2 > rsiAtL1 + 2 && rsiAtL2 < 45; // wajib dari zona jenuh jelas
+      }
     } else {
-      // Bearish divergence: harga higher high + RSI H1 > 55 (dari zona jenuh jelas)
-      const priceHH = recentHighsH1[recentHighsH1.length - 1]! > recentHighsH1[recentHighsH1.length - 3]!;
-      const rsiOverbought = rsiH1 > 55;
-      rsiDivergence = priceHH && rsiOverbought;
+      // Bearish divergence: harga higher high tapi RSI di titik itu lower high
+      if (swingHighsH1.length >= 2) {
+        const h1s = swingHighsH1[swingHighsH1.length - 2]!;
+        const h2s = swingHighsH1[swingHighsH1.length - 1]!;
+        const priceHH = h2s.value > h1s.value;
+        const rsiAtH1 = rsiSeriesH1[h1s.idx] ?? 50;
+        const rsiAtH2 = rsiSeriesH1[h2s.idx] ?? 50;
+        rsiDivergence = priceHH && rsiAtH2 < rsiAtH1 - 2 && rsiAtH2 > 55; // wajib dari zona jenuh jelas
+      }
     }
 
     const hasConfirmation = pats30.length > 0 || rsiDivergence;
@@ -2381,293 +2564,6 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
   }
 }
 
-
-export async function analyzeBreakoutEntry(symbol: string): Promise<BreakoutResult> {
-  const timestamp = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    hour: '2-digit', minute: '2-digit',
-    day: '2-digit', month: 'long', year: 'numeric',
-  }) + ' WIB';
-
-  try {
-    const [h4, h1, m30, m15, tickerRes, frRes] = await Promise.all([
-      fetchKlines(symbol, '4h', 100),
-      fetchKlines(symbol, '1h', 100),
-      fetchKlines(symbol, '30m', 100),
-      fetchKlines(symbol, '15m', 100),
-      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
-      fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=1`),
-    ]);
-
-    const currentPrice = tickerRes.ok
-      ? parseFloat((await tickerRes.json() as { price: string }).price)
-      : h1.closes[h1.closes.length - 1];
-
-    let fundingRate = 0;
-    if (frRes.ok) {
-      const frData = await frRes.json() as Array<{ fundingRate: string }>;
-      if (frData.length > 0) fundingRate = parseFloat(frData[0].fundingRate) * 100;
-    }
-
-    const structH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
-    if (structH4.bias === 'ranging')
-      return { status: 'no_trend', symbol, currentPrice, timestamp, message: 'H4 ranging' };
-
-    const bias = structH4.bias as 'bullish' | 'bearish';
-
-    if (bias === 'bullish' && fundingRate < -0.1)
-      return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat negatif', fundingRate };
-    if (bias === 'bearish' && fundingRate > 0.1)
-      return { status: 'skip', symbol, bias, currentPrice, timestamp, message: 'Funding rate sangat positif', fundingRate };
-
-    // ─── Teori Dow: CHoCH H4 (hard filter — primary trend reversal) ─────────────
-    const chochH4 = detectCHoCH(h4.highs, h4.lows, h4.closes, bias);
-    if (chochH4) {
-      return { status: 'no_trend', symbol, bias, currentPrice, timestamp,
-        message: 'CHoCH H4 terbentuk — primary trend sudah berbalik, setup breakout invalid',
-        chochH4Detected: true };
-    }
-
-    // ─── Teori Dow: Fase dan Volume Trend (scoring info) ─────────────────────
-    const dowResult = detectDowPhase(h4.highs, h4.lows, h4.closes, h4.volumes, bias);
-    const volTrend = checkVolumeTrend(h4.closes, h4.volumes, bias);
-
-    // Distribution = hard filter untuk breakout juga
-    if (dowResult.phase === 'distribution') {
-      return { status: 'skip', symbol, bias, currentPrice, timestamp,
-        message: `Fase Distribution H4 — ${dowResult.description}`,
-        chochH4Detected: false,
-        dowPhase: dowResult.phase, dowPhaseDesc: dowResult.description };
-    }
-
-    // Deteksi breakout di H1 dan M30 — ambil yang paling kuat (volume ratio tertinggi)
-    const breakoutH1 = detectBreakoutH1(h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes, bias);
-    const breakoutM30 = detectBreakoutH1(m30.opens, m30.highs, m30.lows, m30.closes, m30.volumes, bias);
-
-    let breakout = breakoutH1;
-    let breakoutTf = 'H1';
-    if (!breakoutH1 && breakoutM30) {
-      breakout = breakoutM30;
-      breakoutTf = 'M30';
-    } else if (breakoutH1 && breakoutM30 && breakoutM30.volumeRatio > breakoutH1.volumeRatio) {
-      breakout = breakoutM30;
-      breakoutTf = 'M30';
-    }
-
-    if (!breakout)
-      return { status: 'no_breakout', symbol, bias, currentPrice, timestamp, message: 'Tidak ada breakout valid di H1/M30' };
-
-    const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
-    const atrH2 = calcATR(m30.highs, m30.lows, m30.closes); // M30 ≈ H2
-    const atr15m = calcATR(m15.highs, m15.lows, m15.closes);
-
-    // Gunakan data TF yang terdeteksi breakout untuk findRetestZone
-    const brkData = breakoutTf === 'M30' ? m30 : h1;
-    const retestZone = findRetestZone(
-      brkData.highs, brkData.lows, brkData.closes, brkData.opens, brkData.volumes,
-      m15.highs, m15.lows, m15.closes,
-      breakout, currentPrice, atrH1, bias, atrH2
-    );
-
-    if (!retestZone)
-      return { status: 'no_zone', symbol, bias, currentPrice, timestamp,
-        message: 'Tidak ada zona retest valid',
-        breakoutType: breakout.type, brokenLevel: breakout.brokenLevel, volumeRatio: breakout.volumeRatio };
-
-    const inZone = retestZone.isReached;
-
-    // ─── OPSI A: Cek pattern di H4/H1/M30 yang searah (confidence boost) ─────
-    const bullishContinuation = ['Bull Flag', 'Ascending Triangle', 'Pennant', 'Symmetrical Triangle'];
-    const bullishReversal = ['Double Bottom', 'Inverse H&S', 'Falling Wedge'];
-    const bearishContinuation = ['Bear Flag', 'Descending Triangle', 'Pennant', 'Symmetrical Triangle'];
-    const bearishReversal = ['Double Top', 'Head & Shoulders', 'Rising Wedge'];
-    const validBullish = [...bullishContinuation, ...bullishReversal];
-    const validBearish = [...bearishContinuation, ...bearishReversal];
-
-    const detectAllPatterns = (kline: KlineData): PatternResult[] => {
-      const { highs: h, lows: l, closes: c, volumes: v } = kline;
-      const results: PatternResult[] = [];
-      const checks = [
-        detectBullFlag(h, l, c, v), detectBearFlag(h, l, c, v),
-        detectAscendingTriangle(h, l, c), detectDescendingTriangle(h, l, c),
-        detectSymmetricalTriangle(h, l, c), detectPennant(h, l, c, v),
-        detectDoubleTop(h, l, c), detectDoubleBottom(h, l, c),
-        detectHeadAndShoulders(h, l, c), detectInverseHS(h, l, c),
-        detectRisingWedge(h, l, c), detectFallingWedge(h, l, c),
-      ];
-      for (const r of checks) { if (r) results.push(r); }
-      return results;
-    };
-
-    // Cek pattern di H4, H1, M30
-    const validList = bias === 'bullish' ? validBullish : validBearish;
-    const h4Patterns = detectAllPatterns(h4).filter(p => validList.includes(p.name));
-    const h1Patterns = detectAllPatterns(h1).filter(p => validList.includes(p.name));
-    const m30Patterns = detectAllPatterns(m30).filter(p => validList.includes(p.name));
-    const allConfirmingPatterns = [
-      ...h4Patterns.map(p => `H4: ${p.name}`),
-      ...h1Patterns.map(p => `H1: ${p.name}`),
-      ...m30Patterns.map(p => `M30: ${p.name}`),
-    ];
-    const patternCount = allConfirmingPatterns.length;
-    const patternConfidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' =
-      patternCount >= 2 ? 'HIGH' : patternCount === 1 ? 'MEDIUM' : 'LOW';
-
-    // ─── OPSI B: Cek pattern 15M untuk konfirmasi zona retest ─────────────────
-    const bullishReversalShort = ['Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Bull Flag'];
-    const bearishReversalShort = ['Double Top', 'Head & Shoulders', 'Rising Wedge', 'Bear Flag'];
-    const validZoneList = bias === 'bullish' ? bullishReversalShort : bearishReversalShort;
-
-    let retestConfirmed = false;
-    let zonePatternConfirmed = false;
-
-    if (inZone) {
-      // Rejection candle di 15M
-      const last = m15.closes.length - 1;
-      for (let i = last; i >= Math.max(0, last - 2); i--) {
-        const body = Math.abs(m15.closes[i] - m15.opens[i]);
-        const wick = bias === 'bullish'
-          ? Math.min(m15.opens[i], m15.closes[i]) - m15.lows[i]
-          : m15.highs[i] - Math.max(m15.opens[i], m15.closes[i]);
-        if (body > 0 && wick > body * 1.5) { retestConfirmed = true; break; }
-      }
-
-      // Pattern konfirmasi di 15M
-      const m15Patterns = detectAllPatterns(m15).filter(p => validZoneList.includes(p.name));
-      zonePatternConfirmed = m15Patterns.length > 0;
-    }
-
-    // ─── HARD FILTER 1: CHoCH 15M ───────────────────────────────────────────────
-    const choch15MResult = detectCHoCH15M(m15.highs, m15.lows, m15.closes, bias);
-    if (!choch15MResult.detected) {
-      return {
-        status: 'no_setup',
-        symbol, bias, currentPrice, timestamp,
-        message: 'CHoCH 15M belum terkonfirmasi — tunggu struktur 15M berbalik',
-        breakoutType: breakout.type,
-        brokenLevel: breakout.brokenLevel,
-        volumeRatio: breakout.volumeRatio,
-        retestZone,
-        choch15M: false,
-        choch15MDesc: choch15MResult.description,
-      };
-    }
-
-    // ─── HARD FILTER 2: Rejection candle 15M ─────────────────────────────────
-    const refinedForRejection = {
-      low: retestZone.low ?? retestZone.price - atrH1 * 0.3,
-      high: retestZone.high ?? retestZone.price + atrH1 * 0.3,
-      mid: retestZone.price,
-      entryPrice: retestZone.price,
-      zoneType: retestZone.type,
-      refined: false,
-    };
-    const rejection15MResult = checkRejection15M(
-      refinedForRejection, m15.opens, m15.highs, m15.lows, m15.closes, bias, m15.volumes
-    );
-    if (!rejection15MResult.confirmed) {
-      return {
-        status: 'no_setup',
-        symbol, bias, currentPrice, timestamp,
-        message: 'Belum ada rejection candle 15M di zona retest',
-        breakoutType: breakout.type,
-        brokenLevel: breakout.brokenLevel,
-        volumeRatio: breakout.volumeRatio,
-        retestZone,
-        choch15M: true,
-        choch15MDesc: choch15MResult.description,
-        rejection15M: false,
-        rejection15MCandle: rejection15MResult.candleType,
-      };
-    }
-
-    // ─── HARD FILTER 3: Pattern konfirmasi ───────────────────────────────────
-    const allBreakoutPatterns = [...allConfirmingPatterns];
-    const hasPattern = allBreakoutPatterns.length > 0;
-    if (!hasPattern) {
-      return {
-        status: 'no_setup',
-        symbol, bias, currentPrice, timestamp,
-        message: 'Tidak ada pattern konfirmasi searah bias',
-        breakoutType: breakout.type,
-        brokenLevel: breakout.brokenLevel,
-        volumeRatio: breakout.volumeRatio,
-        retestZone,
-        choch15M: true,
-        choch15MDesc: choch15MResult.description,
-        rejection15M: true,
-        rejection15MCandle: rejection15MResult.candleType,
-        patternConfirmed: false,
-      };
-    }
-
-    // Semua filter lolos — lanjut ke status
-    const isReady = inZone && retestConfirmed && (zonePatternConfirmed || patternConfidence === 'HIGH');
-    const status = isReady ? 'ready' : inZone ? 'in_zone' : 'approaching';
-
-    const entryPrice = retestZone.price;
-    const dir = bias === 'bullish' ? 1 : -1;
-
-    // SL berdasarkan swing high/low H1 terdekat (20 candle lookback)
-    const m4SwingHighs = findSwingHighs(h1.highs, 20);
-    const m4SwingLows = findSwingLows(h1.lows, 20);
-    const m4Buffer = atrH1 * 0.2;
-
-    let stopLoss: number;
-    if (bias === 'bullish') {
-      const relevantLows = m4SwingLows.filter(l => l < entryPrice);
-      const nearestSwingLow = relevantLows.length > 0
-        ? Math.max(...relevantLows)
-        : Math.min(...h1.lows.slice(-20));
-      const rawSl = nearestSwingLow - m4Buffer;
-      const minSl = entryPrice - atrH2;
-      stopLoss = Math.min(rawSl, minSl);
-    } else {
-      const relevantHighs = m4SwingHighs.filter(h => h > entryPrice);
-      const nearestSwingHigh = relevantHighs.length > 0
-        ? Math.min(...relevantHighs)
-        : Math.max(...h1.highs.slice(-20));
-      const rawSl = nearestSwingHigh + m4Buffer;
-      const minSl = entryPrice + atrH2;
-      stopLoss = Math.max(rawSl, minSl);
-    }
-    const risk = Math.abs(entryPrice - stopLoss);
-    const takeProfit1 = entryPrice + risk * 1.5 * dir;
-    const takeProfit2 = entryPrice + risk * 3.0 * dir;
-    const takeProfit3 = breakout.volumeRatio >= 2.0 ? entryPrice + risk * 5.0 * dir : undefined;
-
-    const reasonParts = [`${retestZone.type} (Tier ${retestZone.tier}) — ${retestZone.reason}`];
-    if (allConfirmingPatterns.length > 0)
-      reasonParts.push(`Pattern: ${allConfirmingPatterns.join(', ')}`);
-
-    return {
-      status,
-      symbol, bias, currentPrice, timestamp,
-      breakoutType: breakout.type, brokenLevel: breakout.brokenLevel, volumeRatio: breakout.volumeRatio,
-      retestZone, retestConfirmed,
-      patternConfidence,
-      confirmingPatterns: allConfirmingPatterns,
-      choch15M: true,
-      choch15MDesc: choch15MResult.description,
-      rejection15M: true,
-      rejection15MCandle: rejection15MResult.candleType,
-      patternConfirmed: true,
-      patternName: allBreakoutPatterns[0],
-      chochH4Detected: false,
-      dowPhase: dowResult.phase,
-      dowPhaseDesc: dowResult.description,
-      volumeTrendValid: volTrend.valid,
-      volumeTrendDesc: volTrend.description,
-      entryPrice, stopLoss, takeProfit1, takeProfit2, takeProfit3,
-      fundingRate, setupExpiryHours: 8,
-      reason: reasonParts.join(' | '),
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return { status: 'error', symbol, currentPrice: 0, timestamp, message };
-  }
-}
-
 // ─── Menu 5: Chart Pattern Detection ─────────────────────────────────────────
 
 export interface PatternResult {
@@ -2681,6 +2577,45 @@ export interface PatternResult {
 export interface TFPatterns {
   tf: string;
   patterns: PatternResult[];
+}
+
+/**
+ * Swing point dengan index candle-nya (bukan cuma nilai).
+ * Perlu buat cek urutan waktu, jarak antar swing, dan fit trendline.
+ */
+function findSwingPointsIdx(values: number[], mode: 'high' | 'low', leftRight = 2): { idx: number; value: number }[] {
+  const swings: { idx: number; value: number }[] = [];
+  for (let i = leftRight; i < values.length - leftRight; i++) {
+    let isSwing = true;
+    for (let j = 1; j <= leftRight; j++) {
+      if (mode === 'high') {
+        if (values[i]! <= values[i - j]! || values[i]! <= values[i + j]!) { isSwing = false; break; }
+      } else {
+        if (values[i]! >= values[i - j]! || values[i]! >= values[i + j]!) { isSwing = false; break; }
+      }
+    }
+    if (isSwing) swings.push({ idx: i, value: values[i]! });
+  }
+  return swings;
+}
+
+/**
+ * Regresi linear sederhana untuk fit trendline dari kumpulan swing point.
+ * Dipakai untuk cek slope & konvergensi wedge/triangle secara presisi
+ * (bukan cuma bandingin titik pertama-terakhir).
+ */
+function linRegSlope(points: { idx: number; value: number }[]): { slope: number; intercept: number } {
+  const n = points.length;
+  if (n < 2) return { slope: 0, intercept: points[0]?.value ?? 0 };
+  const sumX = points.reduce((a, p) => a + p.idx, 0);
+  const sumY = points.reduce((a, p) => a + p.value, 0);
+  const sumXY = points.reduce((a, p) => a + p.idx * p.value, 0);
+  const sumXX = points.reduce((a, p) => a + p.idx * p.idx, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return { slope: 0, intercept: sumY / n };
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
 }
 
 function detectBullFlag(highs: number[], lows: number[], closes: number[], volumes: number[]): PatternResult | null {
@@ -2717,30 +2652,71 @@ function detectBearFlag(highs: number[], lows: number[], closes: number[], volum
   return { name: 'Bear Flag', category: 'continuation', direction: 'bearish', confidence: poleMove > 6 ? 'high' : 'medium', description: `Pole -${poleMove.toFixed(1)}%, flag konsolidasi ${flagRange.toFixed(1)}%` };
 }
 
-function detectAscendingTriangle(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectAscendingTriangle(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 15) return null;
-  const swingH = findSwingHighs(highs.slice(n - 15), 3);
-  if (swingH.length < 2) return null;
-  const maxH = Math.max(...swingH), minH = Math.min(...swingH);
-  if ((maxH - minH) / minH * 100 > 1.5) return null;
-  const swingL = findSwingLows(lows.slice(n - 15), 3);
-  if (swingL.length < 2) return null;
-  if (swingL[swingL.length - 1] <= swingL[0]) return null;
-  return { name: 'Ascending Triangle', category: 'continuation', direction: 'bullish', confidence: 'medium', description: `Resistance flat di ${maxH.toFixed(4)}, support naik` };
+  const window = 30;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingH = findSwingPointsIdx(sliceH, 'high', 2);
+  const swingL = findSwingPointsIdx(sliceL, 'low', 2);
+  // Bulkowski: minimal 3 sentuh resistance + 2 higher low (5 titik total)
+  if (swingH.length < 3 || swingL.length < 2) return null;
+  const rh = swingH.slice(-3);
+  const maxH = Math.max(...rh.map(s => s.value));
+  const minH = Math.min(...rh.map(s => s.value));
+  // Resistance wajib benar-benar flat (<1%) — beda dari rising wedge yang miring
+  if ((maxH - minH) / minH * 100 > 1) return null;
+  const rl = swingL.slice(-Math.min(3, swingL.length));
+  const regL = linRegSlope(rl);
+  if (regL.slope <= 0) return null;
+  if (rl[rl.length - 1]!.value <= rl[0]!.value) return null; // higher low harus valid
+  // Breakout udah lewat 2% dari resistance = momentum exhausted, bukan entry ideal lagi
+  const lastClose = closes[n - 1]!;
+  if (lastClose > maxH * 1.02) return null;
+  let volDeclining = false;
+  if (volumes.length >= window) {
+    const avgVolEarly = volumes.slice(n - window, n - window + 10).reduce((a, b) => a + b, 0) / 10;
+    const avgVolRecent = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
+    volDeclining = avgVolRecent < avgVolEarly;
+  }
+  return {
+    name: 'Ascending Triangle', category: 'continuation', direction: 'bullish',
+    confidence: volDeclining ? 'high' : 'medium',
+    description: `Resistance flat ${maxH.toFixed(4)} (${rh.length}x touch), support naik (${rl.length}x touch)${volDeclining ? ', volume mengecil' : ''}`,
+  };
 }
 
-function detectDescendingTriangle(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectDescendingTriangle(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 15) return null;
-  const swingL = findSwingLows(lows.slice(n - 15), 3);
-  if (swingL.length < 2) return null;
-  const maxL = Math.max(...swingL), minL = Math.min(...swingL);
-  if ((maxL - minL) / minL * 100 > 1.5) return null;
-  const swingH = findSwingHighs(highs.slice(n - 15), 3);
-  if (swingH.length < 2) return null;
-  if (swingH[swingH.length - 1] >= swingH[0]) return null;
-  return { name: 'Descending Triangle', category: 'continuation', direction: 'bearish', confidence: 'medium', description: `Support flat di ${minL.toFixed(4)}, resistance turun` };
+  const window = 30;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingH = findSwingPointsIdx(sliceH, 'high', 2);
+  const swingL = findSwingPointsIdx(sliceL, 'low', 2);
+  if (swingH.length < 2 || swingL.length < 3) return null;
+  const rl = swingL.slice(-3);
+  const maxL = Math.max(...rl.map(s => s.value));
+  const minL = Math.min(...rl.map(s => s.value));
+  if ((maxL - minL) / minL * 100 > 1) return null;
+  const rh = swingH.slice(-Math.min(3, swingH.length));
+  const regH = linRegSlope(rh);
+  if (regH.slope >= 0) return null;
+  if (rh[rh.length - 1]!.value >= rh[0]!.value) return null; // lower high harus valid
+  const lastClose = closes[n - 1]!;
+  if (lastClose < minL * 0.98) return null;
+  let volDeclining = false;
+  if (volumes.length >= window) {
+    const avgVolEarly = volumes.slice(n - window, n - window + 10).reduce((a, b) => a + b, 0) / 10;
+    const avgVolRecent = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
+    volDeclining = avgVolRecent < avgVolEarly;
+  }
+  return {
+    name: 'Descending Triangle', category: 'continuation', direction: 'bearish',
+    confidence: volDeclining ? 'high' : 'medium',
+    description: `Support flat ${minL.toFixed(4)} (${rl.length}x touch), resistance turun (${rh.length}x touch)${volDeclining ? ', volume mengecil' : ''}`,
+  };
 }
 
 function detectSymmetricalTriangle(highs: number[], lows: number[], closes: number[]): PatternResult | null {
@@ -2773,88 +2749,325 @@ function detectPennant(highs: number[], lows: number[], closes: number[], volume
   return { name: 'Pennant', category: 'continuation', direction: dir as 'bullish' | 'bearish', confidence: 'medium', description: `Pole ${dir === 'bullish' ? '+' : '-'}${poleMove.toFixed(1)}%, pennant konsolidasi volume turun` };
 }
 
-function detectDoubleTop(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectDoubleTop(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 30) return null;
-  const swingH = findSwingHighs(highs.slice(n - 30), 5);
+  const window = 30;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingH = findSwingPointsIdx(sliceH, 'high', 2);
   if (swingH.length < 2) return null;
-  const last = swingH[swingH.length - 1], prev = swingH[swingH.length - 2];
-  const diff = Math.abs(last - prev) / prev * 100;
-  if (diff > 1.5) return null;
-  const neckline = Math.min(...lows.slice(n - 30));
-  if (closes[n - 1] < neckline * 1.005) {
-    return { name: 'Double Top', category: 'reversal', direction: 'bearish', confidence: diff < 0.8 ? 'high' : 'medium', description: `Dua puncak di ~${((last + prev) / 2).toFixed(4)}, neckline ${neckline.toFixed(4)}` };
+  const p1 = swingH[swingH.length - 2]!;
+  const p2 = swingH[swingH.length - 1]!;
+  // Jarak minimal antar 2 puncak — puncak terlalu dekat bukan double top valid
+  if (p2.idx - p1.idx < 5) return null;
+  // Bulkowski: toleransi jarak harga 2 puncak maks 6%, dipakai lebih ketat 2% untuk M30 crypto
+  const diffPct = Math.abs(p2.value - p1.value) / p1.value * 100;
+  if (diffPct > 2) return null;
+  // Preceding uptrend wajib — tanpa uptrend sebelumnya bukan reversal pattern
+  const preStart = Math.max(0, p1.idx - 10);
+  const preMove = (p1.value - sliceH[preStart]!) / sliceH[preStart]! * 100;
+  if (preMove < 5) return null;
+  // Neckline = low terendah DI ANTARA dua puncak (bukan seluruh window)
+  const neckline = Math.min(...sliceL.slice(p1.idx, p2.idx + 1));
+  // Konfirmasi wajib: candle CLOSE di bawah neckline, bukan cuma wick nyentuh
+  const lastClose = closes[n - 1]!;
+  if (lastClose >= neckline) return null;
+  let volConfirmed = false;
+  if (volumes.length >= 20) {
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    volConfirmed = volumes[volumes.length - 1]! > avgVol;
   }
-  return null;
+  const confidence: 'high' | 'medium' | 'low' = diffPct < 1 && volConfirmed ? 'high' : diffPct < 1.5 ? 'medium' : 'low';
+  return {
+    name: 'Double Top', category: 'reversal', direction: 'bearish', confidence,
+    description: `2 puncak ~${((p1.value + p2.value) / 2).toFixed(4)} (beda ${diffPct.toFixed(1)}%), neckline ${neckline.toFixed(4)} tertembus close${volConfirmed ? ' + volume konfirmasi' : ''}`,
+  };
 }
 
-function detectDoubleBottom(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectDoubleBottom(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 30) return null;
-  const swingL = findSwingLows(lows.slice(n - 30), 5);
+  const window = 30;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingL = findSwingPointsIdx(sliceL, 'low', 2);
   if (swingL.length < 2) return null;
-  const last = swingL[swingL.length - 1], prev = swingL[swingL.length - 2];
-  const diff = Math.abs(last - prev) / prev * 100;
-  if (diff > 1.5) return null;
-  const neckline = Math.max(...highs.slice(n - 30));
-  if (closes[n - 1] > neckline * 0.995) {
-    return { name: 'Double Bottom', category: 'reversal', direction: 'bullish', confidence: diff < 0.8 ? 'high' : 'medium', description: `Dua lembah di ~${((last + prev) / 2).toFixed(4)}, neckline ${neckline.toFixed(4)}` };
+  const p1 = swingL[swingL.length - 2]!;
+  const p2 = swingL[swingL.length - 1]!;
+  if (p2.idx - p1.idx < 5) return null;
+  const diffPct = Math.abs(p2.value - p1.value) / p1.value * 100;
+  if (diffPct > 2) return null;
+  // Preceding downtrend wajib
+  const preStart = Math.max(0, p1.idx - 10);
+  const preMove = (sliceL[preStart]! - p1.value) / sliceL[preStart]! * 100;
+  if (preMove < 5) return null;
+  // Neckline = high tertinggi DI ANTARA dua lembah
+  const neckline = Math.max(...sliceH.slice(p1.idx, p2.idx + 1));
+  const lastClose = closes[n - 1]!;
+  if (lastClose <= neckline) return null;
+  let volConfirmed = false;
+  if (volumes.length >= 20) {
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    volConfirmed = volumes[volumes.length - 1]! > avgVol;
   }
-  return null;
+  const confidence: 'high' | 'medium' | 'low' = diffPct < 1 && volConfirmed ? 'high' : diffPct < 1.5 ? 'medium' : 'low';
+  return {
+    name: 'Double Bottom', category: 'reversal', direction: 'bullish', confidence,
+    description: `2 lembah ~${((p1.value + p2.value) / 2).toFixed(4)} (beda ${diffPct.toFixed(1)}%), neckline ${neckline.toFixed(4)} tertembus close${volConfirmed ? ' + volume konfirmasi' : ''}`,
+  };
 }
 
-function detectHeadAndShoulders(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectHeadAndShoulders(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 40) return null;
-  const swingH = findSwingHighs(highs.slice(n - 40), 5);
+  const window = 45;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingH = findSwingPointsIdx(sliceH, 'high', 2);
   if (swingH.length < 3) return null;
-  const [ls, head, rs] = swingH.slice(-3);
-  if (head <= ls || head <= rs) return null;
-  const shoulderDiff = Math.abs(ls - rs) / ls * 100;
-  if (shoulderDiff > 3) return null;
-  if (head < Math.max(ls, rs) * 1.01) return null;
-  return { name: 'Head & Shoulders', category: 'reversal', direction: 'bearish', confidence: shoulderDiff < 1.5 ? 'high' : 'medium', description: `LS ${ls.toFixed(4)}, Head ${head.toFixed(4)}, RS ${rs.toFixed(4)}` };
+  const [ls, head, rs] = swingH.slice(-3) as [{ idx: number; value: number }, { idx: number; value: number }, { idx: number; value: number }];
+  if (!(head.value > ls.value && head.value > rs.value)) return null;
+  if (head.value < Math.max(ls.value, rs.value) * 1.01) return null;
+  // Symmetry harga shoulder (toleransi 3%)
+  const priceDiffPct = Math.abs(ls.value - rs.value) / ls.value * 100;
+  if (priceDiffPct > 3) return null;
+  // Symmetry jarak waktu — buang yang ekstrem asimetris
+  const distLS = head.idx - ls.idx;
+  const distRS = rs.idx - head.idx;
+  if (distLS <= 0 || distRS <= 0) return null;
+  const distRatio = distLS / distRS;
+  if (distRatio < 0.4 || distRatio > 2.5) return null;
+  // Neckline = rata-rata 2 armpit (low terendah di antara LS-Head dan Head-RS)
+  const armpit1 = Math.min(...sliceL.slice(ls.idx, head.idx + 1));
+  const armpit2 = Math.min(...sliceL.slice(head.idx, rs.idx + 1));
+  const neckline = (armpit1 + armpit2) / 2;
+  // Konfirmasi wajib: close di bawah neckline
+  if (closes[n - 1]! >= neckline) return null;
+  let volConfirmed = false;
+  if (volumes.length >= 20) {
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    volConfirmed = volumes[volumes.length - 1]! > avgVol;
+  }
+  const symGood = distRatio >= 0.9 && distRatio <= 1.1 && priceDiffPct < 1.5;
+  const confidence: 'high' | 'medium' | 'low' = symGood && volConfirmed ? 'high' : symGood || volConfirmed ? 'medium' : 'low';
+  return {
+    name: 'Head & Shoulders', category: 'reversal', direction: 'bearish', confidence,
+    description: `LS ${ls.value.toFixed(4)}, Head ${head.value.toFixed(4)}, RS ${rs.value.toFixed(4)}, neckline ${neckline.toFixed(4)} tertembus close`,
+  };
 }
 
-function detectInverseHS(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectInverseHS(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 40) return null;
-  const swingL = findSwingLows(lows.slice(n - 40), 5);
+  const window = 45;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingL = findSwingPointsIdx(sliceL, 'low', 2);
   if (swingL.length < 3) return null;
-  const [ls, head, rs] = swingL.slice(-3);
-  if (head >= ls || head >= rs) return null;
-  const shoulderDiff = Math.abs(ls - rs) / ls * 100;
-  if (shoulderDiff > 3) return null;
-  if (head > Math.min(ls, rs) * 0.99) return null;
-  return { name: 'Inverse H&S', category: 'reversal', direction: 'bullish', confidence: shoulderDiff < 1.5 ? 'high' : 'medium', description: `LS ${ls.toFixed(4)}, Head ${head.toFixed(4)}, RS ${rs.toFixed(4)}` };
+  const [ls, head, rs] = swingL.slice(-3) as [{ idx: number; value: number }, { idx: number; value: number }, { idx: number; value: number }];
+  if (!(head.value < ls.value && head.value < rs.value)) return null;
+  if (head.value > Math.min(ls.value, rs.value) * 0.99) return null;
+  const priceDiffPct = Math.abs(ls.value - rs.value) / ls.value * 100;
+  if (priceDiffPct > 3) return null;
+  const distLS = head.idx - ls.idx;
+  const distRS = rs.idx - head.idx;
+  if (distLS <= 0 || distRS <= 0) return null;
+  const distRatio = distLS / distRS;
+  if (distRatio < 0.4 || distRatio > 2.5) return null;
+  // Neckline = rata-rata 2 armpit (high tertinggi di antara LS-Head dan Head-RS)
+  const armpit1 = Math.max(...sliceH.slice(ls.idx, head.idx + 1));
+  const armpit2 = Math.max(...sliceH.slice(head.idx, rs.idx + 1));
+  const neckline = (armpit1 + armpit2) / 2;
+  if (closes[n - 1]! <= neckline) return null;
+  let volConfirmed = false;
+  if (volumes.length >= 20) {
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    volConfirmed = volumes[volumes.length - 1]! > avgVol;
+  }
+  const symGood = distRatio >= 0.9 && distRatio <= 1.1 && priceDiffPct < 1.5;
+  const confidence: 'high' | 'medium' | 'low' = symGood && volConfirmed ? 'high' : symGood || volConfirmed ? 'medium' : 'low';
+  return {
+    name: 'Inverse H&S', category: 'reversal', direction: 'bullish', confidence,
+    description: `LS ${ls.value.toFixed(4)}, Head ${head.value.toFixed(4)}, RS ${rs.value.toFixed(4)}, neckline ${neckline.toFixed(4)} tertembus close`,
+  };
 }
 
-function detectRisingWedge(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectRisingWedge(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 15) return null;
-  const swingH = findSwingHighs(highs.slice(n - 15), 3);
-  const swingL = findSwingLows(lows.slice(n - 15), 3);
-  if (swingH.length < 2 || swingL.length < 2) return null;
-  if (swingH[swingH.length - 1] <= swingH[0]) return null;
-  if (swingL[swingL.length - 1] <= swingL[0]) return null;
-  const slopeH = (swingH[swingH.length - 1] - swingH[0]) / swingH[0];
-  const slopeL = (swingL[swingL.length - 1] - swingL[0]) / swingL[0];
-  if (slopeL <= slopeH) return null;
-  return { name: 'Rising Wedge', category: 'reversal', direction: 'bearish', confidence: 'medium', description: `Support naik lebih cepat dari resistance — sinyal bearish reversal` };
+  const window = 30;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingH = findSwingPointsIdx(sliceH, 'high', 2);
+  const swingL = findSwingPointsIdx(sliceL, 'low', 2);
+  // Bulkowski: minimal 5 titik sentuh total (3 di satu garis, 2 di garis lain)
+  if (swingH.length < 3 || swingL.length < 2) return null;
+  const rh = swingH.slice(-3);
+  const rl = swingL.slice(-Math.min(3, swingL.length));
+  const regH = linRegSlope(rh);
+  const regL = linRegSlope(rl);
+  // Kedua garis wajib naik (ciri wedge, beda dari triangle yang salah satunya flat)
+  if (regH.slope <= 0 || regL.slope <= 0) return null;
+  // Support wajib naik lebih curam dari resistance → garis konvergen ke apex
+  if (Math.abs(regL.slope) <= Math.abs(regH.slope) * 1.05) return null;
+  // Verifikasi konvergensi nyata: lebar wedge harus mengecil dari awal ke akhir window
+  const widthAt = (idx: number) => (regH.slope * idx + regH.intercept) - (regL.slope * idx + regL.intercept);
+  const widthStart = widthAt(0);
+  const widthEnd = widthAt(window - 1);
+  if (widthStart <= 0 || widthEnd >= widthStart) return null;
+  // Volume mengecil selama pembentukan — ciri wedge valid (7 dari 10 kasus per riset Bulkowski)
+  let volDeclining = false;
+  if (volumes.length >= window) {
+    const avgVolEarly = volumes.slice(n - window, n - window + 10).reduce((a, b) => a + b, 0) / 10;
+    const avgVolRecent = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
+    volDeclining = avgVolRecent < avgVolEarly;
+  }
+  return {
+    name: 'Rising Wedge', category: 'reversal', direction: 'bearish',
+    confidence: volDeclining ? 'high' : 'medium',
+    description: `${rh.length}x touch resistance, ${rl.length}x touch support, konvergen ke apex${volDeclining ? ', volume mengecil' : ''} — bearish reversal`,
+  };
 }
 
-function detectFallingWedge(highs: number[], lows: number[], closes: number[]): PatternResult | null {
+function detectFallingWedge(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
-  if (n < 15) return null;
-  const swingH = findSwingHighs(highs.slice(n - 15), 3);
-  const swingL = findSwingLows(lows.slice(n - 15), 3);
-  if (swingH.length < 2 || swingL.length < 2) return null;
-  if (swingH[swingH.length - 1] >= swingH[0]) return null;
-  if (swingL[swingL.length - 1] >= swingL[0]) return null;
-  const slopeH = (swingH[0] - swingH[swingH.length - 1]) / swingH[0];
-  const slopeL = (swingL[0] - swingL[swingL.length - 1]) / swingL[0];
-  if (slopeL <= slopeH) return null;
-  return { name: 'Falling Wedge', category: 'reversal', direction: 'bullish', confidence: 'medium', description: `Resistance turun lebih cepat dari support — sinyal bullish reversal` };
+  const window = 30;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const swingH = findSwingPointsIdx(sliceH, 'high', 2);
+  const swingL = findSwingPointsIdx(sliceL, 'low', 2);
+  if (swingH.length < 2 || swingL.length < 3) return null;
+  const rh = swingH.slice(-Math.min(3, swingH.length));
+  const rl = swingL.slice(-3);
+  const regH = linRegSlope(rh);
+  const regL = linRegSlope(rl);
+  // Kedua garis wajib turun
+  if (regH.slope >= 0 || regL.slope >= 0) return null;
+  // Resistance wajib turun lebih curam dari support → garis konvergen ke apex
+  if (Math.abs(regH.slope) <= Math.abs(regL.slope) * 1.05) return null;
+  const widthAt = (idx: number) => (regH.slope * idx + regH.intercept) - (regL.slope * idx + regL.intercept);
+  const widthStart = widthAt(0);
+  const widthEnd = widthAt(window - 1);
+  if (widthStart <= 0 || widthEnd >= widthStart) return null;
+  let volDeclining = false;
+  if (volumes.length >= window) {
+    const avgVolEarly = volumes.slice(n - window, n - window + 10).reduce((a, b) => a + b, 0) / 10;
+    const avgVolRecent = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
+    volDeclining = avgVolRecent < avgVolEarly;
+  }
+  return {
+    name: 'Falling Wedge', category: 'reversal', direction: 'bullish',
+    confidence: volDeclining ? 'high' : 'medium',
+    description: `${rh.length}x touch resistance, ${rl.length}x touch support, konvergen ke apex${volDeclining ? ', volume mengecil' : ''} — bullish reversal`,
+  };
+}
+
+/**
+ * Cup and Handle — pattern continuation bullish (Bulkowski Encyclopedia of Chart Patterns + O'Neil rules).
+ * Kriteria:
+ * 1. Preceding uptrend wajib (rise minimal sebelum cup mulai)
+ * 2. Cup U-shape (rounding bottom), bukan V-shape tajam
+ * 3. Cup depth 10-50% retracement dari left rim (Bulkowski: idealnya 12-33%)
+ * 4. Left rim & right rim harus rough sama tinggi (toleransi ~8%, crypto lebih volatile dari saham)
+ * 5. Handle wajib terbentuk di ATAS midpoint cup (aturan O'Neil/Bulkowski — handle di bawah setengah cup = invalid)
+ * 6. Handle depth maks 15% dari right rim (Bulkowski: idealnya 10-15%)
+ * 7. Konfirmasi wajib: candle CLOSE di atas rim (breakout), bukan cuma bentuk doang
+ * 8. Volume breakout di atas rata-rata → confidence naik
+ */
+function detectCupAndHandle(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
+  const n = closes.length;
+  const window = 60;
+  if (n < window) return null;
+  const sliceH = highs.slice(n - window);
+  const sliceL = lows.slice(n - window);
+  const sliceC = closes.slice(n - window);
+
+  const cupEnd = Math.floor(window * 0.8); // 80% pertama window = cup, 20% terakhir = handle
+  if (cupEnd < 20) return null;
+
+  // Left rim: highest high di 25% pertama zona cup
+  const leftZoneEnd = Math.floor(cupEnd * 0.25);
+  let leftRimIdx = 0, leftRim = sliceH[0]!;
+  for (let i = 0; i < leftZoneEnd; i++) {
+    if (sliceH[i]! > leftRim) { leftRim = sliceH[i]!; leftRimIdx = i; }
+  }
+
+  // Bottom: lowest low di seluruh zona cup
+  let bottomIdx = 0, bottomVal = sliceL[0]!;
+  for (let i = 0; i < cupEnd; i++) {
+    if (sliceL[i]! < bottomVal) { bottomVal = sliceL[i]!; bottomIdx = i; }
+  }
+
+  // Right rim: highest high di 25% terakhir zona cup (sebelum handle)
+  const rightZoneStart = Math.floor(cupEnd * 0.75);
+  let rightRimIdx = rightZoneStart, rightRim = sliceH[rightZoneStart]!;
+  for (let i = rightZoneStart; i < cupEnd; i++) {
+    if (sliceH[i]! > rightRim) { rightRim = sliceH[i]!; rightRimIdx = i; }
+  }
+
+  // Urutan waktu wajib: left rim → bottom → right rim (bentuk U, bukan acak)
+  if (!(leftRimIdx < bottomIdx && bottomIdx < rightRimIdx)) return null;
+
+  // Preceding uptrend wajib — tanpa rally sebelumnya, ini bukan continuation pattern valid
+  const preStart = Math.max(0, n - window - 15);
+  const preRise = (leftRim - closes[preStart]!) / closes[preStart]! * 100;
+  if (preRise < 15) return null;
+
+  // Cup depth: 10-50% retracement dari left rim (Bulkowski ideal 12-33%, kasih toleransi lebih)
+  const cupDepthPct = (leftRim - bottomVal) / leftRim * 100;
+  if (cupDepthPct < 10 || cupDepthPct > 50) return null;
+
+  // U-shape check: bottom gak boleh cuma 1 candle tajam (V-shape) — minimal 3 candle di sekitar
+  // bottom yang masih dalam radius 20% dari cup depth (menandakan rounding, bukan spike tunggal)
+  const roundingTolerance = (leftRim - bottomVal) * 0.2;
+  let roundingCandles = 0;
+  const roundStart = Math.max(0, bottomIdx - 5);
+  const roundEnd = Math.min(cupEnd, bottomIdx + 5);
+  for (let i = roundStart; i < roundEnd; i++) {
+    if (sliceL[i]! <= bottomVal + roundingTolerance) roundingCandles++;
+  }
+  if (roundingCandles < 3) return null; // terlalu tajam, kemungkinan V-shape
+
+  // Left & right rim harus rough sama tinggi
+  const rimDiffPct = Math.abs(leftRim - rightRim) / leftRim * 100;
+  if (rimDiffPct > 8) return null;
+
+  // ── Zona handle ──────────────────────────────────────────────────────────
+  const handleH = sliceH.slice(cupEnd);
+  const handleL = sliceL.slice(cupEnd);
+  if (handleH.length < 3) return null;
+  const handleLow = Math.min(...handleL);
+
+  // Handle wajib di atas midpoint cup (aturan O'Neil/Bulkowski)
+  const cupMidpoint = (leftRim + bottomVal) / 2;
+  if (handleLow < cupMidpoint) return null;
+
+  // Handle depth maks 15% dari right rim
+  const handleDepthPct = (rightRim - handleLow) / rightRim * 100;
+  if (handleDepthPct > 15) return null;
+
+  // ── Konfirmasi breakout wajib: close di atas rim ────────────────────────
+  const rimLevel = Math.max(leftRim, rightRim);
+  const lastClose = closes[n - 1]!;
+  if (lastClose < rimLevel) return null;
+
+  // Volume breakout — Bulkowski: breakout kuat biasanya volume 40%+ di atas rata-rata
+  let volConfirmed = false;
+  if (volumes.length >= 20) {
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    volConfirmed = volumes[volumes.length - 1]! > avgVol * 1.2;
+  }
+
+  const confidence: 'high' | 'medium' | 'low' =
+    cupDepthPct <= 33 && handleDepthPct <= 12 && volConfirmed ? 'high' :
+    cupDepthPct <= 40 && handleDepthPct <= 15 ? 'medium' : 'low';
+
+  return {
+    name: 'Cup and Handle', category: 'continuation', direction: 'bullish', confidence,
+    description: `Cup depth ${cupDepthPct.toFixed(1)}%, handle depth ${handleDepthPct.toFixed(1)}%, breakout di atas rim ${rimLevel.toFixed(4)}${volConfirmed ? ' + volume konfirmasi' : ''}`,
+  };
 }
 
 export async function analyzeChartPatterns(symbol: string): Promise<{ symbol: string; timestamp: string; timeframes: TFPatterns[] }> {
@@ -2877,16 +3090,17 @@ export async function analyzeChartPatterns(symbol: string): Promise<{ symbol: st
     const checks = [
       detectBullFlag(h, l, c, v),
       detectBearFlag(h, l, c, v),
-      detectAscendingTriangle(h, l, c),
-      detectDescendingTriangle(h, l, c),
+      detectAscendingTriangle(h, l, c, v),
+      detectDescendingTriangle(h, l, c, v),
       detectSymmetricalTriangle(h, l, c),
       detectPennant(h, l, c, v),
-      detectDoubleTop(h, l, c),
-      detectDoubleBottom(h, l, c),
-      detectHeadAndShoulders(h, l, c),
-      detectInverseHS(h, l, c),
-      detectRisingWedge(h, l, c),
-      detectFallingWedge(h, l, c),
+      detectDoubleTop(h, l, c, v),
+      detectDoubleBottom(h, l, c, v),
+      detectHeadAndShoulders(h, l, c, v),
+      detectInverseHS(h, l, c, v),
+      detectRisingWedge(h, l, c, v),
+      detectFallingWedge(h, l, c, v),
+      detectCupAndHandle(h, l, c, v),
     ];
     for (const r of checks) { if (r) results.push(r); }
     return results;
@@ -2917,7 +3131,7 @@ export interface BacktestTrade {
   result: 'TP1' | 'TP2' | 'SL' | 'EXPIRED';
   exitPrice: number;
   rr: number; // R:R terealisasi
-  // Kondisi saat sinyal
+  // Kondisi saat sinyal (Sniper — Menu 2)
   hasChoch15M: boolean;
   hasRejection15M: boolean;
   hasPattern: boolean;
@@ -2926,6 +3140,11 @@ export interface BacktestTrade {
   breakoutType?: string;
   volumeRatio?: number;
   hour: number; // jam WIB saat sinyal
+  // Kondisi saat sinyal (Scalping — Menu 4, alur H4→M30→M5)
+  hasBBSqueeze?: boolean;
+  hasEMA34Confirm?: boolean;
+  hasM30Correction?: boolean;
+  zoneType?: string;
 }
 
 export interface BacktestAnalysis {
@@ -2948,6 +3167,13 @@ export interface BacktestAnalysis {
     asian: { trades: number; wins: number; winRate: number };
     highVolume: { trades: number; wins: number; winRate: number };
     lowVolume: { trades: number; wins: number; winRate: number };
+    // Khusus Scalping (Menu 4)
+    withBBSqueeze?: { trades: number; wins: number; winRate: number };
+    withoutBBSqueeze?: { trades: number; wins: number; winRate: number };
+    withEMA34Confirm?: { trades: number; wins: number; winRate: number };
+    withoutEMA34Confirm?: { trades: number; wins: number; winRate: number };
+    withM30Correction?: { trades: number; wins: number; winRate: number };
+    withoutM30Correction?: { trades: number; wins: number; winRate: number };
   };
   // Penyebab lose
   lossCauses: Array<{ cause: string; count: number; percentage: number }>;
@@ -3007,6 +3233,12 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
     asian: trades.filter(t => !isLondonNY(t.hour)),
     highVolume: trades.filter(t => t.volumeRatio !== undefined && t.volumeRatio >= 2),
     lowVolume: trades.filter(t => t.volumeRatio !== undefined && t.volumeRatio < 2),
+    withBBSqueeze: trades.filter(t => t.hasBBSqueeze === true),
+    withoutBBSqueeze: trades.filter(t => t.hasBBSqueeze === false),
+    withEMA34Confirm: trades.filter(t => t.hasEMA34Confirm === true),
+    withoutEMA34Confirm: trades.filter(t => t.hasEMA34Confirm === false),
+    withM30Correction: trades.filter(t => t.hasM30Correction === true),
+    withoutM30Correction: trades.filter(t => t.hasM30Correction === false),
   };
 
   const breakdown: BacktestAnalysis['breakdown'] = {} as BacktestAnalysis['breakdown'];
@@ -3024,21 +3256,35 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
   const causeCounts: Record<string, number> = {};
 
   for (const t of loseTrades) {
-    if (!t.hasChoch15M) {
-      causeCounts['CHoCH 15M tidak terkonfirmasi'] = (causeCounts['CHoCH 15M tidak terkonfirmasi'] ?? 0) + 1;
-    }
-    if (!t.hasRejection15M) {
-      causeCounts['Tidak ada rejection candle 15M'] = (causeCounts['Tidak ada rejection candle 15M'] ?? 0) + 1;
-    }
-    if (!t.hasPattern) {
-      causeCounts['Tidak ada pattern konfirmasi'] = (causeCounts['Tidak ada pattern konfirmasi'] ?? 0) + 1;
-    }
-    if (t.zoneTier > 2) {
-      causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] = (causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] ?? 0) + 1;
-    }
-
-    if (t.volumeRatio !== undefined && t.volumeRatio < 2) {
-      causeCounts['Volume breakout rendah (< 2x)'] = (causeCounts['Volume breakout rendah (< 2x)'] ?? 0) + 1;
+    if (t.menu === 'scalping') {
+      if (t.hasBBSqueeze === false) {
+        causeCounts['Tidak ada BB Squeeze M30 saat entry'] = (causeCounts['Tidak ada BB Squeeze M30 saat entry'] ?? 0) + 1;
+      }
+      if (t.hasEMA34Confirm === false) {
+        causeCounts['Belum konfirmasi EMA34 H4'] = (causeCounts['Belum konfirmasi EMA34 H4'] ?? 0) + 1;
+      }
+      if (t.hasM30Correction === false) {
+        causeCounts['M30 masih searah H4 (belum koreksi)'] = (causeCounts['M30 masih searah H4 (belum koreksi)'] ?? 0) + 1;
+      }
+      if (!t.hasPattern) {
+        causeCounts['Konfirmasi reversal lemah (bukan pattern M30)'] = (causeCounts['Konfirmasi reversal lemah (bukan pattern M30)'] ?? 0) + 1;
+      }
+    } else {
+      if (!t.hasChoch15M) {
+        causeCounts['CHoCH 15M tidak terkonfirmasi'] = (causeCounts['CHoCH 15M tidak terkonfirmasi'] ?? 0) + 1;
+      }
+      if (!t.hasRejection15M) {
+        causeCounts['Tidak ada rejection candle 15M'] = (causeCounts['Tidak ada rejection candle 15M'] ?? 0) + 1;
+      }
+      if (!t.hasPattern) {
+        causeCounts['Tidak ada pattern konfirmasi'] = (causeCounts['Tidak ada pattern konfirmasi'] ?? 0) + 1;
+      }
+      if (t.zoneTier > 2) {
+        causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] = (causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] ?? 0) + 1;
+      }
+      if (t.volumeRatio !== undefined && t.volumeRatio < 2) {
+        causeCounts['Volume breakout rendah (< 2x)'] = (causeCounts['Volume breakout rendah (< 2x)'] ?? 0) + 1;
+      }
     }
   }
 
@@ -3085,6 +3331,21 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
         `Win rate volume breakout tinggi (${bd.highVolume.winRate}%) jauh lebih baik → Skip sinyal dengan volume ratio < 2x`
       );
     }
+    if (bd.withBBSqueeze && bd.withoutBBSqueeze && bd.withBBSqueeze.winRate > bd.withoutBBSqueeze.winRate + 10 && bd.withoutBBSqueeze.trades > 3) {
+      recommendations.push(
+        `Win rate dengan BB Squeeze M30 (${bd.withBBSqueeze.winRate}%) jauh lebih tinggi dari tanpa squeeze (${bd.withoutBBSqueeze.winRate}%) → Prioritaskan sinyal dengan BB Squeeze aktif`
+      );
+    }
+    if (bd.withEMA34Confirm && bd.withoutEMA34Confirm && bd.withEMA34Confirm.winRate > bd.withoutEMA34Confirm.winRate + 10 && bd.withoutEMA34Confirm.trades > 3) {
+      recommendations.push(
+        `Win rate dengan konfirmasi EMA34 H4 (${bd.withEMA34Confirm.winRate}%) lebih tinggi dari tanpa konfirmasi (${bd.withoutEMA34Confirm.winRate}%) → Pertimbangkan jadikan EMA34 hard filter`
+      );
+    }
+    if (bd.withM30Correction && bd.withoutM30Correction && bd.withM30Correction.winRate > bd.withoutM30Correction.winRate + 10 && bd.withoutM30Correction.trades > 3) {
+      recommendations.push(
+        `Win rate saat M30 sudah koreksi dari H4 (${bd.withM30Correction.winRate}%) jauh lebih tinggi dari M30 masih searah (${bd.withoutM30Correction.winRate}%) → Pertimbangkan skip kalau M30 belum koreksi`
+      );
+    }
     if (recommendations.length === 0) {
       recommendations.push('Tingkatkan ukuran sampel — perlu lebih banyak trade untuk analisa yang akurat');
     }
@@ -3101,15 +3362,28 @@ function simulateTrade(
   bias: 'bullish' | 'bearish',
   futureHighs: number[],
   futureLows: number[],
-  maxCandles: number = 48 // max 48 candle H1 = 2 hari
-): { result: 'TP1' | 'TP2' | 'SL' | 'EXPIRED'; exitPrice: number; rr: number } {
+  maxCandles: number = 48, // max 48 candle H1 = 2 hari
+  fillWindowCandles: number = 20 // wajib harga touch entryPrice dalam N candle ke depan, kalau tidak = no-fill
+): { result: 'TP1' | 'TP2' | 'SL' | 'EXPIRED' | 'NO_FILL'; exitPrice: number; rr: number } {
   const risk = Math.abs(entryPrice - stopLoss);
-  const dir = bias === 'bullish' ? 1 : -1;
   const limit = Math.min(futureHighs.length, maxCandles);
+  const fillLimit = Math.min(futureHighs.length, fillWindowCandles);
 
-  for (let i = 0; i < limit; i++) {
-    const high = futureHighs[i];
-    const low = futureLows[i];
+  // Wajib: harga beneran touch entryPrice dulu (limit order kefill), bukan asumsi instant fill.
+  // Kalau harga gak pernah nyampe zona dalam window ini, order dianggap gak pernah kefill —
+  // ini realistis: banyak limit order di real market gak kefill karena harga keburu jalan.
+  let fillIdx = -1;
+  for (let i = 0; i < fillLimit; i++) {
+    const high = futureHighs[i]!;
+    const low = futureLows[i]!;
+    if (low <= entryPrice && entryPrice <= high) { fillIdx = i; break; }
+  }
+  if (fillIdx === -1) return { result: 'NO_FILL', exitPrice: entryPrice, rr: 0 };
+
+  // Simulasi SL/TP mulai dari candle saat fill terjadi (bukan dari candle 0)
+  for (let i = fillIdx; i < limit; i++) {
+    const high = futureHighs[i]!;
+    const low = futureLows[i]!;
 
     if (bias === 'bullish') {
       if (low <= stopLoss) return { result: 'SL', exitPrice: stopLoss, rr: -1 };
@@ -3192,10 +3466,11 @@ export async function runBacktest(
   }
 
   // Fetch semua data yang diperlukan
-  const [h4Data, h1Data, m15Data] = await Promise.all([
+  const [h4Data, h1Data, m15Data, m30Data] = await Promise.all([
     fetchHistorical('4h', Math.ceil(limit / 4)),
     fetchHistorical('1h', limit),
     fetchHistorical('15m', limit * 4),
+    fetchHistorical('30m', limit * 2),
   ]);
 
   const result: BacktestResult = {
@@ -3242,6 +3517,10 @@ export async function runBacktest(
       const structH4 = analyzePriceActionStructure(h4Slice.highs, h4Slice.lows, h4Slice.closes);
       if (structH4.bias === 'ranging') continue;
       const bias = structH4.bias as 'bullish' | 'bearish';
+
+      // HARD FILTER: konfirmasi ZigZag (threshold 3%, proxy D1 dari H4 slice)
+      const zzD1proxy = zigzagBias(h4Slice.highs, h4Slice.lows, 3);
+      if (zzD1proxy.bias === 'ranging' || zzD1proxy.bias !== bias) continue;
 
       // Step 2: H1 zona — gunakan selectBestZoneH1 dengan existing functions
       const currentPrice = h1Slice.closes[h1Slice.closes.length - 1];
@@ -3317,6 +3596,7 @@ export async function runBacktest(
       const futureHighs = h1Data.highs.slice(i, i + 48);
       const futureLows = h1Data.lows.slice(i, i + 48);
       const sim = simulateTrade(entryPrice, stopLoss, takeProfit1, takeProfit2, bias, futureHighs, futureLows);
+      if (sim.result === 'NO_FILL') continue; // limit order gak pernah kefill — bukan trade real
 
       const entryTime = h1Data.times ? h1Data.times[i] : Date.now();
       const hour = getWIBHour(entryTime);
@@ -3347,122 +3627,164 @@ export async function runBacktest(
   // ─── BACKTEST MENU 4 (SCALPING) ────────────────────────────────────────────
   if (menu === 'breakout' || menu === 'scalping' || menu === 'both') {
     const scalpingTrades: BacktestTrade[] = [];
-    const m15Total = m15Data.closes.length;
-    const MIN_M15 = 60;
+    const m30Total = m30Data.closes.length;
+    const MIN_M30 = 60;
 
-    for (let j = MIN_M15; j < m15Total - 30; j++) {
-      // Slice 15M data sampai titik j
-      const h15 = m15Data.highs.slice(0, j);
-      const l15 = m15Data.lows.slice(0, j);
-      const c15 = m15Data.closes.slice(0, j);
-      const o15 = m15Data.opens.slice(0, j);
-      const v15 = m15Data.volumes.slice(0, j);
+    for (let j = MIN_M30; j < m30Total - 20; j++) {
+      // Slice M30 data sampai titik j
+      const h30 = m30Data.highs.slice(0, j);
+      const l30 = m30Data.lows.slice(0, j);
+      const c30 = m30Data.closes.slice(0, j);
+      const o30 = m30Data.opens.slice(0, j);
+      const v30 = m30Data.volumes.slice(0, j);
+      const currentPrice = c30[c30.length - 1]!;
 
-      const currentPrice = c15[c15.length-1];
-
-      // Filter 0: Trend H4 searah — gunakan H4 slice sampai titik ekuivalen
-      const h4Idx = Math.floor(j / 4); // index H4 ekuivalen dengan candle 15M ke-j
-      if (h4Idx < 10 || h4Idx >= h4Data.closes.length) continue;
-      const h4Slice = {
-        highs:  h4Data.highs.slice(0, h4Idx),
-        lows:   h4Data.lows.slice(0, h4Idx),
-        closes: h4Data.closes.slice(0, h4Idx),
+      // H4 slice ekuivalen (1 candle H4 = 8 candle M30)
+      const h4Idx = Math.floor(j / 8);
+      if (h4Idx < 15 || h4Idx >= h4Data.closes.length) continue;
+      const h4s = {
+        highs: h4Data.highs.slice(0, h4Idx), lows: h4Data.lows.slice(0, h4Idx),
+        closes: h4Data.closes.slice(0, h4Idx), opens: h4Data.opens.slice(0, h4Idx),
       };
-      const structH4 = analyzePriceActionStructure(h4Slice.highs, h4Slice.lows, h4Slice.closes);
+      // H1 slice ekuivalen (1 candle H1 = 2 candle M30)
+      const h1Idx = Math.floor(j / 2);
+      if (h1Idx < 20 || h1Idx >= h1Data.closes.length) continue;
+      const h1s = {
+        highs: h1Data.highs.slice(0, h1Idx), lows: h1Data.lows.slice(0, h1Idx), closes: h1Data.closes.slice(0, h1Idx),
+      };
+
+      // ── Filter 1: Struktur H4 — ranging skip ─────────────────────────────
+      const structH4 = analyzePriceActionStructure(h4s.highs, h4s.lows, h4s.closes);
       if (structH4.bias === 'ranging') continue;
-      const h4Bias = structH4.bias as 'bullish' | 'bearish';
+      const bias = structH4.bias as 'bullish' | 'bearish';
 
-      // Filter 1: ATR >= 0.5%
-      const atr15M = calcATR(h15.slice(-30), l15.slice(-30), c15.slice(-30));
-      if ((atr15M/currentPrice)*100 < 0.5) continue;
+      // HARD FILTER: konfirmasi ZigZag H4 (threshold 3%)
+      const zzH4bt = zigzagBias(h4s.highs, h4s.lows, 3);
+      if (zzH4bt.bias === 'ranging' || zzH4bt.bias !== bias) continue;
 
-      // Filter 2: Bias dari swing 15M
-      const swingH = findSwingHighs(h15.slice(-20), 2);
-      const swingL = findSwingLows(l15.slice(-20), 2);
-      if (swingH.length < 2 || swingL.length < 2) continue;
-      const hhF = swingH[swingH.length-1] > swingH[swingH.length-2];
-      const hlF = swingL[swingL.length-1] > swingL[swingL.length-2];
-      const lhF = swingH[swingH.length-1] < swingH[swingH.length-2];
-      const llF = swingL[swingL.length-1] < swingL[swingL.length-2];
-      let bias: 'bullish'|'bearish'|null = null;
-      if (hhF && hlF) bias='bullish';
-      else if (lhF && llF) bias='bearish';
-      else if (hhF) bias='bullish';
-      else if (llF) bias='bearish';
-      if (!bias) continue;
+      // EMA34 H4 — info saja (bukan hard filter, sesuai live)
+      const ema34H4 = (() => {
+        const period = 34;
+        if (h4s.closes.length < period) return h4s.closes[h4s.closes.length - 1]!;
+        const k = 2 / (period + 1);
+        let ema = h4s.closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        for (let x = period; x < h4s.closes.length; x++) ema = h4s.closes[x]! * k + ema * (1 - k);
+        return ema;
+      })();
+      const lastCloseH4 = h4s.closes[h4s.closes.length - 1]!;
+      const ema34Confirm = (bias === 'bullish' && lastCloseH4 > ema34H4) || (bias === 'bearish' && lastCloseH4 < ema34H4);
 
-      // Validasi: bias 15M harus searah H4
-      if (bias !== h4Bias) continue;
+      // ── Filter 2: ATR H4 >= 0.5% ─────────────────────────────────────────
+      const atrH4 = calcATR(h4s.highs, h4s.lows, h4s.closes);
+      if ((atrH4 / currentPrice) * 100 < 0.5) continue;
 
-      // Filter 3: Momentum
-      const last2 = c15.slice(-2);
-      if (bias==='bullish' && last2[1]<=last2[0]) continue;
-      if (bias==='bearish' && last2[1]>=last2[0]) continue;
+      // BB Squeeze M30 — info/scoring saja (bukan hard filter, sesuai live)
+      const bbSqueeze = detectBBSqueeze(c30.slice(-40), 20, 20);
 
-      // Filter 4: OB 15M impulsif approaching
-      const lb30H=h15.slice(-30), lb30L=l15.slice(-30), lb30C=c15.slice(-30), lb30O=o15.slice(-30);
-      let ob: { low:number; high:number; mid:number }|null = null;
-      for (let k=lb30C.length-4; k>=2; k--) {
-        const body=Math.abs(lb30C[k]-lb30O[k]);
-        const range=lb30H[k]-lb30L[k];
-        if (range===0 || body/range<0.6) continue;
-        if (bias==='bullish') {
-          const dist=currentPrice-lb30H[k];
-          if (lb30C[k]<lb30O[k] && lb30H[k]<currentPrice && dist<=atr15M*2) {
-            ob={low:lb30L[k],high:lb30H[k],mid:(lb30L[k]+lb30H[k])/2}; break;
-          }
-        } else {
-          const dist=lb30L[k]-currentPrice;
-          if (lb30C[k]>lb30O[k] && lb30L[k]>currentPrice && dist<=atr15M*2) {
-            ob={low:lb30L[k],high:lb30H[k],mid:(lb30L[k]+lb30H[k])/2}; break;
-          }
-        }
+      // ── M30 vs H4 — koreksi valid atau masih searah (warning, tetap lanjut) ──
+      const structM30 = analyzePriceActionStructure(h30.slice(-30), l30.slice(-30), c30.slice(-30));
+      const m30Correction = structM30.bias !== bias;
+
+      // ── Filter 3: Zona retest M30 (OB>FVG>S&R>Fib, UFO diskip di backtest) ──
+      const obs30 = detectOrderBlocksH1(o30, h30, l30, c30, bias, 50);
+      const fvgs30 = detectFVGH1(h30, l30, bias, 50);
+      const sr30 = detectSRLevels(h30, l30, c30);
+      const snd30 = detectSnDZones(h30, l30, c30, v30);
+      const fib30 = calcFibonacci(h30, l30, c30);
+      const maxDist = atrH4 * 3;
+
+      const obsFiltered = obs30.filter(ob => {
+        const dist = bias === 'bullish' ? currentPrice - ob.high : ob.low - currentPrice;
+        return dist >= 0 && dist <= maxDist;
+      });
+      const fvgsFiltered = fvgs30.filter(fvg => {
+        const dist = bias === 'bullish' ? currentPrice - fvg.high : fvg.low - currentPrice;
+        return dist >= 0 && dist <= maxDist;
+      });
+      const srFiltered = sr30.filter(sr => Math.abs(currentPrice - sr.price) <= maxDist * 0.5);
+
+      const bestZone = selectBestZoneH1(obsFiltered, fvgsFiltered, [], srFiltered, snd30, fib30, bias, currentPrice);
+      if (!bestZone) continue;
+
+      // ── Filter 4: Konfirmasi reversal — Pattern M30 ATAU RSI divergence H1 ──
+      const bullPatterns = ['Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Bull Flag', 'Ascending Triangle', 'Cup and Handle'];
+      const bearPatterns = ['Double Top', 'Head & Shoulders', 'Rising Wedge', 'Bear Flag', 'Descending Triangle'];
+      const validPatterns = bias === 'bullish' ? bullPatterns : bearPatterns;
+      const pats30 = [
+        detectBullFlag(h30, l30, c30, v30), detectBearFlag(h30, l30, c30, v30),
+        detectDoubleBottom(h30, l30, c30, v30), detectDoubleTop(h30, l30, c30, v30),
+        detectInverseHS(h30, l30, c30, v30), detectHeadAndShoulders(h30, l30, c30, v30),
+        detectFallingWedge(h30, l30, c30, v30), detectRisingWedge(h30, l30, c30, v30),
+        detectAscendingTriangle(h30, l30, c30, v30), detectDescendingTriangle(h30, l30, c30, v30),
+        detectCupAndHandle(h30, l30, c30, v30),
+      ].filter(p => p && validPatterns.includes(p!.name));
+
+      const rsiSeriesH1 = calcRSISeries(h1s.closes);
+      const swingHighsH1 = findSwingPointsIdx(h1s.highs, 'high', 2);
+      const swingLowsH1 = findSwingPointsIdx(h1s.lows, 'low', 2);
+      let rsiDivergence = false;
+      if (bias === 'bullish' && swingLowsH1.length >= 2) {
+        const lA = swingLowsH1[swingLowsH1.length - 2]!, lB = swingLowsH1[swingLowsH1.length - 1]!;
+        const rA = rsiSeriesH1[lA.idx] ?? 50, rB = rsiSeriesH1[lB.idx] ?? 50;
+        rsiDivergence = lB.value < lA.value && rB > rA + 2 && rB < 45;
+      } else if (bias === 'bearish' && swingHighsH1.length >= 2) {
+        const hA = swingHighsH1[swingHighsH1.length - 2]!, hB = swingHighsH1[swingHighsH1.length - 1]!;
+        const rA = rsiSeriesH1[hA.idx] ?? 50, rB = rsiSeriesH1[hB.idx] ?? 50;
+        rsiDivergence = hB.value > hA.value && rB < rA - 2 && rB > 55;
       }
-      if (!ob) continue;
+      const hasConfirmation = pats30.length > 0 || rsiDivergence;
+      if (!hasConfirmation) continue;
 
-      // Entry, SL, TP
-      const entryPrice = ob.mid;
-      const buffer = atr15M*0.2;
-      const stopLoss = bias==='bullish' ? ob.low-buffer : ob.high+buffer;
-      const risk = Math.abs(entryPrice-stopLoss);
-      if (risk<=0 || risk>atr15M*3) continue;
-      const dir = bias==='bullish'?1:-1;
-      const takeProfit1 = entryPrice+risk*1.5*dir;
-      const takeProfit2 = entryPrice+risk*2.5*dir;
+      // ── Refine M5 didekati pakai titik presisi 38.2% dalam zona M30 ──────
+      // (fetch M5 historis full-period tidak praktis untuk backtest — lihat catatan di response)
+      const entryPrice = bias === 'bullish'
+        ? bestZone.low + (bestZone.high - bestZone.low) * 0.382
+        : bestZone.high - (bestZone.high - bestZone.low) * 0.382;
 
-      // Rejection 15M (info)
-      const rejW={opens:o15.slice(-5),highs:h15.slice(-5),lows:l15.slice(-5),closes:c15.slice(-5),volumes:v15.slice(-5)};
-      const refRej={low:ob.low,high:ob.high,mid:ob.mid,entryPrice:ob.mid,zoneType:'OB 15M',refined:false};
-      const rej15M=checkRejection15M(refRej,rejW.opens,rejW.highs,rejW.lows,rejW.closes,bias,rejW.volumes);
+      // ── Entry, SL, TP — sama persis dengan live ──────────────────────────
+      const swingH4H = findSwingHighs(h4s.highs, 10);
+      const swingH4L = findSwingLows(h4s.lows, 10);
+      const bufferH4 = atrH4 * 0.2;
+      let stopLoss: number;
+      if (bias === 'bullish') {
+        const relevantLows = swingH4L.filter(l => l < entryPrice);
+        const nearestLow = relevantLows.length > 0 ? Math.max(...relevantLows) : Math.min(...h4s.lows.slice(-10));
+        stopLoss = Math.min(nearestLow - bufferH4, entryPrice - atrH4);
+      } else {
+        const relevantHighs = swingH4H.filter(h => h > entryPrice);
+        const nearestHigh = relevantHighs.length > 0 ? Math.min(...relevantHighs) : Math.max(...h4s.highs.slice(-10));
+        stopLoss = Math.max(nearestHigh + bufferH4, entryPrice + atrH4);
+      }
+      const risk = Math.abs(entryPrice - stopLoss);
+      if (risk <= 0) continue;
+      const dir = bias === 'bullish' ? 1 : -1;
+      const takeProfit1 = entryPrice + risk * 1.5 * dir;
+      const takeProfit2 = entryPrice + risk * 3.0 * dir;
 
-      // Pattern (info)
-      const patH=h15.slice(-50),patL=l15.slice(-50),patC=c15.slice(-50),patV=v15.slice(-50);
-      const bPat=['Bull Flag','Double Bottom','Falling Wedge'];
-      const sPat=['Bear Flag','Double Top','Rising Wedge'];
-      const pats=[
-        detectBullFlag(patH,patL,patC,patV), detectBearFlag(patH,patL,patC,patV),
-        detectDoubleBottom(patH,patL,patC), detectDoubleTop(patH,patL,patC),
-      ].filter(p=>p&&(bias==='bullish'?bPat:sPat).includes(p!.name));
+      // Simulate: 96 candle M30 ke depan (= 2 hari, sesuai target TP awal user)
+      // Fill window 20 candle (10 jam) — limit order wajib kefill dalam waktu wajar
+      const futEnd = Math.min(m30Total, j + 96);
+      const futH = m30Data.highs.slice(j, futEnd);
+      const futL = m30Data.lows.slice(j, futEnd);
+      if (futH.length < 4) continue;
+      const sim = simulateTrade(entryPrice, stopLoss, takeProfit1, takeProfit2, bias, futH, futL, 96, 20);
+      if (sim.result === 'EXPIRED' || sim.result === 'NO_FILL') continue;
 
-      // Simulate: 16 candle 15M ke depan (= 4 jam)
-      const futEnd=Math.min(m15Total,j+16);
-      const futH=m15Data.highs.slice(j,futEnd);
-      const futL=m15Data.lows.slice(j,futEnd);
-      if (futH.length<4) continue;
-      const sim=simulateTrade(entryPrice,stopLoss,takeProfit1,takeProfit2,bias,futH,futL);
-      if (sim.result==='EXPIRED') continue;
-
-      const entryTime=m15Data.times?m15Data.times[j]:Date.now();
-      const hour=getWIBHour(entryTime);
+      const entryTime = m30Data.times ? m30Data.times[j]! : Date.now();
+      const hour = getWIBHour(entryTime);
 
       scalpingTrades.push({
-        menu:'scalping', entryTime, entryPrice, stopLoss, takeProfit1, takeProfit2, bias,
-        result:sim.result, exitPrice:sim.exitPrice, rr:sim.rr,
-        hasChoch15M:true,
-        hasRejection15M:rej15M.confirmed,
-        hasPattern:pats.length>0,
-        patternConfidence:pats.length>0?'MEDIUM':'NONE',
-        zoneTier:1, hour,
+        menu: 'scalping', entryTime, entryPrice, stopLoss, takeProfit1, takeProfit2, bias,
+        result: sim.result, exitPrice: sim.exitPrice, rr: sim.rr,
+        hasChoch15M: true, hasRejection15M: true, // tidak dipakai di alur baru, default true biar gak keitung "gagal"
+        hasPattern: pats30.length > 0,
+        patternConfidence: pats30.length > 0 ? 'MEDIUM' : (rsiDivergence ? 'LOW' : 'NONE'),
+        zoneTier: bestZone.zoneType.startsWith('OB') ? 1 : bestZone.zoneType.startsWith('FVG') ? 2 : 3,
+        hour,
+        hasBBSqueeze: bbSqueeze.isSqueezing,
+        hasEMA34Confirm: ema34Confirm,
+        hasM30Correction: m30Correction,
+        zoneType: bestZone.zoneType,
       });
     }
 

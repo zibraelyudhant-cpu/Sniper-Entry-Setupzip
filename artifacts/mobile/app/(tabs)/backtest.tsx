@@ -41,6 +41,12 @@ interface BacktestAnalysis {
     asian: BreakdownItem;
     highVolume: BreakdownItem;
     lowVolume: BreakdownItem;
+    withBBSqueeze?: BreakdownItem;
+    withoutBBSqueeze?: BreakdownItem;
+    withEMA34Confirm?: BreakdownItem;
+    withoutEMA34Confirm?: BreakdownItem;
+    withM30Correction?: BreakdownItem;
+    withoutM30Correction?: BreakdownItem;
   };
   lossCauses: Array<{ cause: string; count: number; percentage: number }>;
   recommendations: string[];
@@ -104,10 +110,11 @@ function BreakdownRow({ label, with: withItem, without: withoutItem, colors }: {
   );
 }
 
-function MenuResult({ title, result, colors }: {
+function MenuResult({ title, result, colors, menu }: {
   title: string;
   result: BacktestAnalysis;
   colors: ReturnType<typeof useColors>;
+  menu: 'sniper' | 'scalping';
 }) {
   const [expanded, setExpanded] = useState(false);
   const winColor = result.winRate >= 75 ? colors.bullish : result.winRate >= 50 ? colors.gold : colors.bearish;
@@ -140,9 +147,25 @@ function MenuResult({ title, result, colors }: {
 
           {/* Breakdown kondisi */}
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>BREAKDOWN KONDISI</Text>
-          <BreakdownRow label="CHoCH 15M" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
-          <BreakdownRow label="Rejection 15M" with={result.breakdown.withRejection15M} without={result.breakdown.withoutRejection15M} colors={colors} />
-          <BreakdownRow label="Pattern" with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
+          {menu === 'sniper' ? (
+            <>
+              <BreakdownRow label="CHoCH 15M" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
+              <BreakdownRow label="Rejection 15M" with={result.breakdown.withRejection15M} without={result.breakdown.withoutRejection15M} colors={colors} />
+            </>
+          ) : (
+            <>
+              {result.breakdown.withBBSqueeze && result.breakdown.withoutBBSqueeze && (
+                <BreakdownRow label="BB Squeeze M30" with={result.breakdown.withBBSqueeze} without={result.breakdown.withoutBBSqueeze} colors={colors} />
+              )}
+              {result.breakdown.withEMA34Confirm && result.breakdown.withoutEMA34Confirm && (
+                <BreakdownRow label="Konfirmasi EMA34 H4" with={result.breakdown.withEMA34Confirm} without={result.breakdown.withoutEMA34Confirm} colors={colors} />
+              )}
+              {result.breakdown.withM30Correction && result.breakdown.withoutM30Correction && (
+                <BreakdownRow label="M30 Sudah Koreksi" with={result.breakdown.withM30Correction} without={result.breakdown.withoutM30Correction} colors={colors} />
+              )}
+            </>
+          )}
+          <BreakdownRow label={menu === 'sniper' ? 'Pattern' : 'Pattern M30'} with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
           <BreakdownRow label="Zona Tier 1-2" with={result.breakdown.tier1to2} without={result.breakdown.tier3plus} colors={colors} />
           <BreakdownRow label="London/NY" with={result.breakdown.londonNY} without={result.breakdown.asian} colors={colors} />
           <BreakdownRow label="Vol Tinggi (≥2x)" with={result.breakdown.highVolume} without={result.breakdown.lowVolume} colors={colors} />
@@ -436,6 +459,7 @@ export default function BacktestScreen() {
                 title="Menu 2 — Sniper Entry"
                 result={result.sniperResult}
                 colors={colors}
+                menu="sniper"
               />
             )}
 
@@ -445,6 +469,7 @@ export default function BacktestScreen() {
                 title="Menu 4 — Scalping SMC M30→M5"
                 result={result.breakoutResult}
                 colors={colors}
+                menu="scalping"
               />
             )}
 

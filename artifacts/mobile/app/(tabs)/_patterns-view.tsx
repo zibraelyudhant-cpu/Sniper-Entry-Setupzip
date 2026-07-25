@@ -31,6 +31,7 @@ const ALL_PATTERNS = [
   'Inverse H&S',
   'Rising Wedge',
   'Falling Wedge',
+  'Cup and Handle',
 ] as const;
 
 const TIMEFRAMES = ['H4', 'H1', 'M30', 'M15', 'M5'] as const;
@@ -38,8 +39,8 @@ const TIMEFRAMES = ['H4', 'H1', 'M30', 'M15', 'M5'] as const;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getPatternMeta(name: string): { category: string; direction: string } {
-  const continuation = ['Bull Flag', 'Bear Flag', 'Ascending Triangle', 'Descending Triangle', 'Symmetrical Triangle', 'Pennant'];
-  const bullish = ['Bull Flag', 'Ascending Triangle', 'Double Bottom', 'Inverse H&S', 'Falling Wedge'];
+  const continuation = ['Bull Flag', 'Bear Flag', 'Ascending Triangle', 'Descending Triangle', 'Symmetrical Triangle', 'Pennant', 'Cup and Handle'];
+  const bullish = ['Bull Flag', 'Ascending Triangle', 'Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Cup and Handle'];
   return {
     category: continuation.includes(name) ? 'continuation' : 'reversal',
     direction: bullish.includes(name) ? 'bullish' : 'bearish',
@@ -429,6 +430,33 @@ function PatternIllustration({ name, direction, colors }: {
         {/* Labels */}
         <text x="100" y="12" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Resistance (cepat) → Bullish Reversal</text>
         <text x="100" y="118" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Support (lambat)</text>
+      </svg>
+    ),
+    'Cup and Handle': (
+      <svg viewBox="0 0 300 130" width="100%" height="130">
+        <line x1="0" y1="110" x2="300" y2="110" stroke="#222" strokeWidth="1"/>
+        {/* Rim kiri */}
+        <Candle x={15} open={40} close={35} high={33} low={42} color={bull}/>
+        {/* Cup — U shape turun */}
+        <Candle x={35} open={45} close={55} high={43} low={57} color={bear}/>
+        <Candle x={55} open={58} close={68} high={56} low={70} color={bear}/>
+        <Candle x={75} open={70} close={78} high={68} low={80} color={bear}/>
+        <Candle x={95} open={80} close={82} high={78} low={84} color={bear}/>
+        <Candle x={115} open={82} close={80} high={78} low={84} color={bull}/>
+        <Candle x={135} open={78} close={70} high={68} low={80} color={bull}/>
+        <Candle x={155} open={68} close={58} high={56} low={70} color={bull}/>
+        <Candle x={175} open={55} close={42} high={40} low={57} color={bull}/>
+        {/* Rim kanan */}
+        <Candle x={195} open={40} close={35} high={33} low={42} color={bull}/>
+        {/* Handle — konsolidasi kecil turun sedikit */}
+        <Candle x={215} open={36} close={42} high={34} low={44} color={bear}/>
+        <Candle x={230} open={42} close={45} high={40} low={47} color={bear}/>
+        <Candle x={245} open={45} close={40} high={38} low={47} color={bull}/>
+        {/* Breakout */}
+        <Candle x={265} open={38} close={20} high={18} low={40} color={bull}/>
+        <line x1="15" y1="35" x2="205" y2="35" stroke={bull} strokeWidth="1" strokeDasharray="3,3"/>
+        <text x="100" y="12" fontSize="9" fill={bull} textAnchor="middle" fontFamily="Inter">Cup (U-shape) → Handle → Breakout</text>
+        <text x="150" y="122" fontSize="8" fill={colors.mutedForeground} textAnchor="middle" fontFamily="Inter">Handle di atas 50% cup</text>
       </svg>
     ),
   };
