@@ -12,8 +12,8 @@ function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }} />
-        <Label>Screener</Label>
+        <Icon sf={{ default: 'arrow.up.right', selected: 'arrow.up.right' }} />
+        <Label>Breakout</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="sniper">
         <Icon sf={{ default: 'scope', selected: 'scope' }} />
@@ -82,12 +82,12 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Screener',
+          title: 'Breakout',
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="chart.bar.fill" tintColor={color} size={22} />
+              <SymbolView name="arrow.up.right" tintColor={color} size={22} />
             ) : (
-              <Feather name="bar-chart-2" size={22} color={color} />
+              <Feather name="trending-up" size={22} color={color} />
             ),
         }}
       />

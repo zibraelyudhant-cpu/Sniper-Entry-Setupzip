@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StyleSheet } from "react-native";
 import type { SignalLog } from "./signal-log-helpers";
-import { STORAGE_KEY_SNIPER, STORAGE_KEY_SCALPING } from "./signal-log-helpers";
+import { STORAGE_KEY_SNIPER, STORAGE_KEY_SCALPING, STORAGE_KEY_BREAKOUT_ENTRY } from "./signal-log-helpers";
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -403,29 +403,31 @@ async function saveRawLogs(key: string, logs: MonitoringSignalLog[]): Promise<vo
  * Update log by id (untuk update entryHitAt, oiAtEntryHit, atau status resolve).
  */
 export async function updateMonitoringLog(
-  menu: "sniper" | "scalping",
+  menu: "sniper" | "scalping" | "breakout_entry",
   id: string,
   patch: Partial<MonitoringSignalLog>
 ): Promise<void> {
-  const key = menu === "sniper" ? STORAGE_KEY_SNIPER : STORAGE_KEY_SCALPING;
+  const key = menu === "sniper" ? STORAGE_KEY_SNIPER : menu === "scalping" ? STORAGE_KEY_SCALPING : STORAGE_KEY_BREAKOUT_ENTRY;
   const logs = await loadRawLogs(key);
   const updated = logs.map((l) => (l.id === id ? { ...l, ...patch } : l));
   await saveRawLogs(key, updated);
 }
 
 /**
- * Load semua monitoring log dari sniper + scalping.
+ * Load semua monitoring log dari sniper + scalping + breakout entry.
  * Return log yang: status pending DAN entryHitAt sudah ada (udah kehit entry).
  * Auto-tag `menu` field karena breakout.tsx (scalping) gak set field itu.
  */
 export async function loadActiveMonitoringLogs(): Promise<MonitoringSignalLog[]> {
-  const [sniper, scalping] = await Promise.all([
+  const [sniper, scalping, breakoutEntry] = await Promise.all([
     loadRawLogs(STORAGE_KEY_SNIPER),
     loadRawLogs(STORAGE_KEY_SCALPING),
+    loadRawLogs(STORAGE_KEY_BREAKOUT_ENTRY),
   ]);
   const taggedSniper = sniper.map((l) => ({ ...l, menu: "sniper" as const }));
   const taggedScalping = scalping.map((l) => ({ ...l, menu: "scalping" as const }));
-  const all = [...taggedSniper, ...taggedScalping];
+  const taggedBreakoutEntry = breakoutEntry.map((l) => ({ ...l, menu: "breakout_entry" as const }));
+  const all = [...taggedSniper, ...taggedScalping, ...taggedBreakoutEntry];
   return all.filter((l) => l.status === "pending" && l.entryHitAt);
 }
 
@@ -433,13 +435,15 @@ export async function loadActiveMonitoringLogs(): Promise<MonitoringSignalLog[]>
  * Load semua log pending yang BELUM ada entryHitAt — buat di-check apakah udah kehit.
  */
 export async function loadPendingUncheckedLogs(): Promise<MonitoringSignalLog[]> {
-  const [sniper, scalping] = await Promise.all([
+  const [sniper, scalping, breakoutEntry] = await Promise.all([
     loadRawLogs(STORAGE_KEY_SNIPER),
     loadRawLogs(STORAGE_KEY_SCALPING),
+    loadRawLogs(STORAGE_KEY_BREAKOUT_ENTRY),
   ]);
   const taggedSniper = sniper.map((l) => ({ ...l, menu: "sniper" as const }));
   const taggedScalping = scalping.map((l) => ({ ...l, menu: "scalping" as const }));
-  const all = [...taggedSniper, ...taggedScalping];
+  const taggedBreakoutEntry = breakoutEntry.map((l) => ({ ...l, menu: "breakout_entry" as const }));
+  const all = [...taggedSniper, ...taggedScalping, ...taggedBreakoutEntry];
   return all.filter((l) => l.status === "pending" && !l.entryHitAt);
 }
 

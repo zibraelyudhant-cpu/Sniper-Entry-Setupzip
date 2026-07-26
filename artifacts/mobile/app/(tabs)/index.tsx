@@ -1,373 +1,879 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  Platform,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+  ActivityIndicator, Platform, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useGetScreener } from '@workspace/api-client-react';
-import type { ScreenerCoin } from '@workspace/api-client-react';
+import { router } from 'expo-router';
+import {
+  STORAGE_KEY_BREAKOUT_ENTRY,
+  addLog,
+  deleteLog,
+  evaluateLog,
+  loadLogs,
+  updateLog,
+  type SignalLog,
+} from './signal-log-helpers';
+
+// ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
+
+interface BreakoutTradingResult {
+  status: 'ready' | 'waiting' | 'approaching' | 'in_zone' | 'expired' | 'no_setup' | 'skip' | 'error';
+  symbol: string;
+  bias?: 'bullish' | 'bearish';
+  breakoutType?: 'continuation' | 'reversal';
+  currentPrice: number;
+  timestamp: string;
+  message?: string;
+  score?: number;
+  maxScore: number;
+  consolidationHigh?: number;
+  consolidationLow?: number;
+  consolidationCandles?: number;
+  brokenLevel?: number;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  takeProfit2?: number;
+  rr1?: number;
+  volumeRatio?: number;
+  filterResults?: string[];
+  buyStopPrice?: number;
+  sellStopPrice?: number;
+  rangeHeight?: number;
+  leanBias?: 'bullish' | 'bearish' | 'neutral';
+  anticipationEntry?: {
+    direction: 'bullish' | 'bearish';
+    entryPrice: number;
+    stopLoss: number;
+    sizeNote: string;
+    trendContext: string;
+  };
+}
+
+// ─── Fetch hooks (fetch langsung ke backend, relative path /api) ───────────────
+
+function useBreakoutEntry(symbol: string) {
+  const [data, setData] = useState<BreakoutTradingResult | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isError, setIsError] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    if (!symbol) return;
+    setIsLoading(true);
+    setIsError(false);
+    try {
+      const res = await fetch(`/api/breakout-entry?symbol=${symbol}`);
+      if (!res.ok) throw new Error('fetch failed');
+      setData(await res.json());
+    } catch {
+      setIsError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [symbol]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  return { data, isLoading, isError, refetch: fetchData };
+}
+
+function useBreakoutEntryScan() {
+  const [data, setData] = useState<{ coins: BreakoutTradingResult[]; fetchedAt: number } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setIsError(false);
+    try {
+      const res = await fetch('/api/breakout-entry/scan');
+      if (!res.ok) throw new Error('fetch failed');
+      setData(await res.json());
+    } catch {
+      setIsError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  return { data, isLoading, isError, refetch: fetchData };
+}
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 function formatPrice(price: number): string {
-  if (price >= 10000) return price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  if (price >= 100) return price.toFixed(2);
+  if (price >= 1000) return price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (price >= 1) return price.toFixed(4);
+  if (price >= 0.01) return price.toFixed(5);
   return price.toFixed(6);
 }
 
-function formatVolume(vol: number): string {
-  if (vol >= 1e9) return `$${(vol / 1e9).toFixed(1)}B`;
-  if (vol >= 1e6) return `$${(vol / 1e6).toFixed(1)}M`;
-  return `$${vol.toFixed(0)}`;
+// ─── Status & Score Badge ───────────────────────────────────────────────────────
+
+function StatusBadge({ status, colors }: { status: string; colors: ReturnType<typeof useColors> }) {
+  const map: Record<string, { label: string; color: string }> = {
+    in_zone:     { label: '🎯 BAGUS', color: colors.bullish },
+    approaching: { label: '⚡ MENDEKATI', color: colors.primary },
+    waiting:     { label: '⏳ WAITING', color: colors.gold },
+    ready:       { label: '🔥 SIAP BREAKOUT', color: '#f97316' },
+    expired:     { label: '💨 EXPIRED', color: colors.mutedForeground },
+    no_setup:    { label: '🚫 NO SETUP', color: colors.bearish },
+    skip:        { label: '⏭ SKIP', color: colors.mutedForeground },
+  };
+  const item = map[status] ?? { label: status.toUpperCase(), color: colors.mutedForeground };
+  return (
+    <View style={[styles.statusBadge, { borderColor: item.color, backgroundColor: `${item.color}18` }]}>
+      <Text style={[styles.statusBadgeText, { color: item.color }]}>{item.label}</Text>
+    </View>
+  );
 }
 
-function formatSymbol(symbol: string): { base: string; quote: string } {
-  return { base: symbol.replace('USDT', ''), quote: 'USDT' };
+function ScoreBadge({ score, max, colors }: { score: number; max: number; colors: ReturnType<typeof useColors> }) {
+  const pct = score / max;
+  const color = pct >= 0.85 ? colors.bullish : pct >= 0.6 ? colors.gold : colors.bearish;
+  return (
+    <View style={[styles.scoreBadge, { borderColor: color, backgroundColor: `${color}18` }]}>
+      <Text style={[styles.scoreBadgeText, { color }]}>{score}/{max}</Text>
+    </View>
+  );
 }
 
-// ─── Coin Card ────────────────────────────────────────────────────────────────
-
-interface CoinCardProps {
-  coin: ScreenerCoin;
-  onPress: (coin: ScreenerCoin) => void;
+function BreakoutTypeBadge({ type, colors }: { type: 'continuation' | 'reversal'; colors: ReturnType<typeof useColors> }) {
+  const color = type === 'continuation' ? colors.bullish : colors.gold;
+  const label = type === 'continuation' ? '➡ CONTINUATION' : '🔄 REVERSAL';
+  return (
+    <View style={[scanStyles.biasBadge, { backgroundColor: `${color}18`, borderColor: color }]}>
+      <Text style={[scanStyles.biasBadgeText, { color }]}>{label}</Text>
+    </View>
+  );
 }
 
-function CoinCard({ coin, onPress }: CoinCardProps) {
-  const colors = useColors();
-  const { base, quote } = formatSymbol(coin.symbol);
-  const isPositive = coin.change24h >= 0;
+// ─── Scan Coin Card ───────────────────────────────────────────────────────────
 
-  // bias = trend utama H4, correctionBias = arah koreksi H1 (berlawanan)
-  const biasColor = coin.bias === 'bullish' ? colors.bullish : colors.bearish;
-  const biasLabel = coin.bias === 'bullish' ? '▲ UPTREND' : '▼ DOWNTREND';
-  const corrLabel = coin.bias === 'bullish' ? '↘ PULLBACK' : '↗ BOUNCE';
-  const corrColor = coin.bias === 'bullish' ? colors.bearish : colors.bullish;
-  const depthStr = (coin as any).correctionDepthPct != null
-    ? `${((coin as any).correctionDepthPct as number).toFixed(1)}% koreksi`
-    : '';
-
-  const confidenceColor =
-    coin.confidence === 'HIGH'
-      ? colors.bullish
-      : coin.confidence === 'MODERATE'
-      ? colors.gold
-      : colors.mutedForeground;
-
-  const confidenceBg =
-    coin.confidence === 'HIGH'
-      ? `${colors.bullish}20`
-      : coin.confidence === 'MODERATE'
-      ? `${colors.gold}20`
-      : `${colors.mutedForeground}18`;
+function ScanCoinCard({ coin, onPress, colors }: { coin: BreakoutTradingResult; onPress: () => void; colors: ReturnType<typeof useColors> }) {
+  const base = coin.symbol.replace('USDT', '');
+  const isReady = coin.status === 'ready';
+  const isBuy = coin.bias === 'bullish';
+  const biasColor = isBuy ? colors.bullish : colors.bearish;
 
   return (
     <Pressable
-      onPress={() => onPress(coin)}
-      style={({ pressed }) => [
-        styles.card,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          opacity: pressed ? 0.75 : 1,
-        },
-      ]}
+      onPress={onPress}
+      style={({ pressed }) => [scanStyles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
     >
-      {/* ── Row 1: Symbol · Confidence · Bias · Price ── */}
-      <View style={styles.row1}>
-        {/* Symbol */}
-        <View style={styles.symbolCol}>
-          <View style={styles.symbolRow}>
-            <Text style={[styles.symbolBase, { color: colors.foreground }]}>{base}</Text>
-            <Text style={[styles.symbolQuote, { color: colors.mutedForeground }]}>/{quote}</Text>
+      <View style={scanStyles.cardRow1}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+            <Text style={[scanStyles.cardBase, { color: colors.foreground }]}>{base}</Text>
+            <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
           </View>
-          <Text style={[styles.volumeText, { color: colors.mutedForeground }]}>
-            {formatVolume(coin.volume24h)}
-          </Text>
-        </View>
-
-        {/* Confidence + Bias badges */}
-        <View style={styles.badgeCol}>
-          <View style={[styles.badge, { backgroundColor: confidenceBg, borderColor: confidenceColor }]}>
-            <Text style={[styles.badgeText, { color: confidenceColor }]}>{coin.confidence}</Text>
+          <View style={{ flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+            {isReady ? (
+              <>
+                <View style={[scanStyles.biasBadge, { backgroundColor: '#f9731618', borderColor: '#f97316' }]}>
+                  <Text style={[scanStyles.biasBadgeText, { color: '#f97316' }]}>
+                    {coin.leanBias === 'bullish' ? '↗ LEAN LONG' : coin.leanBias === 'bearish' ? '↘ LEAN SHORT' : '↔ NETRAL'}
+                  </Text>
+                </View>
+                {coin.anticipationEntry && (
+                  <View style={[scanStyles.biasBadge, { backgroundColor: '#f9731618', borderColor: '#f97316' }]}>
+                    <Text style={[scanStyles.biasBadgeText, { color: '#f97316' }]}>🎯 ANTICIPATION</Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
+                <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
+              </View>
+            )}
+            {coin.breakoutType && <BreakoutTypeBadge type={coin.breakoutType} colors={colors} />}
           </View>
-          <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-            <View style={[styles.badge, { backgroundColor: `${biasColor}15`, borderColor: biasColor }]}>
-              <Text style={[styles.badgeText, { color: biasColor }]}>{biasLabel}</Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: `${corrColor}15`, borderColor: corrColor, flexShrink: 1 }]}>
-              <Text style={[styles.badgeText, { color: corrColor }]} numberOfLines={1}>{corrLabel}{depthStr ? ` · ${depthStr}` : ''}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Price + Change */}
-        <View style={styles.priceCol}>
-          <Text style={[styles.price, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
-            ${formatPrice(coin.price)}
-          </Text>
-          <View style={[
-            styles.changePill,
-            { backgroundColor: isPositive ? `${colors.bullish}22` : `${colors.bearish}22` },
-          ]}>
-            <Feather
-              name={isPositive ? 'trending-up' : 'trending-down'}
-              size={10}
-              color={isPositive ? colors.bullish : colors.bearish}
-              style={{ marginRight: 2 }}
-            />
-            <Text style={[styles.changeText, { color: isPositive ? colors.bullish : colors.bearish }]}>
-              {isPositive ? '+' : ''}{coin.change24h.toFixed(2)}%
+          {coin.volumeRatio !== undefined && (
+            <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
+              Volume breakout {coin.volumeRatio.toFixed(1)}x rata-rata
             </Text>
+          )}
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+          <StatusBadge status={coin.status} colors={colors} />
+          {coin.score !== undefined && <ScoreBadge score={coin.score} max={coin.maxScore} colors={colors} />}
+        </View>
+        <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
+      </View>
+
+      {isReady ? (
+        <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>BUY STOP</Text>
+            <Text style={[scanStyles.condValue, { color: colors.bullish }]}>{coin.buyStopPrice ? formatPrice(coin.buyStopPrice) : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SELL STOP</Text>
+            <Text style={[scanStyles.condValue, { color: colors.bearish }]}>{coin.sellStopPrice ? formatPrice(coin.sellStopPrice) : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RANGE</Text>
+            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rangeHeight ? formatPrice(coin.rangeHeight) : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>CANDLE</Text>
+            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.consolidationCandles ?? '—'}</Text>
           </View>
         </View>
-
-        <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 2 }} />
-      </View>
-
-      {/* ── Row 2: Score bar + metrics ── */}
-      <View style={[styles.row2, { borderTopColor: colors.border }]}>
-        {/* Score */}
-        <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>SCORE</Text>
-          <Text style={[styles.metricValue, { color: confidenceColor }]}>{coin.score}</Text>
+      ) : (
+        <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
+            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.entryPrice ? formatPrice(coin.entryPrice) : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SL</Text>
+            <Text style={[scanStyles.condValue, { color: colors.bearish }]}>{coin.stopLoss ? formatPrice(coin.stopLoss) : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP1</Text>
+            <Text style={[scanStyles.condValue, { color: colors.bullish }]}>{coin.takeProfit1 ? formatPrice(coin.takeProfit1) : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RR</Text>
+            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rr1 ? `1:${coin.rr1.toFixed(1)}` : '—'}</Text>
+          </View>
+          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+          <View style={scanStyles.condItem}>
+            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>CANDLE</Text>
+            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.consolidationCandles ?? '—'}</Text>
+          </View>
         </View>
-
-        <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
-
-        {/* RSI */}
-        <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>RSI H4 · H1</Text>
-          <Text style={[styles.metricValue, { color: colors.foreground }]}>
-            {coin.rsiH4.toFixed(1)} · {coin.rsiH1.toFixed(1)}
-          </Text>
-        </View>
-
-        <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
-
-        {/* ADX */}
-        <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>ADX H4</Text>
-          <Text style={[styles.metricValue, { color: coin.adxH4 > 30 ? colors.bullish : colors.foreground }]}>
-            {coin.adxH4.toFixed(1)}
-          </Text>
-        </View>
-
-        <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
-
-        {/* ATR % */}
-        <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>ATR H4</Text>
-          <Text style={[styles.metricValue, { color: colors.foreground }]}>
-            {coin.atrH4Pct.toFixed(2)}%
-          </Text>
-        </View>
-
-        <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
-
-        {/* Koreksi % */}
-        <View style={styles.metricItem}>
-          <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>KOREKS</Text>
-          <Text style={[styles.metricValue, { color: corrColor }]}>
-            {(coin as any).correctionDepthPct != null ? `${((coin as any).correctionDepthPct as number).toFixed(1)}%` : '—'}
-          </Text>
-        </View>
-      </View>
+      )}
     </Pressable>
+  );
+}
+
+// ─── Scan Tab ─────────────────────────────────────────────────────────────────
+
+function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; isLoading: boolean; colors: ReturnType<typeof useColors> }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isLoading}
+      style={({ pressed }) => [{
+        flexDirection: 'row', alignItems: 'center', gap: 5,
+        paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+        backgroundColor: `${colors.primary}15`,
+        borderWidth: 1, borderColor: colors.primary,
+        opacity: pressed || isLoading ? 0.6 : 1,
+      }]}
+    >
+      {isLoading
+        ? <ActivityIndicator size={10} color={colors.primary} />
+        : <Feather name="refresh-cw" size={11} color={colors.primary} />
+      }
+      <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.primary, letterSpacing: 0.5 }}>
+        {isLoading ? 'SCANNING...' : 'SCAN NOW'}
+      </Text>
+    </Pressable>
+  );
+}
+
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string) => void }) {
+  const insets = useSafeAreaInsets();
+  const { data, isLoading, isError, refetch } = useBreakoutEntryScan();
+
+  if (isLoading) {
+    return (
+      <View style={scanStyles.center}>
+        <ActivityIndicator color={colors.primary} size="large" />
+        <Text style={[scanStyles.loadingText, { color: colors.mutedForeground }]}>Scanning breakout setup...</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa konsolidasi H4 → breakout tervolume → retest</Text>
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={scanStyles.center}>
+        <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const coins = data?.coins ?? [];
+  const fetchedAt = data ? new Date(data.fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
+  const inZone      = coins.filter(c => c.status === 'in_zone');
+  const approaching = coins.filter(c => c.status === 'approaching');
+  const waiting      = coins.filter(c => c.status === 'waiting');
+  const ready       = coins.filter(c => c.status === 'ready');
+
+  if (coins.length === 0) {
+    return (
+      <View style={scanStyles.center}>
+        <Feather name="trending-up" size={36} color={colors.mutedForeground} />
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Tidak ada setup breakout</Text>
+        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Tidak ada koin yang lolos semua filter saat ini</Text>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
+        <ScanNowButton onPress={() => refetch()} isLoading={isLoading} colors={colors} />
+      </View>
+
+      {inZone.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 BAGUS — Sudah Tersentuh, Entry Sekarang</Text>
+          {inZone.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+        </>
+      )}
+      {approaching.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.primary }]}>⚡ MENDEKATI — Siap Pasang Limit</Text>
+          {approaching.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+        </>
+      )}
+      {waiting.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Baru Breakout, Menunggu Retest</Text>
+          {waiting.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+        </>
+      )}
+      {ready.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: '#f97316' }]}>🔥 SIAP BREAKOUT — Pasang Stop Order Duluan</Text>
+          {ready.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+const scanStyles = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  loadingText: { fontSize: 14, fontFamily: 'Inter_500Medium', marginTop: 8 },
+  loadingSub: { fontSize: 12, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  emptyTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center', marginTop: 8 },
+  emptySub: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
+  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 8 },
+  retryText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  groupHeader: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
+  card: { borderRadius: 12, borderWidth: 1, marginBottom: 8, overflow: 'hidden' },
+  cardRow1: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
+  cardBase: { fontSize: 16, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
+  cardQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  biasBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  biasBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.3 },
+  condRow: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 8, paddingHorizontal: 4 },
+  condItem: { flex: 1, alignItems: 'center', gap: 3 },
+  condLabel: { fontSize: 7, fontFamily: 'Inter_500Medium', letterSpacing: 0.3 },
+  condValue: { fontSize: 8, fontFamily: 'Inter_600SemiBold' },
+  condDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
+});
+
+// ─── Analisa Tab ──────────────────────────────────────────────────────────────
+
+function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
+  colors: ReturnType<typeof useColors>;
+  initialSymbol?: string;
+  onSignalReady?: (d: BreakoutTradingResult | null) => void;
+  onSave?: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
+  const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
+
+  const { data, isLoading, isError, refetch } = useBreakoutEntry(querySymbol);
+
+  useEffect(() => {
+    if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'approaching' || data?.status === 'in_zone' ? data : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleAnalyze = useCallback(() => {
+    const sym = inputSymbol.trim().toUpperCase();
+    if (!sym) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const normalized = sym.endsWith('USDT') ? sym : `${sym}USDT`;
+    setQuerySymbol(normalized);
+  }, [inputSymbol]);
+
+  const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
+        <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Feather name="trending-up" size={15} color={colors.primary} />
+          <TextInput
+            style={[styles.inputText, { color: colors.foreground }]}
+            placeholder="Masukkan pair (BTCUSDT)"
+            placeholderTextColor={colors.mutedForeground}
+            value={inputSymbol}
+            onChangeText={setInputSymbol}
+            autoCapitalize="characters"
+            returnKeyType="search"
+            onSubmitEditing={handleAnalyze}
+          />
+          {inputSymbol.length > 0 && (
+            <Pressable onPress={() => setInputSymbol('')}>
+              <Feather name="x" size={14} color={colors.mutedForeground} />
+            </Pressable>
+          )}
+        </View>
+        <Pressable
+          onPress={handleAnalyze}
+          style={({ pressed }) => [styles.analyzeBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}
+        >
+          <Text style={[styles.analyzeBtnText, { color: colors.primaryForeground }]}>Analisa</Text>
+        </Pressable>
+      </View>
+
+      {!querySymbol ? (
+        <View style={styles.emptyState}>
+          <Feather name="trending-up" size={40} color={colors.mutedForeground} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Breakout Entry Scanner</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa konsolidasi H4 → breakout tervolume → retest</Text>
+        </View>
+      ) : isLoading ? (
+        <View style={styles.emptyState}>
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Menganalisa {querySymbol}...</Text>
+        </View>
+      ) : isError || !data ? (
+        <View style={styles.emptyState}>
+          <Feather name="alert-circle" size={36} color={colors.bearish} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal menganalisa</Text>
+          <Pressable onPress={() => refetch()} style={[styles.retryBtn, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
+          {/* Header result */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View>
+                <Text style={[styles.pairTitle, { color: colors.foreground }]}>
+                  {data.symbol.replace('USDT', '')}/USDT
+                </Text>
+                <Text style={[styles.timestamp, { color: colors.mutedForeground }]}>{data.timestamp}</Text>
+              </View>
+              <View style={{ gap: 6, alignItems: 'flex-end' }}>
+                <StatusBadge status={data.status} colors={colors} />
+                {data.score !== undefined && <ScoreBadge score={data.score} max={data.maxScore} colors={colors} />}
+              </View>
+            </View>
+            {data.breakoutType && (
+              <View style={{ marginTop: 8, flexDirection: 'row' }}>
+                <BreakoutTypeBadge type={data.breakoutType} colors={colors} />
+              </View>
+            )}
+            {data.message && (
+              <View style={[styles.messageBox, { backgroundColor: `${colors.primary}10`, borderLeftColor: colors.primary }]}>
+                <Text style={[styles.messageText, { color: colors.mutedForeground }]}>{data.message}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Konsolidasi H4 */}
+          {data.consolidationHigh !== undefined && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>KONSOLIDASI H4</Text>
+              {data.bias ? (
+                <>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
+                    <Text style={[styles.infoValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
+                      {data.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}
+                    </Text>
+                  </View>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                </>
+              ) : data.leanBias ? (
+                <>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Kecenderungan</Text>
+                    <Text style={[styles.infoValue, { color: '#f97316' }]}>
+                      {data.leanBias === 'bullish' ? '↗ LEAN LONG' : data.leanBias === 'bearish' ? '↘ LEAN SHORT' : '↔ NETRAL — belum jelas'}
+                    </Text>
+                  </View>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                </>
+              ) : null}
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range Konsolidasi</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {formatPrice(data.consolidationLow ?? 0)} – {formatPrice(data.consolidationHigh)}
+                </Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Durasi</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.consolidationCandles} candle H4</Text>
+              </View>
+              {data.volumeRatio !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={[styles.infoRow, {
+                    backgroundColor: `${colors.primary}18`,
+                    marginHorizontal: -12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }]}>
+                    <Text style={[styles.infoLabel, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>⚡ VOLUME BREAKOUT</Text>
+                    <Text style={[styles.infoValue, { color: colors.primary, fontFamily: 'Inter_700Bold' }]}>
+                      {data.volumeRatio.toFixed(1)}x rata-rata
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+          )}
+
+          {/* Anticipation Entry — khusus status ready & ada trend besar jelas */}
+          {data.status === 'ready' && data.anticipationEntry && (
+            <View style={[styles.section, { backgroundColor: `#f9731608`, borderColor: '#f97316' }]}>
+              <Text style={[styles.sectionTitle, { color: '#f97316' }]}>🎯 ANTICIPATION ENTRY</Text>
+              <Text style={[styles.messageText, { color: colors.mutedForeground, marginBottom: 10 }]}>
+                {data.anticipationEntry.trendContext}
+              </Text>
+              <View style={[styles.levelCard, {
+                backgroundColor: `${data.anticipationEntry.direction === 'bullish' ? colors.bullish : colors.bearish}10`,
+                borderColor: data.anticipationEntry.direction === 'bullish' ? colors.bullish : colors.bearish,
+              }]}>
+                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>
+                  ENTRY {data.anticipationEntry.direction === 'bullish' ? '(deket support)' : '(deket resistance)'}
+                </Text>
+                <Text style={[styles.levelCardPrice, { color: data.anticipationEntry.direction === 'bullish' ? colors.bullish : colors.bearish }]}>
+                  {formatPrice(data.anticipationEntry.entryPrice)}
+                </Text>
+                <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
+                  SL ketat: {formatPrice(data.anticipationEntry.stopLoss)}
+                </Text>
+              </View>
+              <View style={[styles.infoRow, { backgroundColor: '#f9731615', marginHorizontal: -12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }]}>
+                <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.foreground, lineHeight: 18, flex: 1 }}>
+                  {data.anticipationEntry.sizeNote}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Stop Order — khusus status ready (belum breakout) */}
+          {data.status === 'ready' && data.buyStopPrice !== undefined && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>PASANG STOP ORDER DULUAN</Text>
+              <Text style={[styles.messageText, { color: colors.mutedForeground, marginBottom: 10 }]}>
+                Arah belum pasti — pasang di kedua sisi. Kalau salah satu kena, batalkan sisi satunya.
+              </Text>
+              <View style={[styles.levelCard, { backgroundColor: `${colors.bullish}10`, borderColor: colors.bullish, marginBottom: 8 }]}>
+                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>BUY STOP (kalau tembus ke atas)</Text>
+                <Text style={[styles.levelCardPrice, { color: colors.bullish }]}>{formatPrice(data.buyStopPrice)}</Text>
+                <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
+                  TP measured move: {data.rangeHeight ? formatPrice(data.buyStopPrice + data.rangeHeight) : '—'}
+                </Text>
+              </View>
+              {data.sellStopPrice !== undefined && (
+                <View style={[styles.levelCard, { backgroundColor: `${colors.bearish}10`, borderColor: colors.bearish }]}>
+                  <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>SELL STOP (kalau tembus ke bawah)</Text>
+                  <Text style={[styles.levelCardPrice, { color: colors.bearish }]}>{formatPrice(data.sellStopPrice)}</Text>
+                  <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
+                    TP measured move: {data.rangeHeight ? formatPrice(data.sellStopPrice - data.rangeHeight) : '—'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Simpan Sinyal */}
+          {(data.status === 'waiting' || data.status === 'approaching' || data.status === 'in_zone') && onSave && (
+            <Pressable onPress={onSave}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
+              <Feather name="bookmark" size={15} color={colors.primaryForeground} />
+              <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
+            </Pressable>
+          )}
+
+          {/* Limit Order */}
+          {data.entryPrice !== undefined && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER (RETEST)</Text>
+              <View style={[styles.levelCard, {
+                backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
+                borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish
+              }]}>
+                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY (LEVEL BREAKOUT)</Text>
+                <Text style={[styles.levelCardPrice, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
+                  {formatPrice(data.entryPrice)}
+                </Text>
+                <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — retest resistance/support baru
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.bearish }]}>Stop Loss</Text>
+                <Text style={[styles.infoValue, { color: colors.bearish }]}>{data.stopLoss ? formatPrice(data.stopLoss) : '—'}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 — Measured Move (RR 1:{data.rr1?.toFixed(1)})</Text>
+                <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 — Extended 1.618x</Text>
+                <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2 ? formatPrice(data.takeProfit2) : '—'}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Filter Results */}
+          {data.filterResults && data.filterResults.length > 0 && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>HASIL FILTER (Score: {data.score}/{data.maxScore})</Text>
+              {data.filterResults.map((f, i) => {
+                const isPassed = f.startsWith('✅');
+                return (
+                  <Text key={i} style={[styles.filterItem, { color: isPassed ? colors.foreground : colors.mutedForeground }]}>
+                    {f}
+                  </Text>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Kalkulator PnL button */}
+          {data.entryPrice !== undefined && (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: '/(tabs)/calculator',
+                  params: {
+                    entryPrice: String(data.entryPrice ?? 0),
+                    stopLoss: String(data.stopLoss ?? 0),
+                    takeProfit1: String(data.takeProfit1 ?? 0),
+                    takeProfit2: String(data.takeProfit2 ?? 0),
+                    symbol: data.symbol,
+                    direction: data.bias ?? 'bullish',
+                    source: 'breakout_entry',
+                  },
+                });
+              }}
+              style={({ pressed }) => [{
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                margin: 12, marginTop: 4, padding: 14, borderRadius: 12,
+                borderWidth: 1, borderColor: colors.mutedForeground,
+                backgroundColor: pressed ? `${colors.mutedForeground}15` : 'transparent',
+              }]}
+            >
+              <Feather name="percent" size={15} color={colors.mutedForeground} />
+              <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>
+                Kalkulator PnL
+              </Text>
+              <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
+            </Pressable>
+          )}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ─── Log Tab (pakai shared signal-log-helpers) ─────────────────────────────────
+
+function BreakoutLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const insets = useSafeAreaInsets();
+  const [logs, setLogs] = useState<SignalLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [evaluating, setEvaluating] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadLogs(STORAGE_KEY_BREAKOUT_ENTRY).then(l => { setLogs(l); setLoading(false); });
+  }, []);
+
+  const doEval = async (log: SignalLog) => {
+    setEvaluating(log.id);
+    const patch = await evaluateLog(log);
+    setLogs(await updateLog(STORAGE_KEY_BREAKOUT_ENTRY, log.id, patch));
+    setEvaluating(null);
+  };
+  const doDelete = async (id: string) => setLogs(await deleteLog(STORAGE_KEY_BREAKOUT_ENTRY, id));
+
+  const sc = (s: SignalLog['status']) => s === 'win_tp1' || s === 'win_tp2' ? '#22c55e' : s === 'lose' ? '#ef4444' : '#888';
+  const sl = (s: SignalLog['status']) => s === 'win_tp1' ? 'WIN TP1' : s === 'win_tp2' ? 'WIN TP2' : s === 'lose' ? 'LOSE' : s === 'expired' ? 'EXPIRED' : 'PENDING';
+  const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
+
+  const wins = logs.filter(l => l.status === 'win_tp1' || l.status === 'win_tp2').length;
+  const loses = logs.filter(l => l.status === 'lose').length;
+  const wr = wins + loses > 0 ? Math.round(wins / (wins + loses) * 100) : 0;
+  const rrs = logs.filter(l => (l.rr ?? 0) > 0);
+  const avgRR = rrs.length ? (rrs.reduce((a, b) => a + (b.rr ?? 0), 0) / rrs.length).toFixed(2) : '—';
+
+  if (loading) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={colors.primary} /></View>;
+
+  return (
+    <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+      {logs.length > 0 && (
+        <View style={{ flexDirection: 'row', margin: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, justifyContent: 'space-around' }}>
+          {[{ v: `${wins}W`, c: '#22c55e', l: 'Win' }, { v: `${loses}L`, c: '#ef4444', l: 'Lose' }, { v: `${logs.filter(x => x.status === 'pending').length}`, c: colors.mutedForeground, l: 'Pending' }, { v: `${wr}%`, c: colors.foreground, l: 'Win Rate' }, { v: avgRR, c: colors.foreground, l: 'Avg R:R' }].map(item => (
+            <View key={item.l} style={{ alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Inter_700Bold', color: item.c }}>{item.v}</Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>{item.l}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      {logs.length === 0 ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, minHeight: 300 }}>
+          <Feather name="bookmark" size={36} color={colors.mutedForeground} />
+          <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground, textAlign: 'center' }}>Belum ada sinyal tersimpan</Text>
+          <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 20 }}>Simpan sinyal dari tab Analisa</Text>
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}>
+          {logs.map(log => (
+            <View key={log.id} style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', padding: 12, alignItems: 'flex-start' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{log.timestamp}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, borderWidth: 1, borderColor: sc(log.status), backgroundColor: sc(log.status) + '18' }}>
+                    <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5, color: sc(log.status) }}>{sl(log.status)}</Text>
+                  </View>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: log.bias === 'bullish' ? '#22c55e' : '#ef4444' }}>{log.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 8, paddingHorizontal: 12 }}>
+                {([['Entry', log.entryPrice, colors.foreground], ['SL', log.stopLoss, '#ef4444'], ['TP1', log.takeProfit1, '#22c55e'], ['TP2', log.takeProfit2, '#3b82f6']] as [string, number | undefined, string][]).map(([lbl, val, col]) => val ? (
+                  <View key={lbl} style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>{lbl}</Text>
+                    <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: col, marginTop: 2 }}>{fp(val)}</Text>
+                  </View>
+                ) : null)}
+                {log.rr !== undefined && <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>R:R</Text><Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: log.rr > 0 ? '#22c55e' : '#ef4444', marginTop: 2 }}>{log.rr > 0 ? `1:${log.rr}` : '-1'}</Text></View>}
+              </View>
+              {log.probabilityOrScore !== undefined && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 4, fontFamily: 'Inter_400Regular' }}>Score: {log.probabilityOrScore}/5</Text>}
+              {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 6, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
+              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>
+                {log.status === 'pending' && (
+                  <Pressable onPress={() => doEval(log)} disabled={evaluating === log.id}
+                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primary + '15', opacity: pressed || evaluating === log.id ? 0.7 : 1 }]}>
+                    {evaluating === log.id ? <ActivityIndicator size={12} color={colors.primary} /> : <Feather name="search" size={12} color={colors.primary} />}
+                    <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.primary }}>{evaluating === log.id ? 'Evaluasi...' : 'Evaluasi'}</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => doDelete(log.id)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.7 : 1 }]}>
+                  <Feather name="trash-2" size={12} color="#ef4444" />
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function ScreenerScreen() {
+export default function BreakoutEntryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [search, setSearch] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-
-  const { data, isLoading, isError, refetch } = useGetScreener({
-    query: { staleTime: 0 },
-  });
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
-  }, [refetch]);
-
-  const handleCoinPress = useCallback((coin: ScreenerCoin) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({ pathname: '/(tabs)/sniper', params: { symbol: coin.symbol, tab: 'analisa' } });
-  }, []);
-
-  const handleManualScan = useCallback(() => {
-    if (!search.trim()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const raw = search.trim().toUpperCase();
-    const symbol = raw.endsWith('USDT') ? raw : `${raw}USDT`;
-    setSearch('');
-    router.push({ pathname: '/(tabs)/sniper', params: { symbol, tab: 'analisa' } });
-  }, [search]);
-
-  const filteredCoins = (data?.coins ?? []).filter((c) =>
-    c.symbol.toLowerCase().includes(search.toLowerCase())
-  );
-
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-  const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
+  const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
+  const [currentSignal, setCurrentSignal] = useState<BreakoutTradingResult | null>(null);
+
+  const handleSaveSignal = useCallback(async () => {
+    if (!currentSignal || currentSignal.entryPrice === undefined) return;
+    const log: SignalLog = {
+      id: `${Date.now()}_${currentSignal.symbol}`,
+      menu: 'breakout_entry',
+      symbol: currentSignal.symbol,
+      bias: currentSignal.bias ?? 'bullish',
+      entryPrice: currentSignal.entryPrice,
+      stopLoss: currentSignal.stopLoss ?? 0,
+      takeProfit1: currentSignal.takeProfit1 ?? 0,
+      takeProfit2: currentSignal.takeProfit2,
+      currentPriceAtSignal: currentSignal.currentPrice,
+      timestamp: currentSignal.timestamp,
+      savedAt: Date.now(),
+      probabilityOrScore: currentSignal.score,
+      zoneType: currentSignal.breakoutType,
+      status: 'pending',
+    };
+    await addLog(STORAGE_KEY_BREAKOUT_ENTRY, log);
+    setActiveTab('log');
+  }, [currentSignal]);
+
+  const handleSelectCoin = useCallback((symbol: string) => {
+    setSelectedSymbol(symbol);
+    setActiveTab('analisa');
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          { paddingTop: topPadding + 12, backgroundColor: colors.background, borderBottomColor: colors.border },
-        ]}
-      >
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Screener</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-              H4+H1 Multi-Filter
-            </Text>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Breakout Entry</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Konsolidasi H4 → Breakout + Volume → Retest → Entry</Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Pressable
-              onPress={handleRefresh}
-              disabled={isLoading || refreshing}
-              style={({ pressed }) => [{
-                flexDirection: 'row', alignItems: 'center', gap: 5,
-                paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
-                backgroundColor: `${colors.primary}15`,
-                borderWidth: 1, borderColor: colors.primary,
-                opacity: pressed || isLoading || refreshing ? 0.6 : 1,
-              }]}
-            >
-              {(isLoading || refreshing)
-                ? <ActivityIndicator size={10} color={colors.primary} />
-                : <Feather name="refresh-cw" size={11} color={colors.primary} />
-              }
-              <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.primary, letterSpacing: 0.5 }}>
-                {isLoading || refreshing ? 'SCANNING...' : 'SCAN NOW'}
-              </Text>
-            </Pressable>
-            <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}22` }]}>
+          {activeTab === 'scan' && (
+            <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
               <View style={[styles.liveDotInner, { backgroundColor: colors.bullish }]} />
               <Text style={[styles.liveText, { color: colors.bullish }]}>LIVE</Text>
             </View>
-          </View>
-        </View>
-
-        {/* Search */}
-        <View style={[styles.searchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="search" size={15} color={colors.mutedForeground} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.foreground }]}
-            placeholder="Cari atau scan manual (contoh: BTC)"
-            placeholderTextColor={colors.mutedForeground}
-            value={search}
-            onChangeText={setSearch}
-            autoCapitalize="characters"
-          />
-          {search.length > 0 && (
-            <Pressable onPress={() => setSearch('')}>
-              <Feather name="x" size={14} color={colors.mutedForeground} />
-            </Pressable>
           )}
         </View>
-
+        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {(['scan', 'analisa', 'log'] as const).map(tab => (
+            <Pressable
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[styles.tabBtn, activeTab === tab && { backgroundColor: colors.primary }]}
+            >
+              <Text style={[styles.tabBtnText, { color: activeTab === tab ? colors.primaryForeground : colors.mutedForeground }]}>
+                {tab === 'scan' ? 'SCAN' : tab === 'analisa' ? 'ANALISA' : 'LOG'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
-      {/* Tombol scan manual — muncul di atas list saat user ketik */}
-      {search.trim().length >= 2 && (
-        <Pressable
-          onPress={handleManualScan}
-          style={({ pressed }) => [
-            styles.manualScanBtn,
-            { backgroundColor: pressed ? `${colors.primary}dd` : colors.primary },
-          ]}
-        >
-          <Feather name="crosshair" size={15} color={colors.primaryForeground} />
-          <Text style={[styles.manualScanText, { color: colors.primaryForeground }]}>
-            Scan{' '}
-            <Text style={{ fontFamily: 'Inter_700Bold' }}>
-              {search.trim().toUpperCase().endsWith('USDT')
-                ? search.trim().toUpperCase()
-                : `${search.trim().toUpperCase()}USDT`}
-            </Text>
-          </Text>
-          <Feather name="arrow-right" size={15} color={colors.primaryForeground} />
-        </Pressable>
-      )}
-
-      {/* Content */}
-      {isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-            Menerapkan filter H4+H1...
-          </Text>
-        </View>
-      ) : isError ? (
-        <View style={styles.center}>
-          <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
-          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
-            Periksa koneksi internet Anda
-          </Text>
-          <Pressable
-            onPress={() => refetch()}
-            style={[styles.retryBtn, { backgroundColor: colors.primary }]}
-          >
-            <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredCoins}
-          keyExtractor={(item) => item.symbol}
-          renderItem={({ item }) => <CoinCard coin={item} onPress={handleCoinPress} />}
-          contentContainerStyle={{
-            paddingHorizontal: 12,
-            paddingTop: 10,
-            paddingBottom: bottomPadding,
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
-            />
-          }
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.center}>
-              <Feather name="filter" size={32} color={colors.mutedForeground} />
-              <Text style={[styles.errorTitle, { color: colors.foreground }]}>
-                {search ? 'Tidak ditemukan' : 'Tidak ada setup valid'}
-              </Text>
-              <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
-                {search
-                  ? 'Coba kata kunci lain'
-                  : 'Semua pair tidak lolos filter H4+H1 saat ini'}
-              </Text>
-            </View>
-          }
-        />
-      )}
+      {activeTab === 'scan'
+        ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
+        : activeTab === 'analisa'
+        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        : <BreakoutLogTab colors={colors} />
+      }
     </View>
   );
 }
@@ -376,124 +882,43 @@ export default function ScreenerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.5,
-  },
-  headerSub: {
-    fontSize: 12,
-    fontFamily: 'Inter_400Regular',
-    marginTop: 2,
-  },
-  liveDot: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    gap: 5,
-  },
+  header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  headerTitle: { fontSize: 26, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
+  headerSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  liveDot: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, gap: 5 },
   liveDotInner: { width: 6, height: 6, borderRadius: 3 },
   liveText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 1 },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
-    marginBottom: 8,
-  },
-  searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular' },
-  manualScanBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-    marginHorizontal: 12,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  manualScanText: { fontSize: 14, fontFamily: 'Inter_500Medium', flex: 1 },
-
-  // Card
-  card: {
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 8,
-    overflow: 'hidden',
-  },
-  row1: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  symbolCol: { width: 80 },
-  symbolRow: { flexDirection: 'row', alignItems: 'baseline' },
-  symbolBase: { fontSize: 16, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
-  symbolQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
-  volumeText: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
-  badgeCol: { flex: 1, alignItems: 'flex-start', minWidth: 0 },
-  badge: {
-    borderWidth: 1,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  badgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
-  priceCol: { alignItems: 'flex-end', width: 80 },
-  price: { fontSize: 13, fontFamily: 'Inter_600SemiBold', letterSpacing: -0.3 },
-  changePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    marginTop: 3,
-  },
-  changeText: { fontSize: 10, fontFamily: 'Inter_500Medium' },
-
-  // Row 2 metrics
-  row2: {
-    flexDirection: 'row',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  metricItem: { flex: 1, alignItems: 'center', gap: 2 },
-  metricLabel: { fontSize: 8, fontFamily: 'Inter_500Medium', letterSpacing: 0.4 },
-  metricValue: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
-  metricDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
-
-  // States
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-    gap: 10,
-  },
-  loadingText: { fontSize: 14, fontFamily: 'Inter_400Regular', marginTop: 8 },
-  errorTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center', marginTop: 8 },
-  errorSub: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
-  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 8 },
-  retryText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  tabSwitcher: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, overflow: 'hidden', height: 38 },
+  tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8 },
+  inputArea: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 8 },
+  inputBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  inputText: { flex: 1, fontSize: 15, fontFamily: 'Inter_400Regular' },
+  analyzeBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, justifyContent: 'center' },
+  analyzeBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
+  emptyTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
+  emptyDesc: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 20 },
+  retryBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
+  retryText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  section: { marginHorizontal: 12, marginTop: 12, borderRadius: 12, borderWidth: 1, padding: 14 },
+  sectionTitle: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1, marginBottom: 10 },
+  pairTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
+  timestamp: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  messageBox: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 8, marginTop: 10, borderRadius: 4 },
+  messageText: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 20 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
+  infoLabel: { fontSize: 13, fontFamily: 'Inter_400Regular' },
+  infoValue: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
+  levelCard: { borderRadius: 10, borderWidth: 1, padding: 14, marginBottom: 12, alignItems: 'center' },
+  levelCardLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1 },
+  levelCardPrice: { fontSize: 28, fontFamily: 'Inter_700Bold', marginVertical: 4 },
+  levelCardSub: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  filterItem: { fontSize: 12, fontFamily: 'Inter_400Regular', paddingVertical: 4, lineHeight: 20 },
+  statusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, flexShrink: 1 },
+  statusBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
+  scoreBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  scoreBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
 });

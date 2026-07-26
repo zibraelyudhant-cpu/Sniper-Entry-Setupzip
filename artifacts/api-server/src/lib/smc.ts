@@ -3398,6 +3398,305 @@ function simulateTrade(
   return { result: 'EXPIRED', exitPrice: futureHighs[limit - 1] ?? entryPrice, rr: 0 };
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Menu 1 — Breakout Entry (konsolidasi H4 → breakout tervolume → retest → entry)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface BreakoutTradingResult {
+  status: 'ready' | 'waiting' | 'approaching' | 'in_zone' | 'expired' | 'no_setup' | 'skip' | 'error';
+  symbol: string;
+  bias?: 'bullish' | 'bearish';
+  breakoutType?: 'continuation' | 'reversal';
+  currentPrice: number;
+  timestamp: string;
+  message?: string;
+  score?: number;
+  maxScore: number;
+  consolidationHigh?: number;
+  consolidationLow?: number;
+  consolidationCandles?: number;
+  brokenLevel?: number;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number; // measured move (target utama)
+  takeProfit2?: number; // extended 1.618x (target bonus)
+  rr1?: number;
+  volumeRatio?: number;
+  filterResults?: string[];
+  // Khusus status 'ready' (belum breakout, masih konsolidasi matang) — pasang stop order duluan
+  buyStopPrice?: number;
+  sellStopPrice?: number;
+  rangeHeight?: number;
+  leanBias?: 'bullish' | 'bearish' | 'neutral'; // kecenderungan arah dari struktur internal konsolidasi
+  // Anticipation Entry — entry di dalam konsolidasi sebelum breakout, searah trend besar
+  anticipationEntry?: {
+    direction: 'bullish' | 'bearish';
+    entryPrice: number; // deket support (bullish) / resistance (bearish)
+    stopLoss: number; // tight, di luar entry point
+    sizeNote: string; // saran position sizing
+    trendContext: string; // penjelasan trend besar yang mendasari
+  };
+}
+
+export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTradingResult> {
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'long', year: 'numeric',
+  }) + ' WIB';
+  const maxScore = 5;
+  const filterResults: string[] = [];
+
+  try {
+    const [h4, tickerRes] = await Promise.all([
+      fetchKlines(symbol, '4h', 200), // fokus H4, 200 candle ke belakang (~33 hari)
+      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
+    ]);
+    const currentPrice = tickerRes.ok
+      ? parseFloat((await tickerRes.json() as { price: string }).price)
+      : h4.closes[h4.closes.length - 1]!;
+
+    const n = h4.closes.length;
+    if (n < 60) {
+      return { status: 'error', symbol, currentPrice, timestamp, message: 'Data H4 tidak cukup', maxScore };
+    }
+
+    // ── Cari konsolidasi + breakout tervolume ────────────────────────────
+    // Coba beberapa breakoutIdx (candle 1-6 terakhir) x beberapa durasi window konsolidasi (40/25/15 candle),
+    // pilih yang paling baru & paling valid (tightest range + touches cukup).
+    let best: {
+      breakoutIdx: number; consolHigh: number; consolLow: number; consolStart: number;
+      bias: 'bullish' | 'bearish'; volRatio: number;
+    } | null = null;
+
+    const windowSizes = [40, 25, 15];
+    outer: for (let bIdx = n - 1; bIdx >= n - 6 && bIdx >= 20; bIdx--) {
+      for (const winSize of windowSizes) {
+        const consolStart = bIdx - winSize;
+        if (consolStart < 5) continue;
+        const wh = h4.highs.slice(consolStart, bIdx);
+        const wl = h4.lows.slice(consolStart, bIdx);
+        const consolHigh = Math.max(...wh);
+        const consolLow = Math.min(...wl);
+        const widthPct = ((consolHigh - consolLow) / consolLow) * 100;
+        if (widthPct > 12) continue; // range harus ketat
+
+        // Hitung touches: candle yang high-nya deket consolHigh atau low-nya deket consolLow (radius 0.5%)
+        let resTouches = 0, supTouches = 0;
+        for (let i = 0; i < wh.length; i++) {
+          if (Math.abs(wh[i]! - consolHigh) / consolHigh <= 0.005) resTouches++;
+          if (Math.abs(wl[i]! - consolLow) / consolLow <= 0.005) supTouches++;
+        }
+        if (resTouches < 2 || supTouches < 2) continue;
+
+        // Cek breakout candle: close tembus level dengan margin, close jadi patokan (bukan wick)
+        const breakoutClose = h4.closes[bIdx]!;
+        let bias: 'bullish' | 'bearish' | null = null;
+        if (breakoutClose > consolHigh * 1.003) bias = 'bullish';
+        else if (breakoutClose < consolLow * 0.997) bias = 'bearish';
+        if (!bias) continue;
+
+        // Volume breakout candle wajib >= 1.5x rata-rata 20 candle sebelumnya
+        const volWindow = h4.volumes.slice(Math.max(0, bIdx - 20), bIdx);
+        const avgVol = volWindow.length > 0 ? volWindow.reduce((a, b) => a + b, 0) / volWindow.length : 0;
+        const breakoutVol = h4.volumes[bIdx]!;
+        const volRatio = avgVol > 0 ? breakoutVol / avgVol : 0;
+        if (volRatio < 1.5) continue;
+
+        // Valid — window dicoba dari terpanjang ke terpendek, jadi ini otomatis yang terbaik buat bIdx ini.
+        // bIdx dicoba dari yang paling baru, jadi begitu ketemu langsung dipakai & stop cari.
+        best = { breakoutIdx: bIdx, consolHigh, consolLow, consolStart, bias, volRatio };
+        break outer;
+      }
+    }
+
+    if (!best) {
+      // ── Fallback: cari konsolidasi MATANG yang belum breakout ──────────
+      // Kriteria "matang": range ketat + touches cukup + durasi panjang (≥20 candle)
+      // Beda dari deteksi breakout: di sini candle TERAKHIR justru harus MASIH di dalam range.
+      let ready: {
+        consolHigh: number; consolLow: number; consolStart: number; leanBias: 'bullish' | 'bearish' | 'neutral';
+      } | null = null;
+
+      for (const winSize of [60, 40, 25, 20]) {
+        const consolStart = n - winSize;
+        if (consolStart < 5) continue;
+        const wh = h4.highs.slice(consolStart, n);
+        const wl = h4.lows.slice(consolStart, n);
+        const wc = h4.closes.slice(consolStart, n);
+        const consolHigh = Math.max(...wh);
+        const consolLow = Math.min(...wl);
+        const widthPct = ((consolHigh - consolLow) / consolLow) * 100;
+        if (widthPct > 12) continue;
+
+        let resTouches = 0, supTouches = 0;
+        for (let i = 0; i < wh.length; i++) {
+          if (Math.abs(wh[i]! - consolHigh) / consolHigh <= 0.005) resTouches++;
+          if (Math.abs(wl[i]! - consolLow) / consolLow <= 0.005) supTouches++;
+        }
+        if (resTouches < 2 || supTouches < 2) continue;
+
+        // Candle terakhir wajib MASIH di dalam range (belum breakout)
+        const lastClose = wc[wc.length - 1]!;
+        if (lastClose > consolHigh || lastClose < consolLow) continue;
+
+        // Lean bias: bandingin posisi 5 candle terakhir relatif ke tengah range
+        const mid = (consolHigh + consolLow) / 2;
+        const recent5 = wc.slice(-5);
+        const avgRecent = recent5.reduce((a, b) => a + b, 0) / recent5.length;
+        const leanBias: 'bullish' | 'bearish' | 'neutral' =
+          avgRecent > mid * 1.01 ? 'bullish' : avgRecent < mid * 0.99 ? 'bearish' : 'neutral';
+
+        ready = { consolHigh, consolLow, consolStart, leanBias };
+        break; // window terpanjang yang valid duluan dipakai (konsolidasi paling matang)
+      }
+
+      if (!ready) {
+        return { status: 'no_setup', symbol, currentPrice, timestamp, message: 'Tidak ada breakout atau konsolidasi matang dalam 200 candle terakhir', maxScore, filterResults };
+      }
+
+      const rangeHeight = ready.consolHigh - ready.consolLow;
+      const buyStopPrice = ready.consolHigh * 1.003;
+      const sellStopPrice = ready.consolLow * 0.997;
+      const candles = n - ready.consolStart;
+      const leanMsg = ready.leanBias === 'bullish' ? ' (kecenderungan ke atas)' : ready.leanBias === 'bearish' ? ' (kecenderungan ke bawah)' : '';
+
+      // ── Anticipation Entry: entry DI DALAM konsolidasi, searah trend besar ──
+      // Cuma muncul kalau ada trend jelas sebelum konsolidasi (bukan ranging).
+      // Konsep: beli deket support kalau trend besar naik (atau jual deket resistance kalau turun),
+      // posisi kecil dulu, tambah setelah breakout beneran terkonfirmasi.
+      const trendPreStart = Math.max(0, ready.consolStart - 20);
+      const trendPreStruct = analyzePriceActionStructure(
+        h4.highs.slice(trendPreStart, ready.consolStart),
+        h4.lows.slice(trendPreStart, ready.consolStart),
+        h4.closes.slice(trendPreStart, ready.consolStart)
+      );
+      const atrH4Ready = calcATR(h4.highs, h4.lows, h4.closes);
+      let anticipationEntry: BreakoutTradingResult['anticipationEntry'] = undefined;
+      if (trendPreStruct.bias === 'bullish') {
+        const entryPrice = ready.consolLow * 1.005; // deket support, sedikit di atasnya
+        anticipationEntry = {
+          direction: 'bullish',
+          entryPrice,
+          stopLoss: ready.consolLow - atrH4Ready * 0.3, // tight, di bawah support
+          sizeNote: 'Posisi kecil (±40%) di sini, tambah sisanya setelah breakout ke atas terkonfirmasi + volume',
+          trendContext: `Trend H4 sebelum konsolidasi: bullish (${trendPreStruct.strength}) — anticipation buy di deket support`,
+        };
+      } else if (trendPreStruct.bias === 'bearish') {
+        const entryPrice = ready.consolHigh * 0.995; // deket resistance, sedikit di bawahnya
+        anticipationEntry = {
+          direction: 'bearish',
+          entryPrice,
+          stopLoss: ready.consolHigh + atrH4Ready * 0.3, // tight, di atas resistance
+          sizeNote: 'Posisi kecil (±40%) di sini, tambah sisanya setelah breakout ke bawah terkonfirmasi + volume',
+          trendContext: `Trend H4 sebelum konsolidasi: bearish (${trendPreStruct.strength}) — anticipation sell di deket resistance`,
+        };
+      }
+      // Kalau trend sebelumnya ranging juga — gak ada anticipation entry, cuma stop order dua sisi
+      // (false breakout risk terlalu tinggi tanpa trend besar yang jelas mendukung satu arah)
+
+      const filterResultsReady: string[] = [
+        `✅ Konsolidasi matang: ${ready.consolLow.toFixed(4)}–${ready.consolHigh.toFixed(4)} (${candles} candle)`,
+        `ℹ️ Belum breakout${leanMsg} — pasang Buy Stop di ${buyStopPrice.toFixed(4)} & Sell Stop di ${sellStopPrice.toFixed(4)}`,
+      ];
+      if (anticipationEntry) {
+        filterResultsReady.push(`🎯 ${anticipationEntry.trendContext}`);
+        filterResultsReady.push(`⚠️ Anticipation entry tetap berisiko — probabilitas false breakout riset independen 60-70%, wajib posisi kecil + SL ketat`);
+      } else {
+        filterResultsReady.push(`⚠️ Trend sebelum konsolidasi ranging — gak ada anticipation entry, arah belum pasti. Risiko false breakout lebih tinggi dari entry retest biasa`);
+      }
+
+      return {
+        status: 'ready', symbol, currentPrice, timestamp, maxScore,
+        score: 3,
+        consolidationHigh: ready.consolHigh, consolidationLow: ready.consolLow,
+        consolidationCandles: candles,
+        buyStopPrice, sellStopPrice, rangeHeight, leanBias: ready.leanBias,
+        anticipationEntry,
+        filterResults: filterResultsReady,
+        message: `SIAP BREAKOUT — Konsolidasi matang${leanMsg}${anticipationEntry ? ', ada anticipation entry' : ''}`,
+      };
+    }
+
+    let score = 0;
+    score++;
+    filterResults.push(`✅ Konsolidasi H4: ${best.consolLow.toFixed(4)}–${best.consolHigh.toFixed(4)} (${best.breakoutIdx - best.consolStart} candle)`);
+    score++;
+    filterResults.push(`✅ Breakout ${best.bias === 'bullish' ? 'ke atas' : 'ke bawah'} dengan volume ${best.volRatio.toFixed(1)}x rata-rata`);
+
+    // ── Tentuin continuation vs reversal — bandingin trend sebelum konsolidasi ──
+    const preStart = Math.max(0, best.consolStart - 20);
+    const preStruct = analyzePriceActionStructure(
+      h4.highs.slice(preStart, best.consolStart),
+      h4.lows.slice(preStart, best.consolStart),
+      h4.closes.slice(preStart, best.consolStart)
+    );
+    const breakoutType: 'continuation' | 'reversal' =
+      preStruct.bias === best.bias ? 'continuation' : preStruct.bias !== 'ranging' ? 'reversal' : 'continuation';
+    score++;
+    filterResults.push(`✅ Tipe: ${breakoutType === 'continuation' ? 'Continuation (lanjutan trend)' : 'Reversal (perubahan arah trend)'}`);
+
+    // ── Entry, SL, TP ─────────────────────────────────────────────────────
+    const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
+    const bufferH4 = atrH4 * 0.3;
+    const brokenLevel = best.bias === 'bullish' ? best.consolHigh : best.consolLow;
+    const entryPrice = brokenLevel;
+    const stopLoss = best.bias === 'bullish' ? brokenLevel - bufferH4 : brokenLevel + bufferH4;
+    const height = best.consolHigh - best.consolLow;
+    const dir = best.bias === 'bullish' ? 1 : -1;
+    const takeProfit1 = brokenLevel + height * dir; // measured move
+    const takeProfit2 = brokenLevel + height * 1.618 * dir; // extended target
+
+    const risk = Math.abs(entryPrice - stopLoss);
+    if (risk <= 0) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, message: 'Risk tidak valid', maxScore, filterResults };
+    }
+    const rr1 = Math.round((Math.abs(takeProfit1 - entryPrice) / risk) * 10) / 10;
+    score++;
+    filterResults.push(`✅ Entry di level breakout ${brokenLevel.toFixed(4)}, target measured move ${takeProfit1.toFixed(4)} (R:R ${rr1})`);
+
+    // ── Status: WAITING → MENDEKATI → BAGUS (retest) atau EXPIRED (gagal) ──
+    let status: BreakoutTradingResult['status'] = 'waiting';
+    const retestDistPct = best.bias === 'bullish'
+      ? ((currentPrice - brokenLevel) / brokenLevel) * 100
+      : ((brokenLevel - currentPrice) / brokenLevel) * 100;
+
+    if (best.bias === 'bullish' ? currentPrice < stopLoss : currentPrice > stopLoss) {
+      status = 'expired'; // breakout gagal, harga udah balik ke bawah level + buffer
+    } else if (retestDistPct >= -0.3 && retestDistPct <= 0.3) {
+      status = 'in_zone'; // harga udah nyentuh level breakout — retest terjadi
+      score++;
+      filterResults.push(`✅ Harga sudah retest level ${brokenLevel.toFixed(4)}`);
+    } else if (retestDistPct > 0.3 && retestDistPct <= (atrH4 / brokenLevel) * 100) {
+      status = 'approaching'; // harga mendekati level, dalam radius 1x ATR H4
+    } else if (retestDistPct > (atrH4 / brokenLevel) * 100) {
+      status = 'waiting'; // masih jauh dari level, belum ada tanda mau retest
+    } else {
+      status = 'expired'; // retestDistPct negatif signifikan tapi belum kena SL — anggap invalid/whipsaw
+    }
+
+    // Time-based expiry: breakout kejadian > 40 candle H4 lalu (~6.7 hari) tanpa retest = basi
+    if (n - 1 - best.breakoutIdx > 40 && status !== 'in_zone') {
+      status = 'expired';
+    }
+
+    const statusMsg =
+      status === 'in_zone' ? `BAGUS — Harga sudah tersentuh level breakout, entry sekarang` :
+      status === 'approaching' ? `MENDEKATI — Harga menuju level breakout, siap pasang limit` :
+      status === 'waiting' ? `WAITING — Breakout terjadi, menunggu harga retest level` :
+      `EXPIRED — Breakout gagal atau sudah lewat waktu retest wajar`;
+
+    return {
+      status, symbol, bias: best.bias, breakoutType, currentPrice, timestamp, score, maxScore,
+      consolidationHigh: best.consolHigh, consolidationLow: best.consolLow,
+      consolidationCandles: best.breakoutIdx - best.consolStart,
+      brokenLevel, entryPrice, stopLoss, takeProfit1, takeProfit2, rr1,
+      volumeRatio: best.volRatio, filterResults, message: statusMsg,
+    };
+  } catch (err) {
+    return { status: 'error', symbol, currentPrice: 0, timestamp, message: err instanceof Error ? err.message : 'Unknown error', maxScore };
+  }
+}
+
 function getPeriodLimit(period: '1m' | '3m' | '6m' | '1y' | 'all', allH1Candles?: number): number {
   // H1 candles needed
   const map: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640 };
@@ -3409,7 +3708,8 @@ export async function runBacktest(
   symbol: string,
   period: '1m' | '3m' | '6m' | '1y' | 'all',
   menu: 'sniper' | 'breakout' | 'scalping' | 'both',
-  allH1Candles?: number
+  allH1Candles?: number,
+  useZigZag: boolean = true
 ): Promise<BacktestResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
@@ -3519,8 +3819,10 @@ export async function runBacktest(
       const bias = structH4.bias as 'bullish' | 'bearish';
 
       // HARD FILTER: konfirmasi ZigZag (threshold 3%, proxy D1 dari H4 slice)
-      const zzD1proxy = zigzagBias(h4Slice.highs, h4Slice.lows, 3);
-      if (zzD1proxy.bias === 'ranging' || zzD1proxy.bias !== bias) continue;
+      if (useZigZag) {
+        const zzD1proxy = zigzagBias(h4Slice.highs, h4Slice.lows, 3);
+        if (zzD1proxy.bias === 'ranging' || zzD1proxy.bias !== bias) continue;
+      }
 
       // Step 2: H1 zona — gunakan selectBestZoneH1 dengan existing functions
       const currentPrice = h1Slice.closes[h1Slice.closes.length - 1];
@@ -3659,8 +3961,10 @@ export async function runBacktest(
       const bias = structH4.bias as 'bullish' | 'bearish';
 
       // HARD FILTER: konfirmasi ZigZag H4 (threshold 3%)
-      const zzH4bt = zigzagBias(h4s.highs, h4s.lows, 3);
-      if (zzH4bt.bias === 'ranging' || zzH4bt.bias !== bias) continue;
+      if (useZigZag) {
+        const zzH4bt = zigzagBias(h4s.highs, h4s.lows, 3);
+        if (zzH4bt.bias === 'ranging' || zzH4bt.bias !== bias) continue;
+      }
 
       // EMA34 H4 — info saja (bukan hard filter, sesuai live)
       const ema34H4 = (() => {

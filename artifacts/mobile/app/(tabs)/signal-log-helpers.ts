@@ -3,7 +3,7 @@ import { StyleSheet } from "react-native";
 
 export interface SignalLog {
   id: string;
-  menu: "sniper" | "scalping";
+  menu: "sniper" | "scalping" | "breakout_entry";
   symbol: string;
   bias: "bullish" | "bearish";
   entryPrice: number;
@@ -24,6 +24,7 @@ export interface SignalLog {
 
 export const STORAGE_KEY_SNIPER = "signal_logs_sniper";
 export const STORAGE_KEY_SCALPING = "signal_logs_scalping";
+export const STORAGE_KEY_BREAKOUT_ENTRY = "signal_logs_breakout_entry";
 
 export async function loadLogs(key: string): Promise<SignalLog[]> {
   try { const raw = await AsyncStorage.getItem(key); return raw ? JSON.parse(raw) : []; }
