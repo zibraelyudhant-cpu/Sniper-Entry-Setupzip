@@ -3697,18 +3697,16 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
   }
 }
 
-function getPeriodLimit(period: '1m' | '3m' | '6m' | '1y' | 'all', allH1Candles?: number): number {
+function getPeriodLimit(period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y'): number {
   // H1 candles needed
-  const map: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640 };
-  if (period === 'all' && allH1Candles) return allH1Candles;
+  const map: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640, '2y': 17280, '3y': 25920 };
   return map[period] ?? 8640;
 }
 
 export async function runBacktest(
   symbol: string,
-  period: '1m' | '3m' | '6m' | '1y' | 'all',
+  period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y',
   menu: 'sniper' | 'breakout' | 'scalping' | 'both',
-  allH1Candles?: number,
   useZigZag: boolean = true
 ): Promise<BacktestResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
@@ -3716,10 +3714,8 @@ export async function runBacktest(
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
 
-  const limit = getPeriodLimit(period, allH1Candles);
-  const periodLabel = period === 'all'
-    ? `Sejak Listing — maks 3 tahun (${Math.round(limit / 720)} bulan)`
-    : { '1m': '1 Bulan', '3m': '3 Bulan', '6m': '6 Bulan', '1y': '1 Tahun' }[period]!;
+  const limit = getPeriodLimit(period);
+  const periodLabel = { '1m': '1 Bulan', '3m': '3 Bulan', '6m': '6 Bulan', '1y': '1 Tahun', '2y': '2 Tahun', '3y': '3 Tahun' }[period]!;
 
   // Fetch data historis H4 dan H1 dalam batch (max 1500 per request)
   async function fetchHistorical(interval: string, totalLimit: number): Promise<KlineData> {

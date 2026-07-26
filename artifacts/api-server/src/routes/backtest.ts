@@ -53,7 +53,7 @@ router.get('/backtest/listing-info', async (req, res) => {
 router.post('/backtest', async (req, res) => {
   const { symbol, period, menu } = req.body as {
     symbol: string;
-    period: '1m' | '3m' | '6m' | '1y' | 'all';
+    period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y';
     menu: 'sniper' | 'breakout' | 'scalping' | 'both';
   };
 
@@ -67,25 +67,7 @@ router.post('/backtest', async (req, res) => {
     : `${symbol.toUpperCase()}USDT`;
 
   try {
-    // Kalau period = 'all', fetch listing info dulu untuk tau total candle
-    let finalPeriod: '1m' | '3m' | '6m' | '1y' | 'all' = period;
-    let allH1Candles: number | undefined;
-
-    if (period === 'all') {
-      const infoUrl = `${BINANCE_FUTURES_BASE}/fapi/v1/klines?symbol=${normalized}&interval=1h&limit=1&startTime=0`;
-      const infoRes = await fetch(infoUrl);
-      if (infoRes.ok) {
-        const infoData: number[][] = await infoRes.json();
-        if (infoData.length) {
-          const diffMs = Date.now() - infoData[0][0];
-          const totalH1 = Math.floor(diffMs / (1000 * 60 * 60));
-          // Cap maksimal 3 tahun (26280 candle) supaya tidak timeout
-          allH1Candles = Math.min(totalH1, 26280);
-        }
-      }
-    }
-
-    const result = await runBacktest(normalized, finalPeriod, menu, allH1Candles);
+    const result = await runBacktest(normalized, period, menu);
     res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

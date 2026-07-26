@@ -60,6 +60,23 @@ function Row({ label, value, valueColor, mono }: RowProps) {
   );
 }
 
+// ─── Max Leverage per koin (approksimasi tier Binance Futures) ────────────────
+// PENTING: Binance gak punya endpoint publik buat max leverage per simbol
+// (endpoint aslinya /fapi/v1/leverageBracket butuh API key). Ini tabel manual
+// berdasarkan tier likuiditas & cap yang umum dipublikasikan Binance.
+// Default fallback 20x buat koin yang gak ada di daftar (konservatif, aman).
+const MAX_LEVERAGE_TABLE: Record<string, number> = {
+  BTCUSDT: 125, ETHUSDT: 125,
+  BNBUSDT: 100,
+  SOLUSDT: 75, XRPUSDT: 75, DOGEUSDT: 75, ADAUSDT: 75,
+  AVAXUSDT: 50, LINKUSDT: 50, LTCUSDT: 50, DOTUSDT: 50, TRXUSDT: 50,
+  NEARUSDT: 50, ATOMUSDT: 50, UNIUSDT: 50, ETCUSDT: 50, FILUSDT: 50,
+  APTUSDT: 50, ARBUSDT: 50, OPUSDT: 50, SUIUSDT: 50, INJUSDT: 50,
+};
+function getMaxLeverage(sym: string): number {
+  return MAX_LEVERAGE_TABLE[sym.toUpperCase()] ?? 20;
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function CalculatorScreen() {
@@ -116,7 +133,8 @@ export default function CalculatorScreen() {
       setSide(params.direction === 'bearish' ? 'short' : 'long');
     }
   }, [params.entryPrice, params.stopLoss, params.takeProfit1, params.takeProfit2, params.symbol, params.direction]);
-  const leverage = Math.min(Math.max(parseFloat(leverageStr) || 1, 1), 125);
+  const maxLeverage = getMaxLeverage(symbol);
+  const leverage = Math.min(Math.max(parseFloat(leverageStr) || 1, 1), maxLeverage);
   const showLevWarning = leverage > 20;
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
@@ -263,7 +281,12 @@ export default function CalculatorScreen() {
         {/* ── LEVERAGE ───────────────────────────────────────────────────── */}
         <Section title="LEVERAGE">
           <View style={styles.levRow}>
-            <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Leverage</Text>
+            <View>
+              <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Leverage</Text>
+              <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 2 }}>
+                Maks {maxLeverage}x {symbol ? `untuk ${base}` : '(default umum — buka dari menu lain untuk data akurat)'}
+              </Text>
+            </View>
             <View style={styles.inputRight}>
               <TextInput
                 style={[styles.inputField, { color: colors.foreground }]}
@@ -278,7 +301,10 @@ export default function CalculatorScreen() {
             </View>
           </View>
           <View style={styles.presets}>
-            {[1, 5, 10, 20, 50, 125].map(p => (
+            {[1, 5, 10, 20, Math.round(maxLeverage / 2), maxLeverage]
+              .filter((p, i, arr) => p <= maxLeverage && arr.indexOf(p) === i)
+              .sort((a, b) => a - b)
+              .map(p => (
               <Pressable
                 key={p}
                 onPress={() => handleLeverageChange(String(p))}

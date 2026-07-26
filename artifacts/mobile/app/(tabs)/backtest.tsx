@@ -216,7 +216,8 @@ const PERIODS = [
   { label: '3 Bulan', value: '3m' },
   { label: '6 Bulan', value: '6m' },
   { label: '1 Tahun', value: '1y' },
-  { label: 'Sejak Listing', value: 'all' },
+  { label: '2 Tahun', value: '2y' },
+  { label: '3 Tahun', value: '3y' },
 ] as const;
 
 const MENUS = [
@@ -232,47 +233,14 @@ export default function BacktestScreen() {
   const bottomPadding = insets.bottom + 80;
 
   const [symbol, setSymbol] = useState('');
-  const [period, setPeriod] = useState<'1m' | '3m' | '6m' | '1y' | 'all'>('3m');
+  const [period, setPeriod] = useState<'1m' | '3m' | '6m' | '1y' | '2y' | '3y'>('3m');
   const [menu, setMenu] = useState<'sniper' | 'breakout' | 'both'>('both');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [listingInfo, setListingInfo] = useState<{ ageLabel: string; listingDate: string; h1Candles: number } | null>(null);
-  const [listingLoading, setListingLoading] = useState(false);
 
-  const fetchListingInfo = async (sym: string) => {
-    if (!sym.trim()) return;
-    setListingLoading(true);
-    setListingInfo(null);
-    try {
-      const normalized = sym.trim().toUpperCase().endsWith('USDT')
-        ? sym.trim().toUpperCase() : `${sym.trim().toUpperCase()}USDT`;
-      const apiUrl = typeof window !== 'undefined'
-        ? `${window.location.origin}/api/backtest/listing-info?symbol=${normalized}`
-        : `https://${process.env.EXPO_PUBLIC_DOMAIN}/api/backtest/listing-info?symbol=${normalized}`;
-      const res = await fetch(apiUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setListingInfo({ ageLabel: data.ageLabel, listingDate: data.listingDate, h1Candles: data.h1Candles });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setListingLoading(false);
-    }
-  }
-
-  // Auto-fetch listing info kalau period 'all' dan symbol sudah ada
-  useEffect(() => {
-    if (period === 'all' && symbol.trim()) {
-      fetchListingInfo(symbol);
-    } else if (period !== 'all') {
-      setListingInfo(null);
-    }
-  }, [period, symbol]);;
-
-  const handlePeriodSelect = (val: '1m' | '3m' | '6m' | '1y' | 'all') => {
+  const handlePeriodSelect = (val: '1m' | '3m' | '6m' | '1y' | '2y' | '3y') => {
     setPeriod(val);
-    if (val === 'all' && symbol.trim()) fetchListingInfo(symbol);
   };
 
   const runBacktest = async () => {
@@ -372,36 +340,10 @@ export default function BacktestScreen() {
           ))}
         </View>
 
-        {/* Listing info — tampil kalau pilih Sejak Listing */}
-        {period === 'all' && (
-          <View style={[styles.listingInfo, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {listingLoading ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : listingInfo ? (
-              <>
-                <Text style={[styles.listingTitle, { color: colors.foreground }]}>
-                  📅 Listed {listingInfo.ageLabel} lalu
-                </Text>
-                <Text style={[styles.listingDate, { color: colors.mutedForeground }]}>
-                  Sejak {listingInfo.listingDate} · {listingInfo.h1Candles.toLocaleString()} candle H1
-                </Text>
-              </>
-            ) : symbol.trim() ? (
-              <Text style={[styles.listingDate, { color: colors.mutedForeground }]}>
-                Ketuk "Sejak Listing" lagi atau masukkan symbol untuk fetch info listing
-              </Text>
-            ) : (
-              <Text style={[styles.listingDate, { color: colors.mutedForeground }]}>
-                Masukkan symbol untuk lihat info listing
-              </Text>
-            )}
-          </View>
-        )}
-
         {/* Warning loading time */}
         <Text style={[styles.warningText, { color: colors.mutedForeground }]}>
-          {period === 'all'
-            ? '⏱ Backtest sejak listing bisa membutuhkan beberapa menit'
+          {period === '2y' || period === '3y'
+            ? '⏱ Backtest 2-3 tahun bisa membutuhkan beberapa menit'
             : '⏱ Backtest 6 bulan / 1 tahun membutuhkan 30-60 detik'}
         </Text>
 
@@ -527,9 +469,6 @@ const styles = StyleSheet.create({
   toggleText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
 
   warningText: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 8, marginBottom: 12 },
-  listingInfo: { borderRadius: 10, borderWidth: 1, padding: 12, marginTop: 8, gap: 4 },
-  listingTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-  listingDate: { fontSize: 12, fontFamily: 'Inter_400Regular' },
 
   runBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
   runBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
