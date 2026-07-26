@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
 import {
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +16,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 
 import { useLocalSearchParams } from 'expo-router';
+import { MENU_COLORS } from '@/constants/theme';
+
+const ACCENT = MENU_COLORS.calculator;
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -43,6 +47,39 @@ function Section({ title, children }: SectionProps) {
     <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>{title}</Text>
       {children}
+    </View>
+  );
+}
+
+// ─── Risk Bar — animasi warna & lebar mengikuti tingkat leverage ──────────────
+function RiskBar({ leverage, maxLeverage }: { leverage: number; maxLeverage: number }) {
+  const colors = useColors();
+  const pct = Math.min((leverage / maxLeverage) * 100, 100);
+  const widthAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(widthAnim, { toValue: pct, duration: 250, useNativeDriver: false }).start();
+  }, [pct, widthAnim]);
+
+  const level = pct < 40 ? 'aman' : pct < 70 ? 'sedang' : 'tinggi';
+  const color = level === 'aman' ? colors.bullish : level === 'sedang' ? colors.gold : colors.bearish;
+  const label = level === 'aman' ? 'RISIKO: AMAN' : level === 'sedang' ? 'RISIKO: SEDANG' : 'RISIKO: TINGGI';
+
+  return (
+    <View style={{ marginTop: 10 }}>
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.background, overflow: 'hidden' }}>
+        <Animated.View
+          style={{
+            height: '100%',
+            borderRadius: 3,
+            backgroundColor: color,
+            width: widthAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }),
+          }}
+        />
+      </View>
+      <Text style={{ fontSize: 9, color, marginTop: 4, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.5 }}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -310,7 +347,7 @@ export default function CalculatorScreen() {
                 onPress={() => handleLeverageChange(String(p))}
                 style={[styles.presetBtn, {
                   borderColor: colors.border,
-                  backgroundColor: leverage === p ? colors.primary : colors.background,
+                  backgroundColor: leverage === p ? ACCENT : colors.background,
                 }]}
               >
                 <Text style={[styles.presetText, { color: leverage === p ? '#fff' : colors.mutedForeground }]}>
@@ -319,6 +356,7 @@ export default function CalculatorScreen() {
               </Pressable>
             ))}
           </View>
+          <RiskBar leverage={leverage} maxLeverage={maxLeverage} />
           {showLevWarning && (
             <Text style={{ fontSize: 12, color: '#F59E0B', marginTop: 8 }}>
               ⚠ Leverage tinggi meningkatkan risiko likuidasi
@@ -382,7 +420,7 @@ export default function CalculatorScreen() {
                   onPress={() => setMarginMode(mode)}
                   style={[
                     styles.toggleBtn,
-                    marginMode === mode && { backgroundColor: colors.primary },
+                    marginMode === mode && { backgroundColor: ACCENT },
                   ]}
                 >
                   <Text style={[

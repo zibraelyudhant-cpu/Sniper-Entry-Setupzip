@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Platform, View } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AnimatedSplash } from '@/components/animated/AnimatedSplash';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -30,11 +32,34 @@ const queryClient = new QueryClient({
 });
 
 function RootLayoutNav() {
-  return (
+  const stack = (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
     </Stack>
   );
+
+  // Web: batasin lebar konten kayak simulasi HP (centered), biar gak stretch
+  // penuh ke lebar browser desktop. Mobile app asli gak kena efek ini sama sekali.
+  if (Platform.OS === 'web') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <View
+          style={{
+            flex: 1,
+            width: '100%',
+            maxWidth: 480,
+            alignSelf: 'center',
+            // @ts-expect-error - boxShadow valid di web (react-native-web), gak dikenal di type RN native
+            boxShadow: '0 0 60px rgba(0,0,0,0.5)',
+          }}
+        >
+          {stack}
+        </View>
+      </View>
+    );
+  }
+
+  return stack;
 }
 
 export default function RootLayout() {
@@ -44,6 +69,7 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -60,6 +86,7 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <RootLayoutNav />
+              {showSplash && <AnimatedSplash onFinish={() => setShowSplash(false)} />}
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

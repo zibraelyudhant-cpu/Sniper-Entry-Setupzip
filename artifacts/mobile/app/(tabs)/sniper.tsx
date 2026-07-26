@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ActivityIndicator,
+  Animated,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +18,15 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useGetSmcAnalysis, useGetSniperScan } from '@workspace/api-client-react';
 import type { SniperResult } from '@workspace/api-client-react';
+import { AnimatedCard } from '@/components/animated/AnimatedCard';
+import { DirectionalCard } from '@/components/animated/DirectionalCard';
+import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
+import { ScanLoading } from '@/components/animated/ScanLoading';
+import { LogResultBadge } from '@/components/animated/LogResultBadge';
+import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { MENU_COLORS } from '@/constants/theme';
+
+const ACCENT = MENU_COLORS.sniper;
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -46,14 +56,16 @@ function formatTimestamp(ts: number): string {
 
 // ─── Section Components ───────────────────────────────────────────────────────
 
-interface SectionProps { title: string; children: React.ReactNode }
-function Section({ title, children }: SectionProps) {
+interface SectionProps { title: string; children: React.ReactNode; tint?: string; index?: number }
+function Section({ title, children, tint, index = 0 }: SectionProps) {
   const colors = useColors();
   return (
-    <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>{title}</Text>
-      {children}
-    </View>
+    <AnimatedCard index={index}>
+      <View style={[styles.section, tint ? { backgroundColor: `${tint}0F`, borderColor: `${tint}38` } : { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>{title}</Text>
+        {children}
+      </View>
+    </AnimatedCard>
   );
 }
 
@@ -210,7 +222,7 @@ function TrendBadge({
 
 function TrendSection({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   return (
-    <Section title="TREND">
+    <Section title="TREND" tint="#22D3EE" index={0}>
       <View style={styles.trendRow}>
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                 {data.h4 && <TrendBadge label="D1" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
@@ -290,7 +302,7 @@ function ProbabilitySection({ data, colors }: { data: SniperResult; colors: Retu
   const label = prob >= 75 ? 'Tinggi' : prob >= 50 ? 'Sedang' : 'Rendah';
 
   return (
-    <Section title="PROBABILITAS PROFIT">
+    <Section title="PROBABILITAS PROFIT" tint="#FBBF24" index={1}>
       {/* Badge utama */}
       <View style={[styles.probHeader, { backgroundColor: `${badgeColor}15`, borderColor: badgeColor }]}>
         <Text style={[styles.probEmoji]}>🎯</Text>
@@ -329,7 +341,7 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
       <ProbabilitySection data={data} colors={colors} />
 
       {/* Main Entry Setup */}
-      <Section title="SNIPER ENTRY SETUP">
+      <Section title="SNIPER ENTRY SETUP" tint="#A78BFA" index={2}>
         {/* Header info */}
         <View style={[styles.entryHeader, { backgroundColor: colors.surfaceMid, borderRadius: 8, padding: 12, marginBottom: 12 }]}>
           <View style={styles.entryHeaderRow}>
@@ -634,16 +646,22 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
 
   const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
 
-  if (loading) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={colors.primary} /></View>;
+  if (loading) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={ACCENT} /></View>;
 
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
       {logs.length > 0 && (
         <View style={{ flexDirection: 'row', margin: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, justifyContent: 'space-around' }}>
-          {[{ v: `${wins}W`, c: '#22c55e', l: 'Win' }, { v: `${loses}L`, c: '#ef4444', l: 'Lose' }, { v: `${logs.filter(x => x.status === 'pending').length}`, c: colors.mutedForeground, l: 'Pending' }, { v: `${wr}%`, c: colors.foreground, l: 'Win Rate' }, { v: avgRR, c: colors.foreground, l: 'Avg R:R' }].map(item => (
-            <View key={item.l} style={{ alignItems: 'center', gap: 4 }}>
-              <Text style={{ fontSize: 18, fontFamily: 'Inter_700Bold', color: item.c }}>{item.v}</Text>
-              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>{item.l}</Text>
+          {[
+            { v: `${wins}`, c: '#4ADE80', bg: 'rgba(74,222,128,0.12)', l: 'WIN' },
+            { v: `${loses}`, c: '#F87171', bg: 'rgba(248,113,113,0.1)', l: 'LOSE' },
+            { v: `${logs.filter(x => x.status === 'pending').length}`, c: '#94A3B8', bg: 'rgba(148,163,184,0.08)', l: 'PENDING' },
+            { v: `${wr}%`, c: '#FBBF24', bg: 'rgba(251,191,36,0.12)', l: 'WIN RATE' },
+            { v: avgRR, c: ACCENT, bg: `${ACCENT}18`, l: 'AVG R:R' },
+          ].map(item => (
+            <View key={item.l} style={{ alignItems: 'center', gap: 4, backgroundColor: item.bg, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 6, minWidth: 52 }}>
+              <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: item.c }}>{item.v}</Text>
+              <Text style={{ fontSize: 8, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, letterSpacing: 0.3 }}>{item.l}</Text>
             </View>
           ))}
         </View>
@@ -656,17 +674,16 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
         </View>
       ) : (
         <View style={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}>
-          {logs.map(log => (
-            <View key={log.id} style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden' }}>
+          {logs.map((log, index) => (
+            <AnimatedCard key={log.id} index={index}>
+            <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden', borderLeftWidth: 3, borderLeftColor: log.status === 'win_tp1' || log.status === 'win_tp2' ? '#4ADE80' : log.status === 'lose' ? '#F87171' : '#6B7280' }}>
               <View style={{ flexDirection: 'row', padding: 12, alignItems: 'flex-start' }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
                   <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{log.timestamp}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, borderWidth: 1, borderColor: sc(log.status), backgroundColor: sc(log.status) + '18' }}>
-                    <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5, color: sc(log.status) }}>{sl(log.status)}</Text>
-                  </View>
+                  <LogResultBadge status={log.status} />
                   <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: log.bias === 'bullish' ? '#22c55e' : '#ef4444' }}>{log.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}</Text>
                 </View>
               </View>
@@ -695,9 +712,9 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
               <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>
                 {log.status === 'pending' && (
                   <Pressable onPress={() => doEval(log)} disabled={evaluating === log.id}
-                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primary + '15', opacity: pressed || evaluating === log.id ? 0.7 : 1 }]}>
-                    {evaluating === log.id ? <ActivityIndicator size={12} color={colors.primary} /> : <Feather name="search" size={12} color={colors.primary} />}
-                    <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.primary }}>{evaluating === log.id ? 'Evaluasi...' : 'Evaluasi'}</Text>
+                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: ACCENT + '15', opacity: pressed || evaluating === log.id ? 0.7 : 1 }]}>
+                    {evaluating === log.id ? <ActivityIndicator size={12} color={ACCENT} /> : <Feather name="search" size={12} color={ACCENT} />}
+                    <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>{evaluating === log.id ? 'Evaluasi...' : 'Evaluasi'}</Text>
                   </Pressable>
                 )}
                 <Pressable onPress={() => doDelete(log.id)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.7 : 1 }]}>
@@ -705,6 +722,7 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
                 </Pressable>
               </View>
             </View>
+            </AnimatedCard>
           ))}
         </View>
       )}
@@ -720,26 +738,35 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
 function ProbBadge({ prob, colors }: { prob: number; colors: ReturnType<typeof useColors> }) {
   const color = prob >= 75 ? colors.bullish : prob >= 50 ? colors.gold : colors.bearish;
   const label = prob >= 75 ? 'TINGGI' : prob >= 50 ? 'SEDANG' : 'RENDAH';
+  const [displayProb, setDisplayProb] = useState(0);
+  const animValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    animValue.setValue(0);
+    const listener = animValue.addListener(({ value }) => setDisplayProb(Math.round(value)));
+    Animated.timing(animValue, { toValue: prob, duration: 500, useNativeDriver: false }).start();
+    return () => animValue.removeListener(listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prob]);
+
   return (
     <View style={[scanStyles.probBadge, { borderColor: color, backgroundColor: `${color}18` }]}>
-      <Text style={[scanStyles.probBadgeText, { color }]}>{prob}% {label}</Text>
+      <Text style={[scanStyles.probBadgeText, { color }]}>{displayProb}% {label}</Text>
     </View>
   );
 }
 
 // ─── Scan Coin Card ───────────────────────────────────────────────────────────
 
-function ScanCoinCard({ coin, onPress, colors }: { coin: SniperResult; onPress: () => void; colors: ReturnType<typeof useColors> }) {
+function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult; onPress: () => void; colors: ReturnType<typeof useColors>; index?: number }) {
   const base = coin.symbol.replace('USDT', '');
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
   const prob = coin.profitProbability ?? 0;
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [scanStyles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
-    >
+    <AnimatedCard index={index} onPress={onPress}>
+    <DirectionalCard bias={coin.bias} style={scanStyles.card}>
       {/* Row 1: symbol + prob badge */}
       <View style={scanStyles.cardRow1}>
         <View style={{ flex: 1 }}>
@@ -818,7 +845,8 @@ function ScanCoinCard({ coin, onPress, colors }: { coin: SniperResult; onPress: 
           </Text>
         </View>
       </View>
-    </Pressable>
+    </DirectionalCard>
+    </AnimatedCard>
   );
 }
 
@@ -832,16 +860,16 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
       style={({ pressed }) => [{
         flexDirection: 'row', alignItems: 'center', gap: 5,
         paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
-        backgroundColor: `${colors.primary}15`,
-        borderWidth: 1, borderColor: colors.primary,
+        backgroundColor: `${ACCENT}15`,
+        borderWidth: 1, borderColor: ACCENT,
         opacity: pressed || isLoading ? 0.6 : 1,
       }]}
     >
       {isLoading
-        ? <ActivityIndicator size={10} color={colors.primary} />
-        : <Feather name="refresh-cw" size={11} color={colors.primary} />
+        ? <ActivityIndicator size={10} color={ACCENT} />
+        : <Feather name="refresh-cw" size={11} color={ACCENT} />
       }
-      <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.primary, letterSpacing: 0.5 }}>
+      <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: ACCENT, letterSpacing: 0.5 }}>
         {isLoading ? 'SCANNING...' : 'SCAN NOW'}
       </Text>
     </Pressable>
@@ -866,8 +894,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   if (isLoading) {
     return (
       <View style={scanStyles.center}>
-        <ActivityIndicator color={colors.primary} size="large" />
-        <Text style={[scanStyles.loadingText, { color: colors.mutedForeground }]}>Scanning sniper setup...</Text>
+        <ScanLoading label="SCANNING SNIPER" accentColor={ACCENT} />
         <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa H4→H1→15M tiap koin</Text>
       </View>
     );
@@ -878,7 +905,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={scanStyles.center}>
         <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
           <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
         </Pressable>
       </View>
@@ -896,7 +923,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
         <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>
           Tidak ada koin dengan probabilitas ≥ 30% saat ini.
         </Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: colors.primary }]}>
+        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
           <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
         </Pressable>
       </View>
@@ -921,19 +948,19 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       {high.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🟢 PROBABILITAS TINGGI (≥75%)</Text>
-          {high.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+          {high.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => handleCoinPress(c)} />)}
         </>
       )}
       {mid.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🟡 PROBABILITAS SEDANG (50–74%)</Text>
-          {mid.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+          {mid.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => handleCoinPress(c)} />)}
         </>
       )}
       {low.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.mutedForeground }]}>🔴 PROBABILITAS RENDAH (30–49%)</Text>
-          {low.map(c => <ScanCoinCard key={c.symbol} coin={c} colors={colors} onPress={() => handleCoinPress(c)} />)}
+          {low.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => handleCoinPress(c)} />)}
         </>
       )}
     </ScrollView>
@@ -1007,7 +1034,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
       {/* Input bar */}
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="crosshair" size={15} color={colors.primary} />
+          <Feather name="crosshair" size={15} color={ACCENT} />
           <TextInput
             style={[styles.inputText, { color: colors.foreground }]}
             placeholder="Masukkan pair (BTCUSDT)"
@@ -1028,7 +1055,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           onPress={handleAnalyze}
           style={({ pressed }) => [
             styles.analyzeBtn,
-            { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+            { backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 },
           ]}
         >
           <Text style={[styles.analyzeBtnText, { color: colors.primaryForeground }]}>Analisa</Text>
@@ -1046,13 +1073,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
         </View>
       ) : isLoading ? (
         <View style={styles.emptyState}>
-          <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-            Menganalisa {formatSymbolClean(querySymbol)}
-          </Text>
-          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-            H4 → H1 → 15M → 5M...
-          </Text>
+          <ScanLoading label="H4 → H1 → 15M → 5M" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
         </View>
       ) : isError ? (
         <View style={styles.emptyState}>
@@ -1063,7 +1084,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           </Text>
           <Pressable
             onPress={() => refetch()}
-            style={[styles.retryBtn, { backgroundColor: colors.primary }]}
+            style={[styles.retryBtn, { backgroundColor: ACCENT }]}
           >
             <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
           </Pressable>
@@ -1092,7 +1113,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
               <ReadyScreen data={data} colors={colors} />
               {onSave && (
                 <Pressable onPress={onSave}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
                   <Feather name="bookmark" size={15} color={colors.primaryForeground} />
                   <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
                 </Pressable>
@@ -1149,6 +1170,7 @@ export default function SniperScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <FuturisticBackground accentColor={ACCENT} secondaryColor="#22D3EE" />
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
@@ -1164,19 +1186,16 @@ export default function SniperScreen() {
           )}
         </View>
         {/* Tab switcher */}
-        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['scan', 'analisa', 'log'] as const).map(tab => (
-            <Pressable
-              key={tab}
-              onPress={() => setActiveTab(tab)}
-              style={[styles.tabBtn, activeTab === tab && { backgroundColor: colors.primary }]}
-            >
-              <Text style={[styles.tabBtnText, { color: activeTab === tab ? colors.primaryForeground : colors.mutedForeground }]}>
-                {tab === 'scan' ? 'SCAN' : tab === 'analisa' ? 'ANALISA' : 'LOG'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <AnimatedTabSwitcher
+          tabs={[
+            { key: 'scan', label: 'SCAN' },
+            { key: 'analisa', label: 'ANALISA' },
+            { key: 'log', label: 'LOG' },
+          ]}
+          active={activeTab}
+          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'log')}
+          accentColor={ACCENT}
+        />
       </View>
 
       {activeTab === 'scan'

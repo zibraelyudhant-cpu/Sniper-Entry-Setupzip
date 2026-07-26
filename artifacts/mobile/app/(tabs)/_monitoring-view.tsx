@@ -10,6 +10,9 @@ import {
 import { useColors } from "@/hooks/useColors";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { AnimatedCard } from "@/components/animated/AnimatedCard";
+import { PriceFlash } from "@/components/animated/PriceFlash";
+import { MENU_COLORS } from "@/constants/theme";
 import {
   evaluateHealth,
   loadActiveMonitoringLogs,
@@ -21,6 +24,7 @@ import {
   type MonitoringSignalLog,
 } from "./monitoring-helpers";
 
+const ACCENT = MENU_COLORS.insight;
 const REFRESH_INTERVAL_MS = 60_000; // 60 detik
 
 function statusColor(status: HealthStatus, colors: ReturnType<typeof useColors>) {
@@ -47,10 +51,12 @@ function MonitoringCard({
   log,
   result,
   loading,
+  index = 0,
 }: {
   log: MonitoringSignalLog;
   result: MonitoringResult | null;
   loading: boolean;
+  index?: number;
 }) {
   const colors = useColors();
   const status = result?.status ?? "aman";
@@ -58,6 +64,7 @@ function MonitoringCard({
   const biasColor = log.bias === "bullish" ? colors.bullish : colors.bearish;
 
   return (
+    <AnimatedCard index={index}>
     <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       {/* Header */}
       <View style={s.cardHeader}>
@@ -143,9 +150,11 @@ function MonitoringCard({
         </View>
         <View style={s.priceItem}>
           <Text style={[s.priceLabel, { color: colors.mutedForeground }]}>PRICE NOW</Text>
-          <Text style={[s.priceValue, { color: sColor }]}>
-            {result ? result.metrics.currentPrice.toPrecision(6) : "—"}
-          </Text>
+          {result ? (
+            <PriceFlash value={result.metrics.currentPrice.toPrecision(6)} baseColor={sColor} style={s.priceValue} />
+          ) : (
+            <Text style={[s.priceValue, { color: sColor }]}>—</Text>
+          )}
         </View>
         <View style={s.priceItem}>
           <Text style={[s.priceLabel, { color: colors.mutedForeground }]}>SL</Text>
@@ -256,6 +265,7 @@ function MonitoringCard({
         </View>
       )}
     </View>
+    </AnimatedCard>
   );
 }
 
@@ -329,7 +339,7 @@ export default function MonitoringView() {
   if (loading) {
     return (
       <View style={s.emptyBox}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color={ACCENT} />
         <Text style={[s.emptySub, { color: colors.mutedForeground }]}>
           {scanStatus || "Loading monitoring..."}
         </Text>
@@ -342,7 +352,7 @@ export default function MonitoringView() {
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={{ paddingBottom: 100 }}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ACCENT} />
       }
     >
       {/* Refresh info */}
@@ -404,12 +414,13 @@ export default function MonitoringView() {
           </Pressable>
         </View>
       ) : (
-        logs.map((log) => (
+        logs.map((log, index) => (
           <MonitoringCard
             key={log.id}
             log={log}
             result={results[log.id] ?? null}
             loading={!results[log.id]}
+            index={index}
           />
         ))
       )}

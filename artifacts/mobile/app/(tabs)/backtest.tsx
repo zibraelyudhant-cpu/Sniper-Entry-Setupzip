@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 import {
   ActivityIndicator,
+  Animated,
   Platform,
   Pressable,
   ScrollView,
@@ -13,6 +14,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
+import { BacktestLoading } from '@/components/animated/BacktestLoading';
+import { MENU_COLORS } from '@/constants/theme';
+
+const ACCENT = MENU_COLORS.backtest;
+const PERIOD_CANDLES: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640, '2y': 17280, '3y': 25920 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -119,6 +125,17 @@ function MenuResult({ title, result, colors, menu }: {
   const [expanded, setExpanded] = useState(false);
   const winColor = result.winRate >= 75 ? colors.bullish : result.winRate >= 50 ? colors.gold : colors.bearish;
 
+  // Reveal animation: win rate count-up + bar keisi mengikuti, muncul sekali pas hasil pertama render
+  const [displayWinRate, setDisplayWinRate] = useState(0);
+  const revealAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    revealAnim.setValue(0);
+    const listener = revealAnim.addListener(({ value }) => setDisplayWinRate(value));
+    Animated.timing(revealAnim, { toValue: result.winRate, duration: 700, delay: 100, useNativeDriver: false }).start();
+    return () => revealAnim.removeListener(listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result.winRate]);
+
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       {/* Header */}
@@ -130,7 +147,7 @@ function MenuResult({ title, result, colors, menu }: {
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          <Text style={[styles.winRateMain, { color: winColor }]}>{result.winRate.toFixed(1)}%</Text>
+          <Text style={[styles.winRateMain, { color: winColor }]}>{displayWinRate.toFixed(1)}%</Text>
           <Text style={[styles.winRateSub, { color: colors.mutedForeground }]}>
             {result.wins}W / {result.losses}L
           </Text>
@@ -142,7 +159,7 @@ function MenuResult({ title, result, colors, menu }: {
         <>
           {/* Win rate bar */}
           <View style={[styles.barBg, { backgroundColor: colors.border }]}>
-            <View style={[styles.barFill, { width: `${Math.min(result.winRate, 100)}%`, backgroundColor: winColor }]} />
+            <View style={[styles.barFill, { width: `${Math.min(displayWinRate, 100)}%`, backgroundColor: winColor }]} />
           </View>
 
           {/* Breakdown kondisi */}
@@ -310,8 +327,8 @@ export default function BacktestScreen() {
               key={p.value}
               onPress={() => handlePeriodSelect(p.value)}
               style={[styles.toggleBtn, {
-                backgroundColor: period === p.value ? colors.primary : colors.card,
-                borderColor: period === p.value ? colors.primary : colors.border,
+                backgroundColor: period === p.value ? ACCENT : colors.card,
+                borderColor: period === p.value ? ACCENT : colors.border,
               }]}
             >
               <Text style={[styles.toggleText, { color: period === p.value ? '#fff' : colors.mutedForeground }]}>
@@ -329,8 +346,8 @@ export default function BacktestScreen() {
               key={m.value}
               onPress={() => setMenu(m.value)}
               style={[styles.toggleBtn, {
-                backgroundColor: menu === m.value ? colors.primary : colors.card,
-                borderColor: menu === m.value ? colors.primary : colors.border,
+                backgroundColor: menu === m.value ? ACCENT : colors.card,
+                borderColor: menu === m.value ? ACCENT : colors.border,
               }]}
             >
               <Text style={[styles.toggleText, { color: menu === m.value ? '#fff' : colors.mutedForeground }]}>
@@ -353,7 +370,7 @@ export default function BacktestScreen() {
           disabled={loading || !symbol.trim()}
           style={({ pressed }) => [
             styles.runBtn,
-            { backgroundColor: loading || !symbol.trim() ? `${colors.primary}60` : colors.primary, opacity: pressed ? 0.85 : 1 }
+            { backgroundColor: loading || !symbol.trim() ? `${ACCENT}60` : ACCENT, opacity: pressed ? 0.85 : 1 }
           ]}
         >
           {loading
@@ -372,14 +389,7 @@ export default function BacktestScreen() {
 
         {/* Loading state */}
         {loading && (
-          <View style={styles.loadingBox}>
-            <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-              Mengambil data historis dan menjalankan simulasi...
-            </Text>
-            <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-              Ini mungkin membutuhkan waktu beberapa puluh detik.
-            </Text>
-          </View>
+          <BacktestLoading totalCandles={PERIOD_CANDLES[period] ?? 8640} accentColor={ACCENT} />
         )}
 
         {/* Hasil */}
