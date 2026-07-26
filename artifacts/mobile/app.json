@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Screener Crypto Futures",
-    "slug": "screenercryptofutures",
+    "name": "Screener Crypto Futures by Cryptodant",
+    "slug": "screenercryptofuturesbycryptodant",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "screenercryptofutures",
+    "scheme": "screenercryptofuturesbycryptodant",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.screenercryptofutures.app"
+      "bundleIdentifier": "com.screenercryptofuturesbycryptodant.app"
     },
     "android": {
-      "package": "com.screenercryptofutures.app"
+      "package": "com.screenercryptofuturesbycryptodant.app"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
