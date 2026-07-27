@@ -16,41 +16,72 @@ export function BacktestLoading({ totalCandles, accentColor }: BacktestLoadingPr
   const colors = useColors();
   const accent = accentColor ?? colors.primary;
   const progress = useRef(new Animated.Value(0)).current;
+  const pulseOpacity = useRef(new Animated.Value(1)).current;
   const [pct, setPct] = useState(0);
   const [candlesProcessed, setCandlesProcessed] = useState(0);
   const [trades, setTrades] = useState(0);
   const [winRate, setWinRate] = useState(0);
+  const [nearlyDone, setNearlyDone] = useState(false);
 
   useEffect(() => {
     const listener = progress.addListener(({ value }) => {
       setPct(Math.round(value * 100));
       setCandlesProcessed(Math.round(totalCandles * value));
       setTrades(Math.round(value * 23));
-      setWinRate(Math.round(value * 78)); // naik smooth menuju estimasi, bukan osilasi
+      setWinRate(Math.round(value * 78));
+      if (value >= 0.985) setNearlyDone(true);
     });
-    // Naik sekali aja menuju ~92% pakai easing yang melambat (bukan loop terus-terusan).
-    // Berhenti di situ nunggu backtest beneran selesai — parent bakal ganti tampilan
-    // ke hasil asli begitu response API datang, gak nunggu progress nyampe "100%".
-    Animated.timing(progress, {
-      toValue: 0.92,
-      duration: 9000,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
+
+    // FIX: progress sebelumnya berhenti total di 92% dan diem lama nunggu response
+    // (kerasa "macet"). Sekarang 2 fase: (1) naik cepat ke 85% — kerasa responsif,
+    // (2) creep PELAN TERUS-MENERUS dari 85% ke 99% selama durasi panjang (linear,
+    // gak pernah benar-benar berhenti) — jadi kapan pun user liat, progress masih
+    // keliatan jalan dikit, bukan freeze di angka statis. 99% (bukan 100%) sengaja
+    // disisain — begitu response API beneran datang, parent langsung ganti ke hasil
+    // asli, gak nunggu angka sempet nyampe 100 dulu.
+    Animated.sequence([
+      Animated.timing(progress, {
+        toValue: 0.85,
+        duration: Math.max(2500, Math.min(6000, totalCandles * 0.4)),
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(progress, {
+        toValue: 0.99,
+        duration: 90_000, // creep sangat pelan, nutupin backtest yang lama (3 tahun dll)
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }),
+    ]).start();
+
     return () => {
       progress.removeListener(listener);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalCandles]);
 
+  // Begitu deket 99% dan mentok nunggu lama, kasih efek "napas" (breathing) di teks
+  // persen — biar tetep keliatan "masih hidup/proses", walau angkanya udah gak naik.
+  useEffect(() => {
+    if (!nearlyDone) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseOpacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseOpacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [nearlyDone, pulseOpacity]);
+
   return (
     <View style={[styles.box, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.headerRow}>
         <Text style={[styles.label, { color: accent }]}>MEMPROSES DATA H4</Text>
-        <Text style={[styles.pct, { color: accent }]}>{pct}%</Text>
+        <Animated.Text style={[styles.pct, { color: accent, opacity: nearlyDone ? pulseOpacity : 1 }]}>{pct}%</Animated.Text>
       </View>
       <View style={[styles.track, { backgroundColor: colors.background }]}>
-        <View style={[styles.fill, { width: `${pct}%`, backgroundColor: accent }]} />
+        <Animated.View style={[styles.fill, { width: `${pct}%`, backgroundColor: accent, opacity: nearlyDone ? pulseOpacity : 1 }]} />
       </View>
       <Text style={[styles.subLabel, { color: colors.mutedForeground }]}>
         {candlesProcessed.toLocaleString('id-ID')} / {totalCandles.toLocaleString('id-ID')} candle

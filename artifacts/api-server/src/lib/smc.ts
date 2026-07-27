@@ -1925,6 +1925,38 @@ function detectH4Confluence(
   return { confirmed: false, strength: "weak", description: `H4 masih jauh dari zona (${distToZone.toFixed(2)}%)` };
 }
 
+// ─── BTC Correlation Filter ─────────────────────────────────────────────────
+// BTC dump/pump sering nyeret SEMUA altcoin ikut (cascading liquidation cross-margin,
+// panic sell/FOMO, market maker re-hedge) — ini efek makro, BUKAN soal analisa
+// teknikal koin itu sendiri salah. Sinyal yang SEARAH BTC lebih aman; sinyal yang
+// LAWAN ARAH BTC beresiko lebih tinggi ke-tarik gerakan BTC walau setup-nya sendiri
+// valid. Ini bukan hard-skip — cuma warning + sedikit penyesuaian confidence,
+// karena BTC bisa aja balik korelasi sebelum posisi ditutup.
+async function checkBtcAlignment(
+  bias: 'bullish' | 'bearish',
+  symbol: string
+): Promise<{ aligned: boolean; btcBias: 'bullish' | 'bearish' | 'ranging'; btcStrength: string; message: string }> {
+  // Skip self-check kalau yang dianalisa emang BTC sendiri — gak ada gunanya BTC ngecek dirinya sendiri
+  if (symbol === 'BTCUSDT') {
+    return { aligned: true, btcBias: bias, btcStrength: 'strong', message: '' };
+  }
+  try {
+    const btcH4 = await fetchKlines('BTCUSDT', '4h', 50);
+    const btcStruct = analyzePriceActionStructure(btcH4.highs, btcH4.lows, btcH4.closes);
+    const aligned = btcStruct.bias === bias || btcStruct.bias === 'ranging';
+    const message =
+      btcStruct.bias === 'ranging'
+        ? 'BTC netral/ranging — gak ada tekanan makro searah/lawan arah'
+        : aligned
+        ? `✅ Searah BTC (${btcStruct.bias}, ${btcStruct.strength}) — risiko ke-tarik gerakan makro lebih rendah`
+        : `⚠️ Lawan arah BTC (BTC lagi ${btcStruct.bias}) — waspada risiko ke-tarik gerakan makro BTC`;
+    return { aligned, btcBias: btcStruct.bias, btcStrength: btcStruct.strength, message };
+  } catch {
+    // Fail-safe: kalau fetch BTC gagal, jangan ganggu alur analisa koin utama
+    return { aligned: true, btcBias: 'ranging', btcStrength: 'neutral', message: '' };
+  }
+}
+
 export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta',
@@ -2207,6 +2239,16 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       probabilityFactors.push(`⚠️ Tidak ada H4 confluence — ${h4Confluence.description}`);
     }
 
+    // BTC Correlation Filter — sinyal searah BTC lebih aman dari efek "ke-tarik"
+    // gerakan makro (cascading liquidation, panic sell/FOMO). Bukan hard-skip,
+    // cuma penyesuaian confidence + warning.
+    const btcCheck = await checkBtcAlignment(bias, symbol);
+    if (btcCheck.message) {
+      probabilityFactors.push(btcCheck.message);
+      if (btcCheck.aligned && btcCheck.btcBias !== 'ranging') profitProbability += 5;
+      else if (!btcCheck.aligned) profitProbability = Math.max(0, profitProbability - 10);
+    }
+
     // Entry price: pakai rejection 15M kalau ada, fallback ke zona entry
     const finalEntryPrice = rejection15M.confirmed
       ? rejection15M.entryPrice
@@ -2337,7 +2379,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
-  const maxScore = 7;
+  const maxScore = 8; // 7 filter asli + 1 BTC correlation check
 
   // Helper: hitung EMA dari array closes
   function calcEMA(closes: number[], period: number): number {
@@ -2541,6 +2583,15 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       filterResults.push(`✅ Refine ke M5: ${refinedZone.zoneType}`);
     } else {
       filterResults.push(`ℹ️ Tidak ada zona M5 lebih presisi, pakai M30`);
+    }
+
+    // BTC Correlation Filter — sinyal searah BTC lebih aman dari efek "ke-tarik"
+    // gerakan makro (cascading liquidation, panic sell/FOMO). Bukan hard-skip,
+    // cuma penyesuaian score + warning.
+    const btcCheck = await checkBtcAlignment(bias, symbol);
+    if (btcCheck.message) {
+      filterResults.push(btcCheck.message);
+      if (btcCheck.aligned && btcCheck.btcBias !== 'ranging') score++;
     }
 
     // ── Entry, SL, TP ─────────────────────────────────────────────────────
@@ -3629,7 +3680,7 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
-  const maxScore = 5;
+  const maxScore = 6; // 5 filter asli + 1 BTC correlation check
   const filterResults: string[] = [];
 
   try {
@@ -3827,6 +3878,15 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
       preStruct.bias === best.bias ? 'continuation' : preStruct.bias !== 'ranging' ? 'reversal' : 'continuation';
     score++;
     filterResults.push(`✅ Tipe: ${breakoutType === 'continuation' ? 'Continuation (lanjutan trend)' : 'Reversal (perubahan arah trend)'}`);
+
+    // BTC Correlation Filter — sinyal searah BTC lebih aman dari efek "ke-tarik"
+    // gerakan makro (cascading liquidation, panic sell/FOMO). Bukan hard-skip,
+    // cuma penyesuaian score + warning.
+    const btcCheck = await checkBtcAlignment(best.bias, symbol);
+    if (btcCheck.message) {
+      filterResults.push(btcCheck.message);
+      if (btcCheck.aligned && btcCheck.btcBias !== 'ranging') score++;
+    }
 
     // ── Entry, SL, TP ─────────────────────────────────────────────────────
     const atrH4 = calcATR(h4.highs, h4.lows, h4.closes);
