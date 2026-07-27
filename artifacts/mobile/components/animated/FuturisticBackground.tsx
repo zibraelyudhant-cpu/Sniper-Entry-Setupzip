@@ -17,6 +17,10 @@ const PARTICLE_COUNT = 8;
  */
 export function FuturisticBackground({ accentColor = '#22D3EE', secondaryColor = '#A78BFA' }: FuturisticBackgroundProps) {
   const { width, height } = useWindowDimensions();
+  // Instance ID unik — biar id SVG (grid, orb, scanline) gak bentrok kalau ada
+  // beberapa layar yang tetep mounted bareng (umum di React Navigation tab).
+  // Tanpa ini, di web semua <svg> bisa punya id sama & browser salah resolve url(#id).
+  const instanceId = useRef(`fbg-${Math.random().toString(36).slice(2, 9)}`).current;
   const orb1 = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const orb2 = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const scanY = useRef(new Animated.Value(-60)).current;
@@ -68,20 +72,20 @@ export function FuturisticBackground({ accentColor = '#22D3EE', secondaryColor =
       {/* Grid tipis */}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Defs>
-          <Pattern id="grid" width={20} height={20} patternUnits="userSpaceOnUse">
+          <Pattern id={`grid-${instanceId}`} width={20} height={20} patternUnits="userSpaceOnUse">
             <Line x1={0} y1={0} x2={20} y2={0} stroke={accentColor} strokeOpacity={0.05} strokeWidth={1} />
             <Line x1={0} y1={0} x2={0} y2={20} stroke={accentColor} strokeOpacity={0.05} strokeWidth={1} />
           </Pattern>
-          <RadialGradient id="orb1Grad" cx="50%" cy="50%" r="50%">
+          <RadialGradient id={`orb1Grad-${instanceId}`} cx="50%" cy="50%" r="50%">
             <Stop offset="0%" stopColor={accentColor} stopOpacity={0.16} />
             <Stop offset="100%" stopColor={accentColor} stopOpacity={0} />
           </RadialGradient>
-          <RadialGradient id="orb2Grad" cx="50%" cy="50%" r="50%">
+          <RadialGradient id={`orb2Grad-${instanceId}`} cx="50%" cy="50%" r="50%">
             <Stop offset="0%" stopColor={secondaryColor} stopOpacity={0.13} />
             <Stop offset="100%" stopColor={secondaryColor} stopOpacity={0} />
           </RadialGradient>
         </Defs>
-        <Rect width={width} height={height} fill="url(#grid)" />
+        <Rect width={width} height={height} fill={`url(#grid-${instanceId})`} />
       </Svg>
 
       {/* Orb 1 */}
@@ -96,12 +100,12 @@ export function FuturisticBackground({ accentColor = '#22D3EE', secondaryColor =
       >
         <Svg width={220} height={220}>
           <Defs>
-            <RadialGradient id="o1" cx="50%" cy="50%" r="50%">
+            <RadialGradient id={`o1-${instanceId}`} cx="50%" cy="50%" r="50%">
               <Stop offset="0%" stopColor={accentColor} stopOpacity={0.18} />
               <Stop offset="100%" stopColor={accentColor} stopOpacity={0} />
             </RadialGradient>
           </Defs>
-          <Rect width={220} height={220} fill="url(#o1)" />
+          <Rect width={220} height={220} fill={`url(#o1-${instanceId})`} />
         </Svg>
       </Animated.View>
 
@@ -117,12 +121,12 @@ export function FuturisticBackground({ accentColor = '#22D3EE', secondaryColor =
       >
         <Svg width={180} height={180}>
           <Defs>
-            <RadialGradient id="o2" cx="50%" cy="50%" r="50%">
+            <RadialGradient id={`o2-${instanceId}`} cx="50%" cy="50%" r="50%">
               <Stop offset="0%" stopColor={secondaryColor} stopOpacity={0.14} />
               <Stop offset="100%" stopColor={secondaryColor} stopOpacity={0} />
             </RadialGradient>
           </Defs>
-          <Rect width={180} height={180} fill="url(#o2)" />
+          <Rect width={180} height={180} fill={`url(#o2-${instanceId})`} />
         </Svg>
       </Animated.View>
 
@@ -135,12 +139,12 @@ export function FuturisticBackground({ accentColor = '#22D3EE', secondaryColor =
       >
         <Svg width={width} height={60}>
           <Defs>
-            <RadialGradient id="scan" cx="50%" cy="50%" r="50%">
+            <RadialGradient id={`scan-${instanceId}`} cx="50%" cy="50%" r="50%">
               <Stop offset="0%" stopColor={accentColor} stopOpacity={0.06} />
               <Stop offset="100%" stopColor={accentColor} stopOpacity={0} />
             </RadialGradient>
           </Defs>
-          <Rect width={width} height={60} fill="url(#scan)" />
+          <Rect width={width} height={60} fill={`url(#scan-${instanceId})`} />
         </Svg>
       </Animated.View>
 

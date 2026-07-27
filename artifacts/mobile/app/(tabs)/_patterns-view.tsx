@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import { useGetPatterns } from '@workspace/api-client-react';
+import { useGetPatterns, getGetPatternsQueryKey } from '@workspace/api-client-react';
 import type { TFPatterns, PatternResult } from '@workspace/api-client-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -647,7 +647,7 @@ export default function PatternsView({
 
   const { data, isLoading, isError, refetch } = useGetPatterns(
     { symbol },
-    { query: { enabled: !!symbol, staleTime: 120_000 } }
+    { query: { queryKey: getGetPatternsQueryKey({ symbol }), enabled: !!symbol, staleTime: 120_000 } }
   );
 
   const [selected, setSelected] = useState<{ pattern: PatternResult; tf: string; name: string; symbol: string } | null>(null);

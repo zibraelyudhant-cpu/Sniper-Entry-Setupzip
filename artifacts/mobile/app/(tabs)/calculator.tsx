@@ -157,6 +157,7 @@ export default function CalculatorScreen() {
   const [leverageStr, setLeverageStr] = useState('10');
   const [marginMode, setMarginMode] = useState<'cross' | 'isolated'>('isolated');
   const [lastEdited, setLastEdited] = useState<'modal' | 'contracts'>('modal');
+  const [accountBalanceStr, setAccountBalanceStr] = useState('1000'); // buat risk-based sizing
 
   const [side, setSide] = useState<'long' | 'short'>(bias === 'bullish' ? 'long' : 'short');
 
@@ -208,6 +209,25 @@ export default function CalculatorScreen() {
       }
     }
   }, [lastEdited, modalStr, contractsStr, entryPrice]);
+
+  // ─── Risk-based sizing (ala ICT — risk per trade 0.5-1% dari saldo akun) ───
+  // Ngitung mundur: dari jarak Entry-SL + persentase risk, dapetin ukuran posisi
+  // yang bikin kerugian saat SL kena = persis risk% dari saldo, bukan asal-asalan.
+  const applyRiskPreset = useCallback((riskPct: number) => {
+    if (!hasPrices || leverage <= 0) return;
+    const balance = parseFloat(accountBalanceStr) || 0;
+    const priceDistance = Math.abs(entryPrice - stopLoss);
+    if (balance <= 0 || priceDistance <= 0) return;
+
+    const riskAmount = balance * (riskPct / 100);
+    const contracts = riskAmount / priceDistance;
+    const modal = (contracts * entryPrice) / leverage;
+
+    setContractsStr(contracts.toFixed(6));
+    setModalStr(modal.toFixed(2));
+    setLastEdited('modal');
+  }, [hasPrices, leverage, accountBalanceStr, entryPrice, stopLoss]);
+
 
   // ─── Calculations ────────────────────────────────────────────────────────────
   const calc = useMemo(() => {
@@ -363,6 +383,44 @@ export default function CalculatorScreen() {
             </Text>
           )}
         </Section>
+
+        {/* ── RISK SIZING (konsep ICT: risk 0.5-1% per trade) ─────────────── */}
+        {hasPrices && (
+          <Section title="RISK SIZING">
+            <View style={[styles.inputRow, { borderColor: colors.border }]}>
+              <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Saldo Akun</Text>
+              <View style={styles.inputRight}>
+                <TextInput
+                  style={[styles.inputField, { color: colors.foreground }]}
+                  keyboardType="decimal-pad"
+                  value={accountBalanceStr}
+                  onChangeText={setAccountBalanceStr}
+                  placeholder="1000"
+                  placeholderTextColor={colors.mutedForeground}
+                  selectTextOnFocus
+                />
+                <Text style={[styles.inputUnit, { color: colors.mutedForeground }]}>USDT</Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <Pressable
+                onPress={() => applyRiskPreset(0.5)}
+                style={({ pressed }) => [{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: pressed ? `${ACCENT}25` : `${ACCENT}12`, alignItems: 'center' }]}
+              >
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>Risk 0.5%</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => applyRiskPreset(1)}
+                style={({ pressed }) => [{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: pressed ? `${ACCENT}25` : `${ACCENT}12`, alignItems: 'center' }]}
+              >
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>Risk 1%</Text>
+              </Pressable>
+            </View>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 8 }}>
+              Otomatis ngitung Modal & Ukuran Posisi di bawah biar kerugian saat SL kena = persentase risk dari saldo. Standar umum: 0.5-1% per trade.
+            </Text>
+          </Section>
+        )}
 
         {/* ── INPUT ─────────────────────────────────────────────────────── */}
         <Section title="INPUT">

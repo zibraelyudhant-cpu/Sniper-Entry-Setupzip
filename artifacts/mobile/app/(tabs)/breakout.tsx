@@ -9,7 +9,7 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { useGetScalping, useGetScalpingScan, type ScalpingResult } from '@workspace/api-client-react';
+import { useGetScalping, useGetScalpingScan, getGetScalpingQueryKey, getGetScalpingScanQueryKey, type ScalpingResult } from '@workspace/api-client-react';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
@@ -135,7 +135,7 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string) => void }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, refetch } = useGetScalpingScan({
-    query: { staleTime: 3 * 60 * 1000 },
+    query: { queryKey: getGetScalpingScanQueryKey(), staleTime: 3 * 60 * 1000 },
   });
 
   if (isLoading) {
@@ -241,9 +241,10 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
 
-  const { data, isLoading, isError, refetch } = useGetScalping(querySymbol, {
-    query: { enabled: !!querySymbol, staleTime: 60_000 },
-  });
+  const { data, isLoading, isError, refetch } = useGetScalping(
+    { symbol: querySymbol },
+    { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol }), enabled: !!querySymbol, staleTime: 60_000 } }
+  );
 
   useEffect(() => {
     if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'approaching' || data?.status === 'in_zone' ? data : null);
@@ -591,8 +592,6 @@ function ScalpingLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const doEval = async (log: ScalpingLog) => { setEvaluating(log.id); const p = await scalpEvalLog(log); setLogs(await scalpUpdateLog(log.id, p)); setEvaluating(null); };
   const doDelete = async (id: string) => setLogs(await scalpDeleteLog(id));
 
-  const sc = (s: ScalpingLogStatus) => s === 'win_tp1' || s === 'win_tp2' ? '#22c55e' : s === 'lose' ? '#ef4444' : '#888';
-  const sl = (s: ScalpingLogStatus) => s === 'win_tp1' ? 'WIN TP1' : s === 'win_tp2' ? 'WIN TP2' : s === 'lose' ? 'LOSE' : s === 'expired' ? 'EXPIRED' : 'PENDING';
   const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
 
   const wins = logs.filter(l => l.status==='win_tp1'||l.status==='win_tp2').length;

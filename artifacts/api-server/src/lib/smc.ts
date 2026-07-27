@@ -535,56 +535,67 @@ export function analyzePriceActionStructure(
   lows: number[],
   closes: number[]
 ): PriceStructure {
-  // Pakai lookback lebih besar (8) untuk stabilitas sinyal
+  // Pakai lookback 8 untuk stabilitas deteksi swing
   const swingHighs = findSwingHighs(highs, 8);
   const swingLows = findSwingLows(lows, 8);
 
-  if (swingHighs.length < 3 || swingLows.length < 3) {
+  if (swingHighs.length < 2 || swingLows.length < 2) {
     return { bias: "ranging", strength: "neutral", description: "Insufficient swing data" };
   }
 
-  // Cek 4 swing terakhir (bukan 3) untuk konsistensi lebih kuat
+  // ── PENENTUAN BIAS: dari transisi swing PALING BARU, bukan voting ──────────
+  // Riset (Dow Theory, SMC, ICT — konsensus luas): arah tren ditentukan oleh
+  // break struktur TERBARU, bukan mayoritas suara dari beberapa swing ke belakang.
+  // Sistem voting lama bisa telat baca reversal karena swing basi (lama) bisa
+  // "mengalahkan" 1 break fresh yang sebenarnya sudah mengubah karakter market.
+  const lastHH = swingHighs[swingHighs.length - 1]!;
+  const prevHH = swingHighs[swingHighs.length - 2]!;
+  const lastLL = swingLows[swingLows.length - 1]!;
+  const prevLL = swingLows[swingLows.length - 2]!;
+
+  const madeHigherHigh = lastHH > prevHH;
+  const madeHigherLow = lastLL > prevLL;
+  const madeLowerHigh = lastHH < prevHH;
+  const madeLowerLow = lastLL < prevLL;
+
+  let bias: "bullish" | "bearish" | "ranging";
+  if (madeHigherHigh && madeHigherLow) bias = "bullish";
+  else if (madeLowerHigh && madeLowerLow) bias = "bearish";
+  else bias = "ranging"; // swing high & low kasih sinyal campuran = struktur belum jelas/transisi
+
+  if (bias === "ranging") {
+    return { bias: "ranging", strength: "neutral", description: "Swing high & low sinyal campuran — struktur belum jelas" };
+  }
+
+  // ── STRENGTH: seberapa matang/konsisten tren ini, BUKAN penentu arah ──────
+  // Ini bekas logic voting lama — didaur ulang jadi grading kekuatan tren aja,
+  // supaya arah gak lagi bisa "dikalahkan" swing basi, tapi datanya tetap kepake.
   const lastHighs = swingHighs.slice(-4);
   const lastLows = swingLows.slice(-4);
-
-  let bullishSignals = 0;
-  let bearishSignals = 0;
-
-  // Higher Highs
+  let confirmCount = 0, totalCount = 0;
   for (let i = 1; i < lastHighs.length; i++) {
-    if (lastHighs[i] > lastHighs[i - 1]) bullishSignals++;
-    else if (lastHighs[i] < lastHighs[i - 1]) bearishSignals++;
+    totalCount++;
+    if (bias === "bullish" ? lastHighs[i]! > lastHighs[i - 1]! : lastHighs[i]! < lastHighs[i - 1]!) confirmCount++;
   }
-
-  // Higher Lows
   for (let i = 1; i < lastLows.length; i++) {
-    if (lastLows[i] > lastLows[i - 1]) bullishSignals++;
-    else if (lastLows[i] < lastLows[i - 1]) bearishSignals++;
+    totalCount++;
+    if (bias === "bullish" ? lastLows[i]! > lastLows[i - 1]! : lastLows[i]! < lastLows[i - 1]!) confirmCount++;
   }
-
-  // Momentum: bandingkan rata-rata 10 close terakhir vs 20 close terakhir
-  // Lebih stabil dari slice candle tunggal
+  // Momentum MA10 vs MA20 — dilemahin jadi catatan tambahan aja (bukan suara setara),
+  // karena moving average itu lagging indicator, gak seharusnya ikut nentuin ARAH.
   const recent20 = closes.slice(-20);
   const avg10 = recent20.slice(-10).reduce((a, b) => a + b, 0) / 10;
   const avg20 = recent20.reduce((a, b) => a + b, 0) / 20;
-  if (avg10 > avg20 * 1.001) bullishSignals++;
-  else if (avg10 < avg20 * 0.999) bearishSignals++;
+  const momentumAgrees = bias === "bullish" ? avg10 > avg20 * 1.001 : avg10 < avg20 * 0.999;
 
-  const total = bullishSignals + bearishSignals;
-  if (total === 0) return { bias: "ranging", strength: "neutral", description: "No clear structure" };
+  const dominance = totalCount > 0 ? confirmCount / totalCount : 0;
+  const strength: "strong" | "moderate" | "weak" = dominance >= 0.75 ? "strong" : dominance >= 0.5 ? "moderate" : "weak";
 
-  const dominance = Math.max(bullishSignals, bearishSignals) / total;
-
-  // strong >= 0.7 (5/7 sinyal), moderate >= 0.55 (4/7), weak = sisanya
-  if (bullishSignals > bearishSignals) {
-    const strength = dominance >= 0.7 ? "strong" : dominance >= 0.55 ? "moderate" : "weak";
-    return { bias: "bullish", strength, description: `HH+HL (${bullishSignals}/${total} sinyal bullish)` };
-  } else if (bearishSignals > bullishSignals) {
-    const strength = dominance >= 0.7 ? "strong" : dominance >= 0.55 ? "moderate" : "weak";
-    return { bias: "bearish", strength, description: `LH+LL (${bearishSignals}/${total} sinyal bearish)` };
-  }
-
-  return { bias: "ranging", strength: "neutral", description: "Struktur ranging/sideways" };
+  const label = bias === "bullish" ? "HH+HL" : "LH+LL";
+  return {
+    bias, strength,
+    description: `${label} (swing terbaru) — ${confirmCount}/${totalCount} history konsisten${momentumAgrees ? ", momentum align" : ""}`,
+  };
 }
 
 // ─── Step 2: Detect Zones at H1 ──────────────────────────────────────────────
@@ -919,6 +930,11 @@ export function calcFibonacci(
       "0.382": swingLow + range * 0.382,
       "0.5": swingLow + range * 0.5,
       "0.618": swingLow + range * 0.618,
+      // OTE (Optimal Trade Entry, konsep ICT) — zona 62%-79%, sweet spot 70.5%.
+      // 0.618 & 0.786 di atas/bawah ini udah mendekati batas OTE (golden ratio ~62%,
+      // 0.786 ~79%), tapi kita tambahin level eksplisit biar zona OTE bisa diidentifikasi
+      // & diberi label sendiri, bukan ketimbun jadi "Fib 0.618" generik.
+      "0.705": swingLow + range * 0.705, // OTE sweet spot
       "0.786": swingLow + range * 0.786,
       "1.0": swingHigh,
     },
@@ -1090,15 +1106,19 @@ export function selectBestZoneH1(
   }
 
   // TIER 7: S&R/SnD + Fibonacci (WAJIB ada Fib, kalau tidak skip)
+  // Level 0.618-0.786 dilabelin "OTE" (Optimal Trade Entry, konsep ICT) — riset
+  // nunjukin ini zona dengan dasar logika paling kuat dibanding level fib lain,
+  // jadi dikasih label beda biar keliatan bedanya di UI/log.
   if (fibLevels) {
-    const fibPrices = [
-      fibLevels.levels["0.382"],
-      fibLevels.levels["0.5"],
-      fibLevels.levels["0.618"],
-      fibLevels.levels["0.786"],
+    const fibPrices: { price: number; isOTE: boolean }[] = [
+      { price: fibLevels.levels["0.382"]!, isOTE: false },
+      { price: fibLevels.levels["0.5"]!, isOTE: false },
+      { price: fibLevels.levels["0.618"]!, isOTE: true },
+      { price: fibLevels.levels["0.705"]!, isOTE: true }, // OTE sweet spot
+      { price: fibLevels.levels["0.786"]!, isOTE: true },
     ];
     for (const sr of srLevels) {
-      for (const fibPrice of fibPrices) {
+      for (const { price: fibPrice, isOTE } of fibPrices) {
         if (
           Math.abs(sr.price - fibPrice) / currentPrice < 0.003 &&
           priceFilter(fibPrice * 0.998, fibPrice * 1.002)
@@ -1108,7 +1128,7 @@ export function selectBestZoneH1(
             low: fibPrice * 0.998,
             mid: fibPrice,
             entryPrice: fibPrice,
-            zoneType: "S&R + Fibonacci",
+            zoneType: isOTE ? "S&R + OTE (62-79%)" : "S&R + Fibonacci",
             tier: 7,
             srLevel: sr,
             fibLevel: fibPrice,
@@ -1605,43 +1625,43 @@ function detectCHoCH15M(
   const lastClose = sliceC[sliceC.length - 1];
 
   if (bias === "bullish") {
-    // CHoCH bullish: sebelumnya ada LL, lalu close breakout di atas HH terakhir
+    // CHoCH bullish: sebelumnya ada LL, lalu close breakout di atas swing high PALING BARU
     if (swingHighs.length < 2 || swingLows.length < 2) return { detected: false, description: "Swing tidak cukup" };
 
-    const prevHH = swingHighs[swingHighs.length - 2];
-    const lastHH = swingHighs[swingHighs.length - 1];
-    const prevLL = swingLows[swingLows.length - 2];
-    const lastLL = swingLows[swingLows.length - 1];
+    const lastHH = swingHighs[swingHighs.length - 1]!;
+    const prevLL = swingLows[swingLows.length - 2]!;
+    const lastLL = swingLows[swingLows.length - 1]!;
 
     // Struktur sebelumnya bearish (LL terbentuk)
     const hadBearStructure = lastLL < prevLL;
-    // Sekarang close breakout di atas HH sebelumnya
-    const chochConfirmed = lastClose > prevHH;
+    // FIX BUG: konfirmasi breakout wajib terhadap swing high PALING BARU (lastHH),
+    // bukan yang kedua-terakhir (prevHH) — gak ada metodologi SMC/ICT yang valid
+    // pakai swing lama buat konfirmasi CHoCH, itu bikin sinyal telat/salah.
+    const chochConfirmed = lastClose! > lastHH;
 
     if (hadBearStructure && chochConfirmed) {
       return {
         detected: true,
-        description: `CHoCH Bullish 15M — LL terbentuk di ${lastLL.toFixed(4)}, close breakout HH ${prevHH.toFixed(4)}`
+        description: `CHoCH Bullish 15M — LL terbentuk di ${lastLL.toFixed(4)}, close breakout HH terbaru ${lastHH.toFixed(4)}`
       };
     }
   } else {
-    // CHoCH bearish: sebelumnya ada HH, lalu close breakdown di bawah LL terakhir
+    // CHoCH bearish: sebelumnya ada HH, lalu close breakdown di bawah swing low PALING BARU
     if (swingHighs.length < 2 || swingLows.length < 2) return { detected: false, description: "Swing tidak cukup" };
 
-    const prevHH = swingHighs[swingHighs.length - 2];
-    const lastHH = swingHighs[swingHighs.length - 1];
-    const prevLL = swingLows[swingLows.length - 2];
-    const lastLL = swingLows[swingLows.length - 1];
+    const lastHH = swingHighs[swingHighs.length - 1]!;
+    const prevHH = swingHighs[swingHighs.length - 2]!;
+    const lastLL = swingLows[swingLows.length - 1]!;
 
     // Struktur sebelumnya bullish (HH terbentuk)
     const hadBullStructure = lastHH > prevHH;
-    // Sekarang close breakdown di bawah LL sebelumnya
-    const chochConfirmed = lastClose < prevLL;
+    // FIX BUG: konfirmasi breakdown wajib terhadap swing low PALING BARU (lastLL)
+    const chochConfirmed = lastClose! < lastLL;
 
     if (hadBullStructure && chochConfirmed) {
       return {
         detected: true,
-        description: `CHoCH Bearish 15M — HH terbentuk di ${lastHH.toFixed(4)}, close breakdown LL ${prevLL.toFixed(4)}`
+        description: `CHoCH Bearish 15M — HH terbentuk di ${lastHH.toFixed(4)}, close breakdown LL terbaru ${lastLL.toFixed(4)}`
       };
     }
   }
@@ -2150,6 +2170,25 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       probabilityFactors.push(`✅ Volume Dow valid (+5%) — ${skipConds.volumeTrendDesc}`);
     } else {
       probabilityFactors.push(`⚠️ Volume Dow lemah — ${skipConds.volumeTrendDesc}`);
+    }
+
+    // Premium/Discount (konsep ICT) — equilibrium dari dealing range D1 (higher timeframe,
+    // bukan range entry M30/H1 yang sama dipakai buat zona, biar gak circular).
+    // Bullish idealnya entry di DISCOUNT (bawah 50%), bearish di PREMIUM (atas 50%) —
+    // biar gak "beli mahal / jual murah" relatif ke range besar.
+    if (fibLevels) {
+      const equilibrium = fibLevels.levels["0.5"]!;
+      const inDiscount = currentPrice < equilibrium;
+      const inPremium = currentPrice > equilibrium;
+      if (bias === "bullish" && inDiscount) {
+        profitProbability += 8;
+        probabilityFactors.push(`✅ Entry di Discount zone D1 (+8%) — di bawah equilibrium ${equilibrium.toFixed(4)}`);
+      } else if (bias === "bearish" && inPremium) {
+        profitProbability += 8;
+        probabilityFactors.push(`✅ Entry di Premium zone D1 (+8%) — di atas equilibrium ${equilibrium.toFixed(4)}`);
+      } else {
+        probabilityFactors.push(`⚠️ Entry di sisi range yang kurang ideal (${bias === "bullish" ? "premium, seharusnya discount" : "discount, seharusnya premium"})`);
+      }
     }
 
     // Multi-TF Confluence: H4 approaching H1 zone
@@ -2705,17 +2744,29 @@ function detectDescendingTriangle(highs: number[], lows: number[], closes: numbe
   if (regH.slope >= 0) return null;
   if (rh[rh.length - 1]!.value >= rh[0]!.value) return null; // lower high harus valid
   const lastClose = closes[n - 1]!;
-  if (lastClose < minL * 0.98) return null;
+  // PENTING: riset Bulkowski (1.300+ trade) — descending triangle breakout ke ATAS
+  // 53% dari waktu dengan 78% success rate, breakout ke bawah cuma 50% capai target.
+  // Jangan hardcode bearish — tentukan arah dari CLOSE breakout aktual.
+  let direction: 'bullish' | 'bearish' | null = null;
+  if (lastClose < minL * 0.98) direction = 'bearish'; // breakout bawah, tembus support flat
+  // Ekstrapolasi resistance line ke index candle terakhir (window - 1) buat cek breakout atas
+  const resistAtEnd = regH.slope * (window - 1) + regH.intercept;
+  if (!direction && lastClose > resistAtEnd * 1.005) direction = 'bullish';
+  if (!direction) return null;
+
   let volDeclining = false;
   if (volumes.length >= window) {
     const avgVolEarly = volumes.slice(n - window, n - window + 10).reduce((a, b) => a + b, 0) / 10;
     const avgVolRecent = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
     volDeclining = avgVolRecent < avgVolEarly;
   }
+  // Confidence: breakout atas historisnya lebih andal (78% success) drpd breakout bawah (50% target)
+  const confidence: 'high' | 'medium' | 'low' =
+    direction === 'bullish' ? (volDeclining ? 'high' : 'medium') : (volDeclining ? 'medium' : 'low');
   return {
-    name: 'Descending Triangle', category: 'continuation', direction: 'bearish',
-    confidence: volDeclining ? 'high' : 'medium',
-    description: `Support flat ${minL.toFixed(4)} (${rl.length}x touch), resistance turun (${rh.length}x touch)${volDeclining ? ', volume mengecil' : ''}`,
+    name: 'Descending Triangle', category: 'continuation', direction,
+    confidence,
+    description: `Support flat ${minL.toFixed(4)} (${rl.length}x touch), resistance turun (${rh.length}x touch), breakout ${direction === 'bullish' ? 'ke atas' : 'ke bawah'}${volDeclining ? ', volume mengecil' : ''}`,
   };
 }
 
@@ -2746,7 +2797,9 @@ function detectPennant(highs: number[], lows: number[], closes: number[], volume
   const poleVol = volumes.slice(poleStart, poleEnd).reduce((a, b) => a + b, 0) / (poleEnd - poleStart);
   const pennantVol = volumes.slice(n - 10).reduce((a, b) => a + b, 0) / 10;
   if (pennantVol >= poleVol) return null;
-  return { name: 'Pennant', category: 'continuation', direction: dir as 'bullish' | 'bearish', confidence: 'medium', description: `Pole ${dir === 'bullish' ? '+' : '-'}${poleMove.toFixed(1)}%, pennant konsolidasi volume turun` };
+  // Riset Bulkowski: pennant failure ~54% di kedua arah, cuma ~30% berfungsi sebagai
+  // penanda tengah move — jangan kasih confidence medium/high walau flagpole+volume oke.
+  return { name: 'Pennant', category: 'continuation', direction: dir as 'bullish' | 'bearish', confidence: 'low', description: `Pole ${dir === 'bullish' ? '+' : '-'}${poleMove.toFixed(1)}%, pennant konsolidasi volume turun` };
 }
 
 function detectDoubleTop(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
@@ -2761,13 +2814,19 @@ function detectDoubleTop(highs: number[], lows: number[], closes: number[], volu
   const p2 = swingH[swingH.length - 1]!;
   // Jarak minimal antar 2 puncak — puncak terlalu dekat bukan double top valid
   if (p2.idx - p1.idx < 5) return null;
-  // Bulkowski: toleransi jarak harga 2 puncak maks 6%, dipakai lebih ketat 2% untuk M30 crypto
+  // Bulkowski asli: toleransi jarak harga 2 puncak sampai 6%. Crypto lebih volatile dari
+  // saham tapi kita gak selonggar itu — kompromi di 3.5% (riset: 2% kelewat ketat).
   const diffPct = Math.abs(p2.value - p1.value) / p1.value * 100;
-  if (diffPct > 2) return null;
+  if (diffPct > 3.5) return null;
   // Preceding uptrend wajib — tanpa uptrend sebelumnya bukan reversal pattern
   const preStart = Math.max(0, p1.idx - 10);
   const preMove = (p1.value - sliceH[preStart]!) / sliceH[preStart]! * 100;
   if (preMove < 5) return null;
+  // Bulkowski: lembah DI ANTARA dua puncak wajib turun minimal 10% dari puncak pertama —
+  // syarat ini terpisah dari "preceding trend" di atas, sering ketuker di implementasi lain.
+  const valleyBetween = Math.min(...sliceL.slice(p1.idx, p2.idx + 1));
+  const interPeakDeclinePct = (p1.value - valleyBetween) / p1.value * 100;
+  if (interPeakDeclinePct < 10) return null;
   // Neckline = low terendah DI ANTARA dua puncak (bukan seluruh window)
   const neckline = Math.min(...sliceL.slice(p1.idx, p2.idx + 1));
   // Konfirmasi wajib: candle CLOSE di bawah neckline, bukan cuma wick nyentuh
@@ -2778,7 +2837,7 @@ function detectDoubleTop(highs: number[], lows: number[], closes: number[], volu
     const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
     volConfirmed = volumes[volumes.length - 1]! > avgVol;
   }
-  const confidence: 'high' | 'medium' | 'low' = diffPct < 1 && volConfirmed ? 'high' : diffPct < 1.5 ? 'medium' : 'low';
+  const confidence: 'high' | 'medium' | 'low' = diffPct < 1.5 && volConfirmed ? 'high' : diffPct < 2.5 ? 'medium' : 'low';
   return {
     name: 'Double Top', category: 'reversal', direction: 'bearish', confidence,
     description: `2 puncak ~${((p1.value + p2.value) / 2).toFixed(4)} (beda ${diffPct.toFixed(1)}%), neckline ${neckline.toFixed(4)} tertembus close${volConfirmed ? ' + volume konfirmasi' : ''}`,
@@ -2796,12 +2855,17 @@ function detectDoubleBottom(highs: number[], lows: number[], closes: number[], v
   const p1 = swingL[swingL.length - 2]!;
   const p2 = swingL[swingL.length - 1]!;
   if (p2.idx - p1.idx < 5) return null;
+  // Bulkowski asli: toleransi sampai 6%, kompromi crypto di 3.5%
   const diffPct = Math.abs(p2.value - p1.value) / p1.value * 100;
-  if (diffPct > 2) return null;
+  if (diffPct > 3.5) return null;
   // Preceding downtrend wajib
   const preStart = Math.max(0, p1.idx - 10);
   const preMove = (sliceL[preStart]! - p1.value) / sliceL[preStart]! * 100;
   if (preMove < 5) return null;
+  // Bulkowski: puncak DI ANTARA dua lembah wajib naik minimal 10% dari lembah pertama
+  const peakBetween = Math.max(...sliceH.slice(p1.idx, p2.idx + 1));
+  const interValleyRisePct = (peakBetween - p1.value) / p1.value * 100;
+  if (interValleyRisePct < 10) return null;
   // Neckline = high tertinggi DI ANTARA dua lembah
   const neckline = Math.max(...sliceH.slice(p1.idx, p2.idx + 1));
   const lastClose = closes[n - 1]!;
@@ -2811,7 +2875,7 @@ function detectDoubleBottom(highs: number[], lows: number[], closes: number[], v
     const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
     volConfirmed = volumes[volumes.length - 1]! > avgVol;
   }
-  const confidence: 'high' | 'medium' | 'low' = diffPct < 1 && volConfirmed ? 'high' : diffPct < 1.5 ? 'medium' : 'low';
+  const confidence: 'high' | 'medium' | 'low' = diffPct < 1.5 && volConfirmed ? 'high' : diffPct < 2.5 ? 'medium' : 'low';
   return {
     name: 'Double Bottom', category: 'reversal', direction: 'bullish', confidence,
     description: `2 lembah ~${((p1.value + p2.value) / 2).toFixed(4)} (beda ${diffPct.toFixed(1)}%), neckline ${neckline.toFixed(4)} tertembus close${volConfirmed ? ' + volume konfirmasi' : ''}`,
@@ -2838,22 +2902,32 @@ function detectHeadAndShoulders(highs: number[], lows: number[], closes: number[
   if (distLS <= 0 || distRS <= 0) return null;
   const distRatio = distLS / distRS;
   if (distRatio < 0.4 || distRatio > 2.5) return null;
-  // Neckline = rata-rata 2 armpit (low terendah di antara LS-Head dan Head-RS)
-  const armpit1 = Math.min(...sliceL.slice(ls.idx, head.idx + 1));
-  const armpit2 = Math.min(...sliceL.slice(head.idx, rs.idx + 1));
-  const neckline = (armpit1 + armpit2) / 2;
+  // Neckline Bulkowski = GARIS penghubung 2 armpit (boleh miring), bukan rata-rata datar.
+  // Cari index armpit (low terendah) di tiap segmen, lalu interpolasi linear ke index terakhir.
+  const seg1 = sliceL.slice(ls.idx, head.idx + 1);
+  const seg2 = sliceL.slice(head.idx, rs.idx + 1);
+  const armpit1Val = Math.min(...seg1);
+  const armpit1Idx = ls.idx + seg1.indexOf(armpit1Val);
+  const armpit2Val = Math.min(...seg2);
+  const armpit2Idx = head.idx + seg2.indexOf(armpit2Val);
+  const necklineSlope = armpit2Idx !== armpit1Idx ? (armpit2Val - armpit1Val) / (armpit2Idx - armpit1Idx) : 0;
+  const necklineAtEnd = armpit1Val + necklineSlope * ((window - 1) - armpit1Idx);
+  // Kalau neckline turun (armpit2 < armpit1), konfirmasi pakai right-armpit sesuai aturan Bulkowski
+  const necklineForConfirm = necklineSlope < 0 ? armpit2Val : necklineAtEnd;
   // Konfirmasi wajib: close di bawah neckline
-  if (closes[n - 1]! >= neckline) return null;
+  if (closes[n - 1]! >= necklineForConfirm) return null;
   let volConfirmed = false;
   if (volumes.length >= 20) {
     const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
     volConfirmed = volumes[volumes.length - 1]! > avgVol;
   }
-  const symGood = distRatio >= 0.9 && distRatio <= 1.1 && priceDiffPct < 1.5;
-  const confidence: 'high' | 'medium' | 'low' = symGood && volConfirmed ? 'high' : symGood || volConfirmed ? 'medium' : 'low';
+  // Riset Bulkowski: H&S yang TERLALU simetris justru sedikit lebih lemah (rise 22.8% vs
+  // 23.8% pada yang asimetris) — jadi confidence gak dinaikin cuma karena simetris ketat,
+  // volume confirmation jadi faktor utama.
+  const confidence: 'high' | 'medium' | 'low' = volConfirmed ? 'high' : 'medium';
   return {
     name: 'Head & Shoulders', category: 'reversal', direction: 'bearish', confidence,
-    description: `LS ${ls.value.toFixed(4)}, Head ${head.value.toFixed(4)}, RS ${rs.value.toFixed(4)}, neckline ${neckline.toFixed(4)} tertembus close`,
+    description: `LS ${ls.value.toFixed(4)}, Head ${head.value.toFixed(4)}, RS ${rs.value.toFixed(4)}, neckline ${necklineForConfirm.toFixed(4)} tertembus close${volConfirmed ? ' + volume konfirmasi' : ''}`,
   };
 }
 
@@ -2875,21 +2949,29 @@ function detectInverseHS(highs: number[], lows: number[], closes: number[], volu
   if (distLS <= 0 || distRS <= 0) return null;
   const distRatio = distLS / distRS;
   if (distRatio < 0.4 || distRatio > 2.5) return null;
-  // Neckline = rata-rata 2 armpit (high tertinggi di antara LS-Head dan Head-RS)
-  const armpit1 = Math.max(...sliceH.slice(ls.idx, head.idx + 1));
-  const armpit2 = Math.max(...sliceH.slice(head.idx, rs.idx + 1));
-  const neckline = (armpit1 + armpit2) / 2;
-  if (closes[n - 1]! <= neckline) return null;
+  // Neckline Bulkowski = GARIS penghubung 2 armpit (boleh miring), bukan rata-rata datar.
+  const seg1 = sliceH.slice(ls.idx, head.idx + 1);
+  const seg2 = sliceH.slice(head.idx, rs.idx + 1);
+  const armpit1Val = Math.max(...seg1);
+  const armpit1Idx = ls.idx + seg1.indexOf(armpit1Val);
+  const armpit2Val = Math.max(...seg2);
+  const armpit2Idx = head.idx + seg2.indexOf(armpit2Val);
+  const necklineSlope = armpit2Idx !== armpit1Idx ? (armpit2Val - armpit1Val) / (armpit2Idx - armpit1Idx) : 0;
+  const necklineAtEnd = armpit1Val + necklineSlope * ((window - 1) - armpit1Idx);
+  // Kalau neckline naik (armpit2 > armpit1), konfirmasi pakai right-armpit sesuai aturan Bulkowski
+  const necklineForConfirm = necklineSlope > 0 ? armpit2Val : necklineAtEnd;
+  if (closes[n - 1]! <= necklineForConfirm) return null;
   let volConfirmed = false;
   if (volumes.length >= 20) {
     const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
     volConfirmed = volumes[volumes.length - 1]! > avgVol;
   }
-  const symGood = distRatio >= 0.9 && distRatio <= 1.1 && priceDiffPct < 1.5;
-  const confidence: 'high' | 'medium' | 'low' = symGood && volConfirmed ? 'high' : symGood || volConfirmed ? 'medium' : 'low';
+  // Riset Bulkowski: H&S yang TERLALU simetris justru sedikit lebih lemah — confidence
+  // gak dinaikin cuma karena simetris ketat, volume confirmation jadi faktor utama.
+  const confidence: 'high' | 'medium' | 'low' = volConfirmed ? 'high' : 'medium';
   return {
     name: 'Inverse H&S', category: 'reversal', direction: 'bullish', confidence,
-    description: `LS ${ls.value.toFixed(4)}, Head ${head.value.toFixed(4)}, RS ${rs.value.toFixed(4)}, neckline ${neckline.toFixed(4)} tertembus close`,
+    description: `LS ${ls.value.toFixed(4)}, Head ${head.value.toFixed(4)}, RS ${rs.value.toFixed(4)}, neckline ${necklineForConfirm.toFixed(4)} tertembus close${volConfirmed ? ' + volume konfirmasi' : ''}`,
   };
 }
 
@@ -2924,9 +3006,12 @@ function detectRisingWedge(highs: number[], lows: number[], closes: number[], vo
     volDeclining = avgVolRecent < avgVolEarly;
   }
   return {
+    // Riset Bulkowski: rising wedge rank 32/39 (up) & 36/36 (paling buncit, down) —
+    // failure downward breakout sampai 51% (lebih buruk dari lempar koin). Cap medium max,
+    // jangan pernah 'high' walau volume declining sempurna.
     name: 'Rising Wedge', category: 'reversal', direction: 'bearish',
-    confidence: volDeclining ? 'high' : 'medium',
-    description: `${rh.length}x touch resistance, ${rl.length}x touch support, konvergen ke apex${volDeclining ? ', volume mengecil' : ''} — bearish reversal`,
+    confidence: volDeclining ? 'medium' : 'low',
+    description: `${rh.length}x touch resistance, ${rl.length}x touch support, konvergen ke apex${volDeclining ? ', volume mengecil' : ''} — bearish reversal (riset: reliabilitas rendah)`,
   };
 }
 
@@ -2958,23 +3043,35 @@ function detectFallingWedge(highs: number[], lows: number[], closes: number[], v
     volDeclining = avgVolRecent < avgVolEarly;
   }
   return {
+    // Riset Bulkowski: falling wedge rank 31/39, breakout ke atas cuma 68% (gak pasti),
+    // failure 26%. Lebih baik dari rising wedge tapi tetep bukan performer top — cap medium.
     name: 'Falling Wedge', category: 'reversal', direction: 'bullish',
-    confidence: volDeclining ? 'high' : 'medium',
+    confidence: volDeclining ? 'medium' : 'low',
     description: `${rh.length}x touch resistance, ${rl.length}x touch support, konvergen ke apex${volDeclining ? ', volume mengecil' : ''} — bullish reversal`,
   };
 }
 
 /**
- * Cup and Handle — pattern continuation bullish (Bulkowski Encyclopedia of Chart Patterns + O'Neil rules).
+ * Cup and Handle — pattern continuation bullish.
+ * PENTING soal atribusi (riset validasi menemukan beberapa angka di versi lama salah label):
+ * Bulkowski cuma nentuin bentuk (U-shape, rims setinggi, handle di paruh atas) tanpa angka
+ * ketat. Angka-angka persentase (preceding rise, cup depth, volume breakout) itu aturan
+ * ORIGINAL O'NEIL/CANSLIM, bukan Bulkowski — meski Bulkowski sendiri di bukunya akhirnya
+ * ikut pakai threshold O'Neil karena gak punya angka sendiri yang lebih baik.
  * Kriteria:
- * 1. Preceding uptrend wajib (rise minimal sebelum cup mulai)
- * 2. Cup U-shape (rounding bottom), bukan V-shape tajam
- * 3. Cup depth 10-50% retracement dari left rim (Bulkowski: idealnya 12-33%)
+ * 1. Preceding uptrend wajib [O'Neil: minimal 30%, di sini dikompromikan ke 20% buat crypto]
+ * 2. Cup U-shape (rounding bottom), bukan V-shape tajam [Bulkowski + O'Neil]
+ * 3. Cup depth 10-50% retracement dari left rim [O'Neil ideal 12-33%, bukan Bulkowski]
  * 4. Left rim & right rim harus rough sama tinggi (toleransi ~8%, crypto lebih volatile dari saham)
- * 5. Handle wajib terbentuk di ATAS midpoint cup (aturan O'Neil/Bulkowski — handle di bawah setengah cup = invalid)
- * 6. Handle depth maks 15% dari right rim (Bulkowski: idealnya 10-15%)
- * 7. Konfirmasi wajib: candle CLOSE di atas rim (breakout), bukan cuma bentuk doang
- * 8. Volume breakout di atas rata-rata → confidence naik
+ * 5. Handle wajib terbentuk di ATAS midpoint cup [Bulkowski eksplisit konfirmasi aturan O'Neil ini]
+ * 6. Handle depth maks 15% dari right rim [O'Neil: 10-15%]
+ * 7. Konfirmasi wajib: candle CLOSE di atas rim (breakout), bukan cuma bentuk doang [Bulkowski]
+ * 8. Volume breakout ≥1.4x rata-rata → confidence naik [O'Neil: 40-50% di atas rata-rata]
+ *
+ * Catatan riset: cup & handle adalah salah satu pattern PALING andal di katalog Bulkowski
+ * (rank 3/39, failure cuma 5%, rata-rata rise 54%). Tapi studi lanjutan Bulkowski (300 pola,
+ * 1990-2024) nemuin 47% pola ini drop signifikan dalam 2 bulan setelah breakout — jangan lupa
+ * partial profit-taking, jangan full-hold sampai 100% measured move.
  */
 function detectCupAndHandle(highs: number[], lows: number[], closes: number[], volumes: number[] = []): PatternResult | null {
   const n = closes.length;
@@ -3010,12 +3107,15 @@ function detectCupAndHandle(highs: number[], lows: number[], closes: number[], v
   // Urutan waktu wajib: left rim → bottom → right rim (bentuk U, bukan acak)
   if (!(leftRimIdx < bottomIdx && bottomIdx < rightRimIdx)) return null;
 
-  // Preceding uptrend wajib — tanpa rally sebelumnya, ini bukan continuation pattern valid
+  // Preceding uptrend wajib — tanpa rally sebelumnya, ini bukan continuation pattern valid.
+  // O'Neil asli minta 30%; dikompromikan ke 20% karena crypto M30/H4 jarang dapet ruang
+  // 30% rise dalam window candle terbatas dibanding data saham daily/weekly.
   const preStart = Math.max(0, n - window - 15);
   const preRise = (leftRim - closes[preStart]!) / closes[preStart]! * 100;
-  if (preRise < 15) return null;
+  if (preRise < 20) return null;
 
-  // Cup depth: 10-50% retracement dari left rim (Bulkowski ideal 12-33%, kasih toleransi lebih)
+  // Cup depth: 10-50% retracement dari left rim (O'Neil ideal 12-33%, bukan Bulkowski —
+  // kasih toleransi lebih lebar buat volatilitas crypto)
   const cupDepthPct = (leftRim - bottomVal) / leftRim * 100;
   if (cupDepthPct < 10 || cupDepthPct > 50) return null;
 
@@ -3053,11 +3153,12 @@ function detectCupAndHandle(highs: number[], lows: number[], closes: number[], v
   const lastClose = closes[n - 1]!;
   if (lastClose < rimLevel) return null;
 
-  // Volume breakout — Bulkowski: breakout kuat biasanya volume 40%+ di atas rata-rata
+  // Volume breakout — O'Neil (bukan Bulkowski): breakout kuat idealnya volume 40-50%
+  // di atas rata-rata. Naikin dari 1.2x ke 1.4x biar lebih dekat standar O'Neil asli.
   let volConfirmed = false;
   if (volumes.length >= 20) {
     const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    volConfirmed = volumes[volumes.length - 1]! > avgVol * 1.2;
+    volConfirmed = volumes[volumes.length - 1]! > avgVol * 1.4;
   }
 
   const confidence: 'high' | 'medium' | 'low' =
@@ -3428,6 +3529,14 @@ export interface BreakoutTradingResult {
   sellStopPrice?: number;
   rangeHeight?: number;
   leanBias?: 'bullish' | 'bearish' | 'neutral'; // kecenderungan arah dari struktur internal konsolidasi
+  // Probabilitas arah — komposit dari 4 sinyal (posisi harga, trend sebelumnya, struktur
+  // internal, distribusi volume). SELALU tampilin dua sisi, ini cuma bobot tambahan,
+  // bukan sinyal pasti — breakout tetep bisa ke arah manapun.
+  directionalProbability?: {
+    bullishPct: number;
+    bearishPct: number;
+    reasoning: string[];
+  };
   // Anticipation Entry — entry di dalam konsolidasi sebelum breakout, searah trend besar
   anticipationEntry?: {
     direction: 'bullish' | 'bearish';
@@ -3436,6 +3545,83 @@ export interface BreakoutTradingResult {
     sizeNote: string; // saran position sizing
     trendContext: string; // penjelasan trend besar yang mendasari
   };
+}
+
+/**
+ * Hitung probabilitas arah breakout — komposit dari 4 sinyal, masing-masing dikasih
+ * skor -1 (bearish penuh) sampai +1 (bullish penuh), digabung pakai bobot, lalu
+ * dikonversi ke persentase. Dicap max 90/10 — breakout emang inherently gak pasti,
+ * jangan pernah kasih kesan 100% yakin ke satu arah.
+ *
+ * Sinyal & bobot:
+ * 1. Posisi harga relatif ke tengah range (bobot 15%) — sinyal paling lemah/naif
+ * 2. Trend H4 sebelum konsolidasi mulai (bobot 30%) — underlying trend, biasanya paling kuat
+ * 3. Struktur internal konsolidasi: higher-low / lower-high di dalam range (bobot 25%)
+ * 4. Distribusi volume: lebih rame di deket support (akumulasi) atau resistance (distribusi) (bobot 30%)
+ */
+function calcDirectionalProbability(
+  h4: KlineData,
+  consolStart: number,
+  consolEnd: number,
+  consolHigh: number,
+  consolLow: number,
+  leanBias: 'bullish' | 'bearish' | 'neutral',
+  trendPreStruct: PriceStructure
+): { bullishPct: number; bearishPct: number; reasoning: string[] } {
+  const reasoning: string[] = [];
+  const range = consolHigh - consolLow;
+
+  // 1. Posisi harga (dari leanBias yang udah dihitung)
+  const posScore = leanBias === 'bullish' ? 1 : leanBias === 'bearish' ? -1 : 0;
+  if (leanBias !== 'neutral') reasoning.push(`Posisi harga condong ${leanBias === 'bullish' ? 'atas' : 'bawah'} range`);
+
+  // 2. Trend sebelum konsolidasi (sinyal paling kuat — underlying trend)
+  const strengthMul = trendPreStruct.strength === 'strong' ? 1 : trendPreStruct.strength === 'moderate' ? 0.6 : 0.3;
+  const trendScore = trendPreStruct.bias === 'bullish' ? strengthMul : trendPreStruct.bias === 'bearish' ? -strengthMul : 0;
+  if (trendPreStruct.bias !== 'ranging') {
+    reasoning.push(`Trend H4 sebelum konsolidasi: ${trendPreStruct.bias} (${trendPreStruct.strength})`);
+  }
+
+  // 3. Struktur internal — higher-low (bullish) atau lower-high (bearish) di dalam range
+  const wh = h4.highs.slice(consolStart, consolEnd);
+  const wl = h4.lows.slice(consolStart, consolEnd);
+  const half = Math.floor(wh.length / 2);
+  const firstHalfMinLow = Math.min(...wl.slice(0, half));
+  const secondHalfMinLow = Math.min(...wl.slice(half));
+  const firstHalfMaxHigh = Math.max(...wh.slice(0, half));
+  const secondHalfMaxHigh = Math.max(...wh.slice(half));
+  const lowRisingPct = (secondHalfMinLow - firstHalfMinLow) / range;
+  const highFallingPct = (firstHalfMaxHigh - secondHalfMaxHigh) / range;
+  const narrowScore = Math.max(-1, Math.min(1, lowRisingPct - highFallingPct));
+  if (Math.abs(narrowScore) > 0.15) {
+    reasoning.push(narrowScore > 0 ? 'Higher-low terbentuk di dalam konsolidasi (mirip ascending triangle)' : 'Lower-high terbentuk di dalam konsolidasi (mirip descending triangle)');
+  }
+
+  // 4. Distribusi volume — akumulasi (rame di bawah) vs distribusi (rame di atas)
+  const wc = h4.closes.slice(consolStart, consolEnd);
+  const wv = h4.volumes.slice(consolStart, consolEnd);
+  let lowerThirdVol = 0, upperThirdVol = 0;
+  const lowerThreshold = consolLow + range / 3;
+  const upperThreshold = consolHigh - range / 3;
+  for (let i = 0; i < wc.length; i++) {
+    if (wc[i]! <= lowerThreshold) lowerThirdVol += wv[i] ?? 0;
+    else if (wc[i]! >= upperThreshold) upperThirdVol += wv[i] ?? 0;
+  }
+  const totalVol = lowerThirdVol + upperThirdVol;
+  const volScore = totalVol > 0 ? (lowerThirdVol - upperThirdVol) / totalVol : 0;
+  if (Math.abs(volScore) > 0.15 && totalVol > 0) {
+    reasoning.push(volScore > 0 ? 'Volume lebih rame di area support (indikasi akumulasi)' : 'Volume lebih rame di area resistance (indikasi distribusi)');
+  }
+
+  // Gabung dengan bobot
+  const composite = posScore * 0.15 + trendScore * 0.30 + narrowScore * 0.25 + volScore * 0.30;
+  // Cap ke rentang 10-90% — jangan pernah kasih kesan pasti 100%
+  const bullishPct = Math.round(Math.max(10, Math.min(90, 50 + composite * 40)));
+  const bearishPct = 100 - bullishPct;
+
+  if (reasoning.length === 0) reasoning.push('Sinyal campuran — belum ada kecenderungan arah yang jelas');
+
+  return { bullishPct, bearishPct, reasoning };
 }
 
 export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTradingResult> {
@@ -3594,9 +3780,15 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
       // Kalau trend sebelumnya ranging juga — gak ada anticipation entry, cuma stop order dua sisi
       // (false breakout risk terlalu tinggi tanpa trend besar yang jelas mendukung satu arah)
 
+      // Probabilitas arah komposit — SELALU dua sisi, ini cuma bobot tambahan
+      const directionalProbability = calcDirectionalProbability(
+        h4, ready.consolStart, n, ready.consolHigh, ready.consolLow, ready.leanBias, trendPreStruct
+      );
+
       const filterResultsReady: string[] = [
         `✅ Konsolidasi matang: ${ready.consolLow.toFixed(4)}–${ready.consolHigh.toFixed(4)} (${candles} candle)`,
         `ℹ️ Belum breakout${leanMsg} — pasang Buy Stop di ${buyStopPrice.toFixed(4)} & Sell Stop di ${sellStopPrice.toFixed(4)}`,
+        `📊 Probabilitas: ${directionalProbability.bullishPct}% Bullish / ${directionalProbability.bearishPct}% Bearish — ${directionalProbability.reasoning.join('; ')}`,
       ];
       if (anticipationEntry) {
         filterResultsReady.push(`🎯 ${anticipationEntry.trendContext}`);
@@ -3611,6 +3803,7 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
         consolidationHigh: ready.consolHigh, consolidationLow: ready.consolLow,
         consolidationCandles: candles,
         buyStopPrice, sellStopPrice, rangeHeight, leanBias: ready.leanBias,
+        directionalProbability,
         anticipationEntry,
         filterResults: filterResultsReady,
         message: `SIAP BREAKOUT — Konsolidasi matang${leanMsg}${anticipationEntry ? ', ada anticipation entry' : ''}`,
@@ -3640,7 +3833,12 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
     const bufferH4 = atrH4 * 0.3;
     const brokenLevel = best.bias === 'bullish' ? best.consolHigh : best.consolLow;
     const entryPrice = brokenLevel;
-    const stopLoss = best.bias === 'bullish' ? brokenLevel - bufferH4 : brokenLevel + bufferH4;
+    // FIX: sebelumnya SL cuma brokenLevel ± buffer doang, gak ada pengaman minimum —
+    // pas ATR H4 lagi kecil (market kalem), SL bisa nempel deket banget ke entry.
+    // Sekarang dipaksa minimal 1x ATR H4 dari entry, konsisten sama Menu 2 & 4.
+    const stopLoss = best.bias === 'bullish'
+      ? Math.min(brokenLevel - bufferH4, entryPrice - atrH4)
+      : Math.max(brokenLevel + bufferH4, entryPrice + atrH4);
     const height = best.consolHigh - best.consolLow;
     const dir = best.bias === 'bullish' ? 1 : -1;
     const takeProfit1 = brokenLevel + height * dir; // measured move
@@ -3914,7 +4112,7 @@ export async function runBacktest(
         hasRejection15M: rejection15M.confirmed,
         hasPattern,
         patternConfidence: hasPattern ? 'MEDIUM' : 'NONE',
-        zoneTier: 1, // simplified
+        zoneTier: selectedZone.tier, // fix: sebelumnya hardcode 1 (selalu "Tier 1-2"), sekarang pakai tier real
         hour,
       });
     }
@@ -4079,7 +4277,12 @@ export async function runBacktest(
         hasChoch15M: true, hasRejection15M: true, // tidak dipakai di alur baru, default true biar gak keitung "gagal"
         hasPattern: pats30.length > 0,
         patternConfidence: pats30.length > 0 ? 'MEDIUM' : (rsiDivergence ? 'LOW' : 'NONE'),
-        zoneTier: bestZone.zoneType.startsWith('OB') ? 1 : bestZone.zoneType.startsWith('FVG') ? 2 : 3,
+        // FIX BUG: sebelumnya re-derive tier dari zoneType.startsWith('OB'/'FVG') — tapi
+        // string zoneType di level H1 pakai kata lengkap "Order Block..." bukan "OB", jadi
+        // gak pernah match dan semua Order Block murni salah kejatoh ke Tier 3 (harusnya
+        // Tier 1). Sekarang reuse langsung field `.tier` (skala 1-7) yang udah bener dari
+        // selectBestZoneH1 — sama kayak yang dipakai scoring live (selectedZone.tier <= 2).
+        zoneTier: bestZone.tier,
         hour,
         hasBBSqueeze: bbSqueeze.isSqueezing,
         hasEMA34Confirm: ema34Confirm,

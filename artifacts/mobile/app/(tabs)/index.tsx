@@ -55,6 +55,11 @@ interface BreakoutTradingResult {
   sellStopPrice?: number;
   rangeHeight?: number;
   leanBias?: 'bullish' | 'bearish' | 'neutral';
+  directionalProbability?: {
+    bullishPct: number;
+    bearishPct: number;
+    reasoning: string[];
+  };
   anticipationEntry?: {
     direction: 'bullish' | 'bearish';
     entryPrice: number;
@@ -537,6 +542,27 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
             </AnimatedCard>
           )}
 
+          {/* Probabilitas Arah — SELALU dua sisi, ini bobot tambahan bukan sinyal pasti */}
+          {data.status === 'ready' && data.directionalProbability && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>PROBABILITAS ARAH (dua sisi tetap disiapin)</Text>
+              <View style={{ flexDirection: 'row', height: 10, borderRadius: 5, overflow: 'hidden', marginBottom: 8 }}>
+                <View style={{ flex: data.directionalProbability.bullishPct, backgroundColor: colors.bullish }} />
+                <View style={{ flex: data.directionalProbability.bearishPct, backgroundColor: colors.bearish }} />
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.bullish }}>▲ {data.directionalProbability.bullishPct}% Bullish</Text>
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.bearish }}>{data.directionalProbability.bearishPct}% Bearish ▼</Text>
+              </View>
+              {data.directionalProbability.reasoning.map((r, i) => (
+                <Text key={i} style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 3, lineHeight: 16 }}>• {r}</Text>
+              ))}
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 8, fontStyle: 'italic' }}>
+                Ini bobot tambahan buat sizing, bukan jaminan arah — tetep pasang stop order di kedua sisi.
+              </Text>
+            </View>
+          )}
+
           {/* Anticipation Entry — khusus status ready & ada trend besar jelas */}
           {data.status === 'ready' && data.anticipationEntry && (
             <View style={[styles.section, { backgroundColor: `#f9731608`, borderColor: '#f97316' }]}>
@@ -712,7 +738,6 @@ function BreakoutLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const doDelete = async (id: string) => setLogs(await deleteLog(STORAGE_KEY_BREAKOUT_ENTRY, id));
 
   const sc = (s: SignalLog['status']) => s === 'win_tp1' || s === 'win_tp2' ? '#22c55e' : s === 'lose' ? '#ef4444' : '#888';
-  const sl = (s: SignalLog['status']) => s === 'win_tp1' ? 'WIN TP1' : s === 'win_tp2' ? 'WIN TP2' : s === 'lose' ? 'LOSE' : s === 'expired' ? 'EXPIRED' : 'PENDING';
   const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
 
   const wins = logs.filter(l => l.status === 'win_tp1' || l.status === 'win_tp2').length;

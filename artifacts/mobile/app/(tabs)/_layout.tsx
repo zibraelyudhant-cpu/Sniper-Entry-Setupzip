@@ -7,6 +7,8 @@ import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Tabs } from 'expo-router';
 import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
 import { SymbolView } from 'expo-symbols';
+import { AnimatedTabIcon } from '@/components/animated/AnimatedTabIcon';
+import { MENU_COLORS } from '@/constants/theme';
 
 function NativeTabLayout() {
   return (
@@ -83,60 +85,80 @@ function ClassicTabLayout() {
         name="index"
         options={{
           title: 'Breakout',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="arrow.up.right" tintColor={color} size={22} />
-            ) : (
-              <Feather name="trending-up" size={22} color={color} />
-            ),
+          tabBarActiveTintColor: MENU_COLORS.breakout,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="arrow.up.right" tintColor={color} size={22} />
+              ) : (
+                <Feather name="trending-up" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
         }}
       />
       <Tabs.Screen
         name="sniper"
         options={{
           title: 'Sniper',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="scope" tintColor={color} size={22} />
-            ) : (
-              <Feather name="crosshair" size={22} color={color} />
-            ),
+          tabBarActiveTintColor: MENU_COLORS.sniper,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="scope" tintColor={color} size={22} />
+              ) : (
+                <Feather name="crosshair" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
         }}
       />
       <Tabs.Screen
         name="calculator"
         options={{
           title: 'Kalkulator',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="function" tintColor={color} size={22} />
-            ) : (
-              <Feather name="percent" size={22} color={color} />
-            ),
+          tabBarActiveTintColor: MENU_COLORS.calculator,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="function" tintColor={color} size={22} />
+              ) : (
+                <Feather name="percent" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
         }}
       />
       <Tabs.Screen
         name="breakout"
         options={{
           title: 'Scalping',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="bolt.horizontal.fill" tintColor={color} size={22} />
-            ) : (
-              <Feather name="zap" size={22} color={color} />
-            ),
+          tabBarActiveTintColor: MENU_COLORS.scalping,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="bolt.horizontal.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="zap" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
         }}
       />
       <Tabs.Screen
         name="insight"
         options={{
           title: 'Insight',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="sparkles" tintColor={color} size={22} />
-            ) : (
-              <Feather name="eye" size={22} color={color} />
-            ),
+          tabBarActiveTintColor: MENU_COLORS.insight,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="sparkles" tintColor={color} size={22} />
+              ) : (
+                <Feather name="eye" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
         }}
       />
       {/* Hidden screens — file di (tabs) tapi jangan muncul di tab bar */}
@@ -148,12 +170,16 @@ function ClassicTabLayout() {
         name="backtest"
         options={{
           title: 'Backtest',
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="chart.xyaxis.line" tintColor={color} size={22} />
-            ) : (
-              <Feather name="bar-chart" size={22} color={color} />
-            ),
+          tabBarActiveTintColor: MENU_COLORS.backtest,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="chart.xyaxis.line" tintColor={color} size={22} />
+              ) : (
+                <Feather name="bar-chart" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
         }}
       />
     </Tabs>

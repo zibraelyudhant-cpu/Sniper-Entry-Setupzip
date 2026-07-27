@@ -222,11 +222,21 @@ router.get("/screener", async (req, res) => {
             const adxH4 = calcADX(d1.highs, d1.lows, d1.closes);
             if (adxH4 < 25) return null;
 
-            // ── Filter 4: RSI H4 belum oversold/overbought ekstrem ────────────
-            const rsiH1 = calcRSI(h4.closes);
-            const rsiH4 = calcRSI(d1.closes);
-            if (bias === "bullish" && rsiH1 < 25) return null; // koreksi terlalu dalam
-            if (bias === "bearish" && rsiH1 > 75) return null; // bounce terlalu tinggi
+            // ── Filter 4: EMA 21/34/61 hard filter (H4) ─────────────────────
+            // Bullish: harga harus di atas EMA 21 atau minimal di antara EMA 21-61
+            // Bearish: harga harus di bawah EMA 21 atau minimal di antara EMA 21-61
+            const ema21H4 = getLastEMA(h4.closes, 21);
+            const ema34H4 = getLastEMA(h4.closes, 34);
+            const ema61H4 = getLastEMA(h4.closes, 61);
+            if (bias === "bullish" && price < ema61H4) return null; // harga terlalu jauh di bawah EMA
+            if (bias === "bearish" && price > ema61H4) return null; // harga terlalu jauh di atas EMA
+
+            // ── Filter 5: RSI H4 dan D1 ──────────────────────────────────────
+            const rsiH4 = calcRSI(h4.closes); // RSI H4 — label fix (sebelumnya kebalik)
+            const rsiD1 = calcRSI(d1.closes); // RSI D1 — label fix
+            const rsiH1 = rsiH4; // alias untuk kompatibilitas scoring di bawah
+            if (bias === "bullish" && rsiH4 < 25) return null; // koreksi H4 terlalu dalam
+            if (bias === "bearish" && rsiH4 > 75) return null; // bounce H4 terlalu tinggi
 
             // ── Filter 5: ATR D1 >= 0.5% (volatilitas cukup di D1) ───────────
             const atrH4 = calcATR(d1.highs, d1.lows, d1.closes);
@@ -261,20 +271,20 @@ router.get("/screener", async (req, res) => {
             // ADX kuat
             if (adxH4 > 35) score += 2;
             else if (adxH4 > 25) score += 1;
-            // RSI H4 di zona trend sehat
-            const rsiH4Healthy = bias === "bullish"
-              ? rsiH4 >= 45 && rsiH4 <= 75  // trend D1 bullish sehat
-              : rsiH4 >= 25 && rsiH4 <= 55; // trend D1 bearish sehat
-            if (rsiH4Healthy) score += 1;
+            // RSI D1 di zona trend sehat (trend utama)
+            const rsiD1Healthy = bias === "bullish"
+              ? rsiD1 >= 45 && rsiD1 <= 75  // trend D1 bullish sehat
+              : rsiD1 >= 25 && rsiD1 <= 55; // trend D1 bearish sehat
+            if (rsiD1Healthy) score += 1;
             // Koreksi belum terlalu dalam (masih dalam range normal 3–15%)
             const correctionHealthy = correctionDepthPct >= 3 && correctionDepthPct <= 15;
             if (correctionHealthy) score += 1;
-            // H1 sudah mulai melemah (koreksi mau selesai)
-            // RSI H1 di area oversold ringan untuk bullish, overbought ringan untuk bearish
-            const rsiH1Exhausted = bias === "bullish"
-              ? rsiH1 >= 25 && rsiH1 <= 45  // pullback hampir habis
-              : rsiH1 >= 55 && rsiH1 <= 75; // bounce hampir habis
-            if (rsiH1Exhausted) score += 1;
+            // H4 sudah mulai melemah (koreksi mau selesai)
+            // RSI H4 di area oversold ringan untuk bullish, overbought ringan untuk bearish
+            const rsiH4Exhausted = bias === "bullish"
+              ? rsiH4 >= 25 && rsiH4 <= 45  // pullback H4 hampir habis
+              : rsiH4 >= 55 && rsiH4 <= 75; // bounce H4 hampir habis
+            if (rsiH4Exhausted) score += 1;
             // Volume koreksi sehat
             if (volumeValid) score += 1;
 
@@ -291,7 +301,7 @@ router.get("/screener", async (req, res) => {
               change24h: parseFloat(ticker.priceChangePercent),
               volume24h: parseFloat(ticker.quoteVolume),
               rsiH4,
-              rsiH1,
+              rsiD1,
               atrH4,
               atrH4Pct,
               adxH4,

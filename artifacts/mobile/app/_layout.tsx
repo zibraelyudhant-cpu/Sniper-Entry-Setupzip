@@ -49,7 +49,6 @@ function RootLayoutNav() {
             width: '100%',
             maxWidth: 480,
             alignSelf: 'center',
-            // @ts-expect-error - boxShadow valid di web (react-native-web), gak dikenal di type RN native
             boxShadow: '0 0 60px rgba(0,0,0,0.5)',
           }}
         >

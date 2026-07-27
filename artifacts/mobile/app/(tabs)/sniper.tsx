@@ -16,7 +16,7 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useGetSmcAnalysis, useGetSniperScan } from '@workspace/api-client-react';
+import { useGetSmcAnalysis, useGetSniperScan, getGetSmcAnalysisQueryKey, getGetSniperScanQueryKey } from '@workspace/api-client-react';
 import type { SniperResult } from '@workspace/api-client-react';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
@@ -351,7 +351,7 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
             </Text>
           </View>
           <Text style={[styles.entryTime, { color: colors.mutedForeground }]}>
-            {formatTimestamp(data.timestamp)}
+            {data.timestamp}
           </Text>
         </View>
 
@@ -635,9 +635,6 @@ function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
 
   const doDelete = async (id: string) => { setLogs(await sniperDeleteLog(id)); };
 
-  const sc = (s: SignalLogStatus) => s === 'win_tp1' || s === 'win_tp2' ? '#22c55e' : s === 'lose' ? '#ef4444' : '#888';
-  const sl = (s: SignalLogStatus) => s === 'win_tp1' ? 'WIN TP1' : s === 'win_tp2' ? 'WIN TP2' : s === 'lose' ? 'LOSE' : s === 'expired' ? 'EXPIRED' : 'PENDING';
-
   const wins = logs.filter(l => l.status === 'win_tp1' || l.status === 'win_tp2').length;
   const loses = logs.filter(l => l.status === 'lose').length;
   const wr = wins + loses > 0 ? Math.round(wins / (wins + loses) * 100) : 0;
@@ -880,7 +877,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const insets = useSafeAreaInsets();
   const bottomPadding = insets.bottom + 80;
   const { data, isLoading, isError, refetch } = useGetSniperScan({
-    query: { staleTime: 5 * 60 * 1000 },
+    query: { queryKey: getGetSniperScanQueryKey(), staleTime: 5 * 60 * 1000 },
   });
 
   const handleCoinPress = useCallback((coin: SniperResult) => {
@@ -1013,7 +1010,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
 
   const { data, isLoading, isError, refetch } = useGetSmcAnalysis(
     { symbol: querySymbol },
-    { query: { enabled: !!querySymbol, staleTime: 120_000 } }
+    { query: { queryKey: getGetSmcAnalysisQueryKey({ symbol: querySymbol }), enabled: !!querySymbol, staleTime: 120_000 } }
   );
 
   useEffect(() => {
@@ -1107,7 +1104,6 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
           {data.status === 'no_trend' && <NoTrendScreen data={data} colors={colors} />}
           {data.status === 'no_zone' && <NoZoneScreen data={data} colors={colors} />}
           {data.status === 'skip_conditions' && <SkipScreen data={data} colors={colors} />}
-          {data.status === 'no_setup' && <NoSetupScreen data={data} colors={colors} />}
           {data.status === 'ready' && (
             <>
               <ReadyScreen data={data} colors={colors} />
