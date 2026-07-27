@@ -1941,8 +1941,11 @@ async function checkBtcAlignment(
     return { aligned: true, btcBias: bias, btcStrength: 'strong', message: '' };
   }
   try {
-    const btcH4 = await fetchKlines('BTCUSDT', '4h', 50);
-    const btcStruct = analyzePriceActionStructure(btcH4.highs, btcH4.lows, btcH4.closes);
+    // Pakai H2 (bukan H4) — lebih cepet nangkep reversal BTC (swing kebentuk 2x
+    // lebih sering) tapi masih lebih "tenang" dari H1. Jumlah candle digandain
+    // jadi 100 biar cakupan waktu tetep mirip (~8 hari) kayak sebelumnya (50×H4).
+    const btcH2 = await fetchKlines('BTCUSDT', '2h', 100);
+    const btcStruct = analyzePriceActionStructure(btcH2.highs, btcH2.lows, btcH2.closes);
     const aligned = btcStruct.bias === bias || btcStruct.bias === 'ranging';
     const message =
       btcStruct.bias === 'ranging'
