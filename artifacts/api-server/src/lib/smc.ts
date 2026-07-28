@@ -156,10 +156,13 @@ export interface SniperResult {
   skipReasons?: string[];
   reasoning?: string;
   // Confirmation fields
+  // NOTE: rejection15M/choch15M dipertahanin di tipe (optional) buat backward-compat,
+  // tapi backend GAK PERNAH ngirim ini lagi sejak diganti RSI Divergence H1.
   rejection15M?: boolean;
   rejection15MCandle?: string;
   choch15M?: boolean;
   choch15MDescription?: string;
+  rsiDivergenceH1?: boolean;
   patternConfirmed?: boolean;
   patternName?: string;
   // Probability scoring
@@ -1925,6 +1928,187 @@ function detectH4Confluence(
   return { confirmed: false, strength: "weak", description: `H4 masih jauh dari zona (${distToZone.toFixed(2)}%)` };
 }
 
+// ─── Economic Calendar Warning (FOMC/CPI/NFP) ───────────────────────────────
+// Rilis data makro AS (FOMC, CPI, NFP) sering bikin SEMUA market termasuk crypto
+// bergerak liar/whipsaw beberapa jam di sekitar jam rilis — bukan soal analisa
+// teknikal koin-nya salah, ini risiko event eksternal yang gak bisa dibaca dari
+// chart. Data diambil dari FRED (Federal Reserve St. Louis), sumber resmi &
+// gratis (perlu API key gratis: https://fred.stlouisfed.org/docs/api/api_key.html).
+export interface EconomicEvent {
+  name: string;
+  date: string; // YYYY-MM-DD
+  hoursUntil: number;
+}
+
+const FRED_RELEASE_IDS: { id: number; name: string }[] = [
+  { id: 101, name: 'FOMC (Keputusan Suku Bunga The Fed)' },
+  { id: 10, name: 'CPI (Data Inflasi AS)' },
+  { id: 50, name: 'NFP (Non-Farm Payroll / Employment Situation)' },
+];
+
+let economicCalendarCache: { events: EconomicEvent[]; fetchedAt: number } | null = null;
+const ECONOMIC_CALENDAR_CACHE_MS = 6 * 60 * 60 * 1000; // 6 jam — jadwal rilis gak berubah tiap menit
+
+export async function fetchUpcomingEconomicEvents(): Promise<EconomicEvent[]> {
+  const apiKey = process.env['FRED_API_KEY'];
+  if (!apiKey) return []; // fail-safe: kalau API key belum di-set, skip diem-diem, jangan crash alur utama
+
+  if (economicCalendarCache && Date.now() - economicCalendarCache.fetchedAt < ECONOMIC_CALENDAR_CACHE_MS) {
+    return economicCalendarCache.events;
+  }
+
+  try {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const futureStr = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const results = await Promise.all(
+      FRED_RELEASE_IDS.map(async ({ id, name }) => {
+        const url = `https://api.stlouisfed.org/fred/releases/dates?release_id=${id}&realtime_start=${todayStr}&realtime_end=${futureStr}&include_release_dates_with_no_data=true&sort_order=asc&file_type=json&api_key=${apiKey}`;
+        const res = await fetch(url);
+        if (!res.ok) return [];
+        const data = await res.json() as { release_dates?: { date: string }[] };
+        return (data.release_dates ?? []).map(d => ({ name, date: d.date }));
+      })
+    );
+
+    const now = Date.now();
+    const events: EconomicEvent[] = results.flat()
+      .map(e => ({
+        name: e.name,
+        date: e.date,
+        hoursUntil: Math.round((new Date(e.date + 'T13:30:00Z').getTime() - now) / (60 * 60 * 1000)),
+        // Rilis data AS mayoritas jam 08:30 ET / 13:30 UTC (CPI, NFP); FOMC beda jam
+        // (~14:00 ET) tapi selisihnya gak signifikan buat kebutuhan warning ini.
+      }))
+      .filter(e => e.hoursUntil >= -6 && e.hoursUntil <= 14 * 24) // dari 6 jam lalu s/d 14 hari ke depan
+      .sort((a, b) => a.hoursUntil - b.hoursUntil);
+
+    economicCalendarCache = { events, fetchedAt: Date.now() };
+    return events;
+  } catch {
+    return []; // fail-safe: gak boleh ganggu alur analisa utama
+  }
+}
+
+/**
+ * Cek apakah ada event makro high-impact dalam window waktu tertentu (default 24 jam).
+ * Dipakai sebagai warning tambahan di Menu 1/2/4 — BUKAN hard-skip, karena setup
+ * yang valid tetap valid, cuma risikonya naik di sekitar jam rilis.
+ */
+async function checkEconomicCalendarWarning(windowHours = 24): Promise<{ hasWarning: boolean; message: string }> {
+  const events = await fetchUpcomingEconomicEvents();
+  const upcoming = events.filter(e => e.hoursUntil >= 0 && e.hoursUntil <= windowHours);
+  if (upcoming.length === 0) return { hasWarning: false, message: '' };
+
+  const nearest = upcoming[0]!;
+  const whenText = nearest.hoursUntil < 1 ? 'kurang dari 1 jam lagi' : `~${nearest.hoursUntil} jam lagi`;
+  return {
+    hasWarning: true,
+    message: `⚠️ ${nearest.name} rilis ${whenText} (${nearest.date}) — market bisa whipsaw liar di sekitar jam rilis, pertimbangkan hold/kurangi size`,
+  };
+}
+
+// ─── Momentum Info: ROC + ATR Expansion ─────────────────────────────────────
+// Info tambahan (BUKAN hard filter/gak ngubah score) — ngukur seberapa CEPAT
+// harga bergerak dibanding kondisi normalnya, bukan cuma ARAH-nya. Berguna buat
+// bedain sinyal yang "bertenaga" vs yang lemah, dan warning kalau harga udah
+// gerak jauh duluan (resiko chasing/FOMO).
+interface MomentumInfo {
+  velocityRatio: number; // seberapa besar pergerakan aktual vs pergerakan "normal" (ATR × lookback)
+  atrExpansion: number;  // ATR sekarang vs ATR window sebelumnya
+  direction: 'up' | 'down' | 'flat';
+  classification: 'very_fast' | 'fast' | 'normal' | 'slow';
+  message: string; // kosong kalau kondisinya normal-normal aja (gak perlu ditampilin)
+}
+
+function calcMomentumInfo(highs: number[], lows: number[], closes: number[], lookback = 5): MomentumInfo {
+  const n = closes.length;
+  const empty: MomentumInfo = { velocityRatio: 1, atrExpansion: 1, direction: 'flat', classification: 'normal', message: '' };
+  if (n < lookback + 30) return empty;
+
+  const atrCurrent = calcATR(highs, lows, closes, 14);
+  // ATR expansion: bandingin ATR "sekarang" (14 candle terakhir) vs ATR 14 candle SEBELUM itu
+  const priorEnd = n - 14;
+  const atrPrior = calcATR(highs.slice(0, priorEnd), lows.slice(0, priorEnd), closes.slice(0, priorEnd), 14);
+  const atrExpansion = atrPrior > 0 ? atrCurrent / atrPrior : 1;
+
+  const priceChange = closes[n - 1]! - closes[n - 1 - lookback]!;
+  const expectedMove = atrCurrent * lookback; // pergerakan "wajar" kalau tiap candle gerak 1x ATR
+  const velocityRatio = expectedMove > 0 ? Math.abs(priceChange) / expectedMove : 0;
+  const direction: MomentumInfo['direction'] = priceChange > 0 ? 'up' : priceChange < 0 ? 'down' : 'flat';
+  const arrow = direction === 'up' ? '↑' : direction === 'down' ? '↓' : '→';
+
+  let classification: MomentumInfo['classification'] = 'normal';
+  let message = '';
+  if (velocityRatio >= 2.0) {
+    classification = 'very_fast';
+    message = `⚡ Harga gerak SANGAT CEPAT (${velocityRatio.toFixed(1)}x lebih cepat dari normal) ${arrow} — waspada chasing/FOMO, entry mungkin udah kejauhan`;
+  } else if (velocityRatio >= 1.3) {
+    classification = 'fast';
+    message = `⚡ Momentum cepat (${velocityRatio.toFixed(1)}x dari normal) ${arrow}`;
+  } else if (velocityRatio < 0.4) {
+    classification = 'slow';
+    message = `🐢 Momentum lemah — harga kurang bertenaga (${velocityRatio.toFixed(1)}x dari normal)`;
+  }
+
+  if (atrExpansion >= 1.5) {
+    message += message ? ' · ' : '';
+    message += `📊 Volatilitas melonjak ${atrExpansion.toFixed(1)}x dari beberapa candle sebelumnya`;
+  }
+
+  return { velocityRatio, atrExpansion, direction, classification, message };
+}
+
+// ─── altFINS Comparison (validasi silang) ───────────────────────────────────
+// Bandingin bias/indikator dari sistem kita sama data altFINS (150+ indikator,
+// 130 trading signal siap pakai). BUKAN buat nentuin sinyal — cuma referensi
+// sekunder biar kita bisa cek apakah bias kita align sama platform lain yang
+// udah established. Field displayType di bawah baru yang KONFIRMASI ada
+// (RSI14, MARKET_CAP) — altFINS punya 150+ indikator total, field lain bisa
+// ditambah belakangan setelah cek katalog lengkap di dokumentasi mereka.
+export interface AltfinsComparisonData {
+  symbol: string;
+  marketCap?: number;
+  rsi14?: number;
+  raw: Record<string, unknown>;
+}
+
+export async function fetchAltfinsComparison(symbol: string): Promise<AltfinsComparisonData | null> {
+  const apiKey = process.env['ALTFINS_API_KEY'];
+  if (!apiKey) return null; // fail-safe: kalau API key belum di-set, skip diem-diem
+
+  try {
+    // altFINS pakai simbol tanpa suffix USDT (contoh "BTC" bukan "BTCUSDT")
+    const baseSymbol = symbol.toUpperCase().replace(/USDT$/, '');
+    const res = await fetch('https://altfins.com/api/v2/public/screener-data/search-requests', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-Api-Key': apiKey,
+      },
+      body: JSON.stringify({
+        symbols: [baseSymbol],
+        displayType: ['RSI14', 'MARKET_CAP'],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { content?: Record<string, unknown>[] };
+    const row = data.content?.[0];
+    if (!row) return null;
+
+    return {
+      symbol: baseSymbol,
+      marketCap: typeof row['MARKET_CAP'] === 'number' ? row['MARKET_CAP'] as number : undefined,
+      rsi14: typeof row['RSI14'] === 'number' ? row['RSI14'] as number : undefined,
+      raw: row,
+    };
+  } catch {
+    return null; // fail-safe: gak boleh ganggu alur analisa utama
+  }
+}
+
 // ─── BTC Correlation Filter ─────────────────────────────────────────────────
 // BTC dump/pump sering nyeret SEMUA altcoin ikut (cascading liquidation cross-margin,
 // panic sell/FOMO, market maker re-hedge) — ini efek makro, BUKAN soal analisa
@@ -2256,6 +2440,14 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       else if (!btcCheck.aligned) profitProbability = Math.max(0, profitProbability - 10);
     }
 
+    // Economic Calendar Warning (FOMC/CPI/NFP) — bukan hard-skip, cuma peringatan.
+    const econCheck = await checkEconomicCalendarWarning(24);
+    if (econCheck.hasWarning) probabilityFactors.push(econCheck.message);
+
+    // Momentum Info (ROC + ATR Expansion) — info kecepatan gerak harga, bukan filter.
+    const momentumInfo = calcMomentumInfo(h4.highs, h4.lows, h4.closes);
+    if (momentumInfo.message) probabilityFactors.push(momentumInfo.message);
+
     // Entry price: pakai entry point hasil refine zona (rejection15M udah dihapus)
     const finalEntryPrice = refinedZone.entryPrice;
 
@@ -2307,6 +2499,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       zoneRange: { low: selectedZone.low, high: selectedZone.high },
       refinedZoneType: refinedZone.zoneType,
       entryConfirmed: rsiDivergenceH1 || confirmation.confirmed,
+      rsiDivergenceH1,
       confirmationCandle: confirmation.confirmed ? confirmation.candleType : undefined,
       patternConfirmed: !!confirmedPattern,
       patternName: confirmedPattern?.name,
@@ -2594,6 +2787,14 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       filterResults.push(btcCheck.message);
       if (btcCheck.aligned && btcCheck.btcBias !== 'ranging') score++;
     }
+
+    // Economic Calendar Warning (FOMC/CPI/NFP) — bukan hard-skip, cuma peringatan.
+    const econCheck = await checkEconomicCalendarWarning(24);
+    if (econCheck.hasWarning) filterResults.push(econCheck.message);
+
+    // Momentum Info (ROC + ATR Expansion) — info kecepatan gerak harga, bukan filter.
+    const momentumInfo = calcMomentumInfo(h4.highs, h4.lows, h4.closes);
+    if (momentumInfo.message) filterResults.push(momentumInfo.message);
 
     // ── Entry, SL, TP ─────────────────────────────────────────────────────
     const entryPrice = finalZone.entryPrice ?? finalZone.mid;
@@ -3424,10 +3625,7 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
       }
     } else {
       if (!t.hasChoch15M) {
-        causeCounts['CHoCH 15M tidak terkonfirmasi'] = (causeCounts['CHoCH 15M tidak terkonfirmasi'] ?? 0) + 1;
-      }
-      if (!t.hasRejection15M) {
-        causeCounts['Tidak ada rejection candle 15M'] = (causeCounts['Tidak ada rejection candle 15M'] ?? 0) + 1;
+        causeCounts['RSI Divergence H1 tidak terkonfirmasi'] = (causeCounts['RSI Divergence H1 tidak terkonfirmasi'] ?? 0) + 1;
       }
       if (!t.hasPattern) {
         causeCounts['Tidak ada pattern konfirmasi'] = (causeCounts['Tidak ada pattern konfirmasi'] ?? 0) + 1;
@@ -3903,6 +4101,14 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
       filterResults.push(btcCheck.message);
       if (btcCheck.aligned && btcCheck.btcBias !== 'ranging') score++;
     }
+
+    // Economic Calendar Warning (FOMC/CPI/NFP) — bukan hard-skip, cuma peringatan.
+    const econCheck = await checkEconomicCalendarWarning(24);
+    if (econCheck.hasWarning) filterResults.push(econCheck.message);
+
+    // Momentum Info (ROC + ATR Expansion) — info kecepatan gerak harga, bukan filter.
+    const momentumInfo = calcMomentumInfo(h2.highs, h2.lows, h2.closes);
+    if (momentumInfo.message) filterResults.push(momentumInfo.message);
 
     // ── Entry, SL, TP ─────────────────────────────────────────────────────
     const atrH2 = calcATR(h2.highs, h2.lows, h2.closes);

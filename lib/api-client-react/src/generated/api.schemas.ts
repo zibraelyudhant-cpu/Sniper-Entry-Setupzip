@@ -221,6 +221,7 @@ export interface SniperResult {
   rejection15MCandle?: string;
   choch15M?: boolean;
   choch15MDescription?: string;
+  rsiDivergenceH1?: boolean;
   patternConfirmed?: boolean;
   patternName?: string;
   profitProbability?: number;

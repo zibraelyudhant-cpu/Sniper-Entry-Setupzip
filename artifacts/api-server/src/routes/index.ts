@@ -6,6 +6,7 @@ import breakoutRouter from "./breakout";
 import breakoutEntryRouter from "./breakout-entry";
 import patternsRouter from "./patterns";
 import backtestRouter from "./backtest";
+import economicCalendarRouter from "./economic-calendar";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(breakoutRouter);
 router.use(breakoutEntryRouter);
 router.use(patternsRouter);
 router.use(backtestRouter);
+router.use(economicCalendarRouter);
 
 export default router;

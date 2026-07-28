@@ -166,8 +166,7 @@ function MenuResult({ title, result, colors, menu }: {
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>BREAKDOWN KONDISI</Text>
           {menu === 'sniper' ? (
             <>
-              <BreakdownRow label="CHoCH 15M" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
-              <BreakdownRow label="Rejection 15M" with={result.breakdown.withRejection15M} without={result.breakdown.withoutRejection15M} colors={colors} />
+              <BreakdownRow label="RSI Divergence H1" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
             </>
           ) : (
             <>

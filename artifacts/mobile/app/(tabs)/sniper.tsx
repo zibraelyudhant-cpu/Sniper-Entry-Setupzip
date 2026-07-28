@@ -93,7 +93,7 @@ function NoTrendScreen({ data, colors }: { data: SniperResult; colors: ReturnTyp
         <Text style={[styles.statusTitle, { color: colors.warning }]}>Tidak Ada Trend Jelas</Text>
         <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
         <View style={styles.trendRow}>
-          <TrendBadge label="D1" bias={data.h4?.bias ?? 'ranging'} strength={data.h4?.strength ?? 'neutral'} colors={colors} />
+          <TrendBadge label="H4" bias={data.h4?.bias ?? 'ranging'} strength={data.h4?.strength ?? 'neutral'} colors={colors} />
         </View>
       </View>
     </Section>
@@ -136,67 +136,6 @@ function SkipScreen({ data, colors }: { data: SniperResult; colors: ReturnType<t
   );
 }
 
-function NoSetupScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  // Tentukan filter mana yang gagal berdasarkan field yang ada
-  const filters = [
-    {
-      label: 'CHoCH 15M',
-      passed: data.choch15M === true,
-      desc: data.choch15MDescription ?? 'Belum terdeteksi',
-    },
-    {
-      label: 'Rejection 15M',
-      passed: data.rejection15M === true,
-      desc: data.rejection15MCandle ?? 'Belum ada candle rejection di zona',
-    },
-    {
-      label: 'Pattern Konfirmasi',
-      passed: data.patternConfirmed === true,
-      desc: data.patternName ?? 'Tidak ada pattern searah bias',
-    },
-  ];
-
-  return (
-    <>
-      <TrendSection data={data} colors={colors} />
-      <Section title="HARD FILTER TIDAK TERPENUHI">
-        <View style={styles.statusBlock}>
-          <Feather name="shield" size={32} color={colors.warning} />
-          <Text style={[styles.statusTitle, { color: colors.warning }]}>Sinyal Belum Layak Entry</Text>
-          <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-        </View>
-        {filters.map((f, i) => (
-          <View key={i} style={[styles.filterRow, { borderBottomColor: colors.border }]}>
-            <Feather
-              name={f.passed ? 'check-circle' : 'x-circle'}
-              size={16}
-              color={f.passed ? colors.bullish : colors.bearish}
-            />
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={[styles.filterLabel, { color: colors.foreground }]}>{f.label}</Text>
-              <Text style={[styles.filterDesc, { color: colors.mutedForeground }]}>{f.desc}</Text>
-            </View>
-          </View>
-        ))}
-      </Section>
-      {data.zoneType && (
-        <Section title="ZONA DITEMUKAN">
-          <Row label="Tipe Zona" value={data.zoneType} />
-          {data.zoneRange && (
-            <Row
-              label="Range"
-              value={`${formatPrice(data.zoneRange.low)} – ${formatPrice(data.zoneRange.high)}`}
-            />
-          )}
-          <Text style={[styles.statusMsg, { color: colors.mutedForeground, marginTop: 8 }]}>
-            Zona valid — tunggu semua filter terpenuhi sebelum entry.
-          </Text>
-        </Section>
-      )}
-    </>
-  );
-}
-
 function TrendBadge({
   label, bias, strength, colors,
 }: {
@@ -225,8 +164,7 @@ function TrendSection({ data, colors }: { data: SniperResult; colors: ReturnType
     <Section title="TREND" tint="#22D3EE" index={0}>
       <View style={styles.trendRow}>
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                {data.h4 && <TrendBadge label="D1" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
-                {(data as any).h4Actual && <TrendBadge label="H4" bias={(data as any).h4Actual.bias} strength={(data as any).h4Actual.strength} colors={colors} />}
+                {data.h4 && <TrendBadge label="H4" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
               </View>
       </View>
     </Section>
@@ -242,8 +180,7 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
     (data.oiChange ?? 0) > 0 ? colors.bullish : colors.bearish;
 
   const chochColor = data.chochDetected ? colors.bearish : colors.bullish;
-  const choch15MColor = (data as any).choch15M ? colors.bullish : colors.mutedForeground;
-  const rejection15MColor = (data as any).rejection15M ? colors.bullish : colors.mutedForeground;
+  const rsiDivH1Color = data.rsiDivergenceH1 ? colors.bullish : colors.mutedForeground;
 
   return (
     <Section title="KONDISI PASAR">
@@ -254,17 +191,9 @@ function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnTyp
       />
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <Row
-        label="CHoCH 15M"
-        value={(data as any).choch15M ? 'Terkonfirmasi ✓' : 'Belum terbentuk'}
-        valueColor={choch15MColor}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="Rejection 15M"
-        value={(data as any).rejection15M
-          ? `${(data as any).rejection15MCandle} ✓`
-          : 'Belum ada'}
-        valueColor={rejection15MColor}
+        label="RSI Divergence H1"
+        value={data.rsiDivergenceH1 ? 'Terkonfirmasi ✓' : 'Belum terbentuk'}
+        valueColor={rsiDivH1Color}
       />
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <Row
@@ -791,19 +720,12 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
         <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
       </View>
 
-      {/* Row 2: kondisi CHoCH + Rejection + Pattern */}
+      {/* Row 2: kondisi RSI Divergence + Pattern */}
       <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
         <View style={scanStyles.condItem}>
-          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>CHoCH 15M</Text>
-          <Text style={[scanStyles.condValue, { color: coin.choch15M ? colors.bullish : colors.bearish }]}>
-            {coin.choch15M ? '✅' : '⚠️'}
-          </Text>
-        </View>
-        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-        <View style={scanStyles.condItem}>
-          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Rejection</Text>
-          <Text style={[scanStyles.condValue, { color: coin.rejection15M ? colors.bullish : colors.bearish }]}>
-            {coin.rejection15M ? '✅' : '⚠️'}
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RSI Div H1</Text>
+          <Text style={[scanStyles.condValue, { color: coin.rsiDivergenceH1 ? colors.bullish : colors.bearish }]}>
+            {coin.rsiDivergenceH1 ? '✅' : '⚠️'}
           </Text>
         </View>
         <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
