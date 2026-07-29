@@ -116,7 +116,7 @@ function getMaxLeverage(sym: string): number {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function CalculatorScreen() {
+export default function CalculatorScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
@@ -267,7 +267,7 @@ export default function CalculatorScreen() {
     : calc.liqDist > 10 ? colors.warning
     : colors.bearish;
 
-  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
+  const topPadding = embedded ? 12 : insets.top + (Platform.OS === 'web' ? 67 : 0);
   const bottomPadding = insets.bottom + 80;
 
   return (

@@ -9,8 +9,10 @@ export const MENU_COLORS = {
   sniper: '#A78BFA',     // Menu 2 — ungu
   calculator: '#FBBF24', // Menu 3 — amber
   scalping: '#FB923C',   // Menu 4 — oranye
-  insight: '#60A5FA',    // Menu 5 — biru
-  backtest: '#2DD4BF',   // Menu 6 — teal
+  extremeScalping: '#F43F5E', // Menu 5 — rose/merah (kesan "extreme")
+  insight: '#60A5FA',    // Menu 5 (lama, sekarang sub-tab Tools) — biru
+  backtest: '#2DD4BF',   // Menu 6 (lama, sekarang sub-tab Tools) — teal
+  tools: '#818CF8',      // Menu gabungan (Kalkulator+Insight+Backtest) — indigo
 } as const;
 
 export type MenuKey = keyof typeof MENU_COLORS;

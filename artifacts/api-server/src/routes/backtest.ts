@@ -54,7 +54,7 @@ router.post('/backtest', async (req, res) => {
   const { symbol, period, menu } = req.body as {
     symbol: string;
     period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y';
-    menu: 'sniper' | 'breakout' | 'scalping' | 'both';
+    menu: 'sniper' | 'breakout' | 'scalping' | 'extreme_scalping' | 'both';
   };
 
   if (!symbol || !period || !menu) {

@@ -685,8 +685,9 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.push({
-                  pathname: '/(tabs)/calculator',
+                  pathname: '/(tabs)/tools',
                   params: {
+                    section: 'kalkulator',
                     entryPrice: String(data.entryPrice ?? 0),
                     stopLoss: String(data.stopLoss ?? 0),
                     takeProfit1: String(data.takeProfit1 ?? 0),

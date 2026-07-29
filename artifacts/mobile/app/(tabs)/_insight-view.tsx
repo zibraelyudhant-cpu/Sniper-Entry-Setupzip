@@ -9,7 +9,7 @@ import PatternsView from './_patterns-view';
 
 type TabKey = 'monitoring' | 'pattern';
 
-export default function InsightScreen() {
+export default function InsightScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ symbol?: string; tab?: string }>();
@@ -24,7 +24,7 @@ export default function InsightScreen() {
     }
   }, [params.tab, params.symbol]);
 
-  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
+  const topPadding = embedded ? 12 : insets.top + (Platform.OS === 'web' ? 67 : 0);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

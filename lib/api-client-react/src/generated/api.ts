@@ -25,8 +25,11 @@ import type {
   BreakoutTradingResult,
   BreakoutTradingScanResponse,
   ErrorResponse,
+  ExtremeScalpingResult,
+  ExtremeScalpingScanResponse,
   GetBacktestListingInfoParams,
   GetBreakoutEntryParams,
+  GetExtremeScalpingParams,
   GetPatternsParams,
   GetScalpingParams,
   GetSmcAnalysisParams,
@@ -696,6 +699,167 @@ export function useGetScalpingScan<TData = Awaited<ReturnType<typeof getScalping
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetScalpingScanQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetExtremeScalpingUrl = (params: GetExtremeScalpingParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/extreme-scalping?${stringifiedParams}` : `/api/extreme-scalping`
+}
+
+/**
+ * @summary Analisa Extreme Scalping untuk 1 symbol
+ */
+export const getExtremeScalping = async (params: GetExtremeScalpingParams, options?: RequestInit): Promise<ExtremeScalpingResult> => {
+
+  return customFetch<ExtremeScalpingResult>(getGetExtremeScalpingUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetExtremeScalpingQueryKey = (params?: GetExtremeScalpingParams,) => {
+    return [
+    `/api/extreme-scalping`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetExtremeScalpingQueryOptions = <TData = Awaited<ReturnType<typeof getExtremeScalping>>, TError = ErrorType<ErrorResponse>>(params: GetExtremeScalpingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExtremeScalping>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExtremeScalpingQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExtremeScalping>>> = ({ signal }) => getExtremeScalping(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExtremeScalping>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetExtremeScalpingQueryResult = NonNullable<Awaited<ReturnType<typeof getExtremeScalping>>>
+export type GetExtremeScalpingQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Analisa Extreme Scalping untuk 1 symbol
+ */
+
+export function useGetExtremeScalping<TData = Awaited<ReturnType<typeof getExtremeScalping>>, TError = ErrorType<ErrorResponse>>(
+ params: GetExtremeScalpingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExtremeScalping>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExtremeScalpingQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetExtremeScalpingScanUrl = () => {
+
+
+
+
+  return `/api/extreme-scalping/scan`
+}
+
+/**
+ * @summary Scan universe top-50 buat Extreme Scalping
+ */
+export const getExtremeScalpingScan = async ( options?: RequestInit): Promise<ExtremeScalpingScanResponse> => {
+
+  return customFetch<ExtremeScalpingScanResponse>(getGetExtremeScalpingScanUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetExtremeScalpingScanQueryKey = () => {
+    return [
+    `/api/extreme-scalping/scan`
+    ] as const;
+    }
+
+
+export const getGetExtremeScalpingScanQueryOptions = <TData = Awaited<ReturnType<typeof getExtremeScalpingScan>>, TError = ErrorType<ErrorResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExtremeScalpingScan>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExtremeScalpingScanQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExtremeScalpingScan>>> = ({ signal }) => getExtremeScalpingScan({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExtremeScalpingScan>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetExtremeScalpingScanQueryResult = NonNullable<Awaited<ReturnType<typeof getExtremeScalpingScan>>>
+export type GetExtremeScalpingScanQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Scan universe top-50 buat Extreme Scalping
+ */
+
+export function useGetExtremeScalpingScan<TData = Awaited<ReturnType<typeof getExtremeScalpingScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExtremeScalpingScan>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExtremeScalpingScanQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

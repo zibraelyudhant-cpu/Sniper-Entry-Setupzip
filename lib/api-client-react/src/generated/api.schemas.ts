@@ -299,6 +299,56 @@ export interface ScalpingScanResponse {
   fetchedAt: number;
 }
 
+export type ExtremeScalpingResultStatus = typeof ExtremeScalpingResultStatus[keyof typeof ExtremeScalpingResultStatus];
+
+
+export const ExtremeScalpingResultStatus = {
+  waiting: 'waiting',
+  approaching: 'approaching',
+  in_zone: 'in_zone',
+  expired: 'expired',
+  no_setup: 'no_setup',
+  no_structure: 'no_structure',
+  skip: 'skip',
+  error: 'error',
+} as const;
+
+export type ExtremeScalpingResultBias = typeof ExtremeScalpingResultBias[keyof typeof ExtremeScalpingResultBias];
+
+
+export const ExtremeScalpingResultBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+} as const;
+
+export interface ExtremeScalpingResult {
+  status: ExtremeScalpingResultStatus;
+  symbol: string;
+  bias?: ExtremeScalpingResultBias;
+  isReversalSetup?: boolean;
+  currentPrice: number;
+  timestamp: string;
+  message?: string;
+  score?: number;
+  maxScore: number;
+  structureH1?: string;
+  chochH1?: boolean;
+  ob5M?: ScalpingOB5M;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  takeProfit2?: number;
+  rr1?: number;
+  rr2?: number;
+  atr5MPct?: number;
+  filterResults?: string[];
+}
+
+export interface ExtremeScalpingScanResponse {
+  coins: ExtremeScalpingResult[];
+  fetchedAt: number;
+}
+
 export type PatternResultCategory = typeof PatternResultCategory[keyof typeof PatternResultCategory];
 
 
@@ -524,6 +574,13 @@ symbol: string;
 };
 
 export type GetScalpingParams = {
+/**
+ * Futures symbol e.g. BTCUSDT
+ */
+symbol: string;
+};
+
+export type GetExtremeScalpingParams = {
 /**
  * Futures symbol e.g. BTCUSDT
  */

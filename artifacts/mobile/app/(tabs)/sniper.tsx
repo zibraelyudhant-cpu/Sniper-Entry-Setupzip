@@ -312,8 +312,9 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push({
-              pathname: '/(tabs)/calculator',
+              pathname: '/(tabs)/tools',
               params: {
+                section: 'kalkulator',
                 entryPrice: String(data.entryPrice ?? 0),
                 stopLoss: String(data.stopLoss ?? 0),
                 takeProfit1: String(data.takeProfit1 ?? 0),
@@ -344,8 +345,8 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push({
-              pathname: '/(tabs)/insight',
-              params: { symbol: data.symbol, tab: 'pattern' },
+              pathname: '/(tabs)/tools',
+              params: { section: 'insight', symbol: data.symbol, tab: 'pattern' },
             });
           }}
           style={({ pressed }) => [

@@ -21,21 +21,17 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'scope', selected: 'scope' }} />
         <Label>Sniper</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="calculator">
-        <Icon sf={{ default: 'function', selected: 'function' }} />
-        <Label>Kalkulator</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="breakout">
         <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
         <Label>Scalping</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="insight">
-        <Icon sf={{ default: 'sparkles', selected: 'sparkles' }} />
-        <Label>Insight</Label>
+      <NativeTabs.Trigger name="extreme-scalping">
+        <Icon sf={{ default: 'flame', selected: 'flame.fill' }} />
+        <Label>Extreme</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="backtest">
-        <Icon sf={{ default: 'chart.xyaxis.line', selected: 'chart.xyaxis.line' }} />
-        <Label>Backtest</Label>
+      <NativeTabs.Trigger name="tools">
+        <Icon sf={{ default: 'wrench.and.screwdriver', selected: 'wrench.and.screwdriver.fill' }} />
+        <Label>Tools</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -114,22 +110,6 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="calculator"
-        options={{
-          title: 'Kalkulator',
-          tabBarActiveTintColor: MENU_COLORS.calculator,
-          tabBarIcon: ({ color, focused }) => (
-            <AnimatedTabIcon focused={focused} color={color}>
-              {isIOS ? (
-                <SymbolView name="function" tintColor={color} size={22} />
-              ) : (
-                <Feather name="percent" size={22} color={color} />
-              )}
-            </AnimatedTabIcon>
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="breakout"
         options={{
           title: 'Scalping',
@@ -146,16 +126,32 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="insight"
+        name="extreme-scalping"
         options={{
-          title: 'Insight',
-          tabBarActiveTintColor: MENU_COLORS.insight,
+          title: 'Extreme',
+          tabBarActiveTintColor: MENU_COLORS.extremeScalping,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
               {isIOS ? (
-                <SymbolView name="sparkles" tintColor={color} size={22} />
+                <SymbolView name="flame.fill" tintColor={color} size={22} />
               ) : (
-                <Feather name="eye" size={22} color={color} />
+                <Feather name="zap" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="tools"
+        options={{
+          title: 'Tools',
+          tabBarActiveTintColor: MENU_COLORS.tools,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="wrench.and.screwdriver.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="tool" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),
@@ -164,24 +160,11 @@ function ClassicTabLayout() {
       {/* Hidden screens — file di (tabs) tapi jangan muncul di tab bar */}
       <Tabs.Screen name="_monitoring-view" options={{ href: null }} />
       <Tabs.Screen name="_patterns-view" options={{ href: null }} />
+      <Tabs.Screen name="_calculator-view" options={{ href: null }} />
+      <Tabs.Screen name="_insight-view" options={{ href: null }} />
+      <Tabs.Screen name="_backtest-view" options={{ href: null }} />
       <Tabs.Screen name="monitoring-helpers" options={{ href: null }} />
       <Tabs.Screen name="signal-log-helpers" options={{ href: null }} />
-      <Tabs.Screen
-        name="backtest"
-        options={{
-          title: 'Backtest',
-          tabBarActiveTintColor: MENU_COLORS.backtest,
-          tabBarIcon: ({ color, focused }) => (
-            <AnimatedTabIcon focused={focused} color={color}>
-              {isIOS ? (
-                <SymbolView name="chart.xyaxis.line" tintColor={color} size={22} />
-              ) : (
-                <Feather name="bar-chart" size={22} color={color} />
-              )}
-            </AnimatedTabIcon>
-          ),
-        }}
-      />
     </Tabs>
   );
 }

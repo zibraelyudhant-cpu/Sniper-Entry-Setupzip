@@ -120,7 +120,7 @@ function MenuResult({ title, result, colors, menu }: {
   title: string;
   result: BacktestAnalysis;
   colors: ReturnType<typeof useColors>;
-  menu: 'sniper' | 'scalping';
+  menu: 'sniper' | 'scalping' | 'extreme_scalping';
 }) {
   const [expanded, setExpanded] = useState(false);
   const winColor = result.winRate >= 75 ? colors.bullish : result.winRate >= 50 ? colors.gold : colors.bearish;
@@ -168,6 +168,10 @@ function MenuResult({ title, result, colors, menu }: {
             <>
               <BreakdownRow label="RSI Divergence H1" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
             </>
+          ) : menu === 'extreme_scalping' ? (
+            <>
+              <BreakdownRow label="Reversal CHoCH H1" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
+            </>
           ) : (
             <>
               {result.breakdown.withBBSqueeze && result.breakdown.withoutBBSqueeze && (
@@ -181,7 +185,7 @@ function MenuResult({ title, result, colors, menu }: {
               )}
             </>
           )}
-          <BreakdownRow label={menu === 'sniper' ? 'Pattern' : 'Pattern M30'} with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
+          <BreakdownRow label={menu === 'sniper' ? 'Pattern' : menu === 'extreme_scalping' ? 'Pattern M15' : 'Pattern M30'} with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
           <BreakdownRow label="Zona Tier 1-2" with={result.breakdown.tier1to2} without={result.breakdown.tier3plus} colors={colors} />
           <BreakdownRow label="London/NY" with={result.breakdown.londonNY} without={result.breakdown.asian} colors={colors} />
           <BreakdownRow label="Vol Tinggi (≥2x)" with={result.breakdown.highVolume} without={result.breakdown.lowVolume} colors={colors} />
@@ -239,18 +243,19 @@ const PERIODS = [
 const MENUS = [
   { label: 'Sniper', value: 'sniper' },
   { label: 'Scalping', value: 'breakout' },
+  { label: 'Extreme', value: 'extreme_scalping' },
   { label: 'Keduanya', value: 'both' },
 ] as const;
 
-export default function BacktestScreen() {
+export default function BacktestScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
+  const topPadding = embedded ? 12 : insets.top + (Platform.OS === 'web' ? 67 : 0);
   const bottomPadding = insets.bottom + 80;
 
   const [symbol, setSymbol] = useState('');
   const [period, setPeriod] = useState<'1m' | '3m' | '6m' | '1y' | '2y' | '3y'>('3m');
-  const [menu, setMenu] = useState<'sniper' | 'breakout' | 'both'>('both');
+  const [menu, setMenu] = useState<'sniper' | 'breakout' | 'extreme_scalping' | 'both'>('both');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -421,6 +426,16 @@ export default function BacktestScreen() {
                 result={result.breakoutResult}
                 colors={colors}
                 menu="scalping"
+              />
+            )}
+
+            {/* Hasil Extreme Scalping */}
+            {result.extremeScalpingResult && (
+              <MenuResult
+                title="Extreme Scalping H1→M15→M5"
+                result={result.extremeScalpingResult}
+                colors={colors}
+                menu="extreme_scalping"
               />
             )}
 

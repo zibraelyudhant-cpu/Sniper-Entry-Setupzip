@@ -326,6 +326,77 @@ export const GetScalpingScanResponse = zod.object({
 
 
 /**
+ * @summary Analisa Extreme Scalping untuk 1 symbol
+ */
+export const GetExtremeScalpingQueryParams = zod.object({
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+})
+
+export const GetExtremeScalpingResponse = zod.object({
+  "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
+  "symbol": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "isReversalSetup": zod.boolean().optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number(),
+  "structureH1": zod.string().optional(),
+  "chochH1": zod.boolean().optional(),
+  "ob5M": zod.object({
+  "low": zod.number(),
+  "high": zod.number(),
+  "mid": zod.number(),
+  "fresh": zod.boolean()
+}).optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "rr2": zod.number().optional(),
+  "atr5MPct": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional()
+})
+
+
+/**
+ * @summary Scan universe top-50 buat Extreme Scalping
+ */
+export const GetExtremeScalpingScanResponse = zod.object({
+  "coins": zod.array(zod.object({
+  "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
+  "symbol": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "isReversalSetup": zod.boolean().optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number(),
+  "structureH1": zod.string().optional(),
+  "chochH1": zod.boolean().optional(),
+  "ob5M": zod.object({
+  "low": zod.number(),
+  "high": zod.number(),
+  "mid": zod.number(),
+  "fresh": zod.boolean()
+}).optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "rr2": zod.number().optional(),
+  "atr5MPct": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional()
+})),
+  "fetchedAt": zod.number()
+})
+
+
+/**
  * @summary Deteksi chart pattern multi-timeframe (Menu 5)
  */
 export const GetPatternsQueryParams = zod.object({
