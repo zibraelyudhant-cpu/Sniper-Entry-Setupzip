@@ -25,6 +25,8 @@ import { ScanLoading } from '@/components/animated/ScanLoading';
 import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
+import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 
 const ACCENT = MENU_COLORS.sniper;
 
@@ -407,6 +409,10 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
       </Section>
 
       <MarketSection data={data} colors={colors} />
+
+      <TFBreakdownTable items={data.tfBreakdown} accentColor={ACCENT} />
+
+      <RecentPerformanceCard data={data.recentPerformance} accentColor={ACCENT} />
     </>
   );
 }

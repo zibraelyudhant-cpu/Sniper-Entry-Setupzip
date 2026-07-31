@@ -17,6 +17,8 @@ import { ScanLoading } from '@/components/animated/ScanLoading';
 import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
+import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 import {
   STORAGE_KEY_BREAKOUT_ENTRY,
   addLog,
@@ -30,11 +32,28 @@ import {
 const ACCENT = MENU_COLORS.breakout;
 // ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
 
+interface RecentPerformance {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  periodLabel: string;
+}
+
+interface TFBreakdownItem {
+  timeframe: string;
+  label: string;
+  detail: string;
+  status: 'confirm' | 'warning' | 'neutral';
+}
+
 interface BreakoutTradingResult {
   status: 'ready' | 'waiting' | 'approaching' | 'in_zone' | 'expired' | 'no_setup' | 'skip' | 'error';
   symbol: string;
   bias?: 'bullish' | 'bearish';
   breakoutType?: 'continuation' | 'reversal';
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
   message?: string;
@@ -678,6 +697,10 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
             </View>
             </AnimatedCard>
           )}
+
+          <TFBreakdownTable items={data?.tfBreakdown} accentColor={ACCENT} />
+
+          <RecentPerformanceCard data={data?.recentPerformance} accentColor={ACCENT} />
 
           {/* Kalkulator PnL button */}
           {data.entryPrice !== undefined && (

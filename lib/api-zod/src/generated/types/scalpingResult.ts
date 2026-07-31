@@ -5,13 +5,17 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
 import type { ScalpingResultBias } from './scalpingResultBias';
 import type { ScalpingResultStatus } from './scalpingResultStatus';
+import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface ScalpingResult {
   status: ScalpingResultStatus;
   symbol: string;
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   bias?: ScalpingResultBias;
   currentPrice: number;
   timestamp: string;

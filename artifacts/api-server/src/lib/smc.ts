@@ -96,6 +96,19 @@ export interface EntryConfirmation {
   entryPrice: number;
 }
 
+/**
+ * Breakdown per-timeframe — sebelumnya info ini ke-selip di dalam teks
+ * filterResults/probabilityFactors (harus baca satu-satu buat tau TF mana yang
+ * kuat/lemah). Sekarang terstruktur, biar UI bisa nampilin tabel "TF apa →
+ * ngecek apa → hasilnya gimana" dengan jelas.
+ */
+export interface TFBreakdownItem {
+  timeframe: string; // "H4", "H1", "M15", "M5", "H2", dst
+  label: string;      // deskripsi singkat: "Trend Utama", "Zona Entry", "Trigger", dst
+  detail: string;      // hasil dalam bahasa manusia
+  status: 'confirm' | 'warning' | 'neutral'; // buat pewarnaan UI (hijau/kuning/abu)
+}
+
 export interface SniperLevels {
   entryPrice: number;
   stopLoss: number;
@@ -133,6 +146,8 @@ export interface SniperResult {
   currentPrice: number;
   timestamp: string;
   bias?: "bullish" | "bearish";
+  recentPerformance?: RecentPerformance; // mini-backtest instan, cuma diisi di endpoint single-symbol
+  tfBreakdown?: TFBreakdownItem[]; // breakdown per-timeframe
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
@@ -2472,6 +2487,40 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     const distanceToEntry = Math.abs(currentPrice - sniperLevels.entryPrice);
     const estimatedHitHours = Math.max(1, Math.round(distanceToEntry / atrH4));
 
+    // Breakdown per-timeframe — terstruktur biar UI bisa nampilin tabel jelas
+    const tfBreakdown: TFBreakdownItem[] = [
+      {
+        timeframe: 'H4',
+        label: 'Trend Utama',
+        detail: `${bias === 'bullish' ? 'Bullish' : 'Bearish'} (${structH4.strength}), ZigZag konfirmasi`,
+        status: 'confirm',
+      },
+      {
+        timeframe: 'H1',
+        label: 'RSI Divergence',
+        detail: rsiDivergenceH1 ? 'Terkonfirmasi — sinyal reversal tambahan' : 'Belum ada divergence di swing terakhir',
+        status: rsiDivergenceH1 ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: 'H1',
+        label: 'Zona Entry',
+        detail: `${selectedZone.zoneType} — Tier ${selectedZone.tier}${(selectedZone.touches ?? 0) <= 1 ? ' (fresh)' : ` (disentuh ${selectedZone.touches}x)`}`,
+        status: selectedZone.tier <= 2 ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: '15M',
+        label: 'Pattern Konfirmasi',
+        detail: confirmedPattern ? `${confirmedPattern.name} terdeteksi` : 'Belum ada pattern searah bias',
+        status: confirmedPattern ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: '5M',
+        label: 'Konfirmasi Entry',
+        detail: confirmation.confirmed ? `${confirmation.candleType} — siap entry` : 'Belum ada candle konfirmasi, entry limit di tengah zona',
+        status: confirmation.confirmed ? 'confirm' : 'warning',
+      },
+    ];
+
     // Build reasoning
     const reasoning = [
       `Entry di ${selectedZone.zoneType} (${selectedZone.low.toFixed(4)}-${selectedZone.high.toFixed(4)}).`,
@@ -2490,6 +2539,7 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
       currentPrice,
       timestamp,
       bias,
+      tfBreakdown,
       entryPrice: sniperLevels.entryPrice,
       stopLoss: sniperLevels.stopLoss,
       takeProfit1: sniperLevels.takeProfit1,
@@ -2547,6 +2597,8 @@ export interface ScalpingResult {
   currentPrice: number;
   timestamp: string;
   message?: string;
+  recentPerformance?: RecentPerformance; // mini-backtest instan, cuma diisi di endpoint single-symbol
+  tfBreakdown?: TFBreakdownItem[]; // breakdown per-timeframe
   score?: number;
   maxScore: number;
   // Struktur 15M
@@ -2818,6 +2870,40 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const takeProfit1 = entryPrice + risk * 1.5 * dir;
     const takeProfit2 = entryPrice + risk * 3.0 * dir;
 
+    // Breakdown per-timeframe
+    const tfBreakdown: TFBreakdownItem[] = [
+      {
+        timeframe: 'H4',
+        label: 'Trend Utama',
+        detail: `${bias === 'bullish' ? 'Bullish' : 'Bearish'} (${structH4.strength}) — EMA34: ${emaConfirmed ? 'konfirmasi' : 'belum konfirmasi'}`,
+        status: emaConfirmed ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: 'M30',
+        label: 'Koreksi vs H4',
+        detail: m30Correction ? 'M30 koreksi/berlawanan H4 — retest valid' : 'M30 masih searah H4 — waspada, belum koreksi jelas',
+        status: m30Correction ? 'confirm' : 'warning',
+      },
+      {
+        timeframe: 'M30',
+        label: 'Zona Entry',
+        detail: `${bestZone30?.zoneType ?? finalZone.zoneType} — Tier ${bestZone30?.tier ?? '-'}`,
+        status: (bestZone30?.tier ?? 3) <= 2 ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: 'M30',
+        label: 'BB Squeeze',
+        detail: bbSqueeze.isSqueezing ? 'Aktif — energy terakumulasi, potensi gerak eksplosif' : 'Tidak aktif',
+        status: bbSqueeze.isSqueezing ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: 'H1/M30',
+        label: 'Trigger Reversal',
+        detail: pats30.length > 0 ? `Pattern: ${pats30[0]!.name}` : rsiDivergence ? 'RSI Divergence H1' : 'Belum ada trigger',
+        status: (pats30.length > 0 || rsiDivergence) ? 'confirm' : 'warning',
+      },
+    ];
+
     // ── Status ────────────────────────────────────────────────────────────
     let status: ScalpingResult['status'] = 'waiting';
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
@@ -2842,7 +2928,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
         : `WAITING — Harga belum mendekati zona, setup valid`;
 
     return {
-      status, symbol, bias, currentPrice, timestamp, score, maxScore,
+      status, symbol, bias, tfBreakdown, currentPrice, timestamp, score, maxScore,
       structure15M: `H4 ${bias} → M30 ${structM30.bias}`,
       choch15M: hasConfirmation,
       ob5M: { low: finalZone.low, high: finalZone.high, mid: finalZone.mid, fresh: true },
@@ -2867,6 +2953,8 @@ export interface ExtremeScalpingResult {
   symbol: string;
   bias?: 'bullish' | 'bearish';
   isReversalSetup?: boolean; // true kalau ini sinyal dari CHoCH (reversal), bukan trend biasa
+  recentPerformance?: RecentPerformance; // mini-backtest instan, cuma diisi di endpoint single-symbol
+  tfBreakdown?: TFBreakdownItem[]; // breakdown per-timeframe
   currentPrice: number;
   timestamp: string;
   message?: string;
@@ -3045,6 +3133,40 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     const takeProfit1 = entryPrice + risk * 2 * dir; // R:R 1:2
     const takeProfit2 = entryPrice + risk * 4 * dir; // R:R 1:4
 
+    // Breakdown per-timeframe
+    const tfBreakdown: TFBreakdownItem[] = [
+      {
+        timeframe: 'H1',
+        label: 'Trend Dasar',
+        detail: `${baseBias === 'bullish' ? 'Bullish' : 'Bearish'}${structH1.bias !== 'ranging' ? ` (${structH1.strength})` : ' (via ZigZag)'}`,
+        status: 'confirm',
+      },
+      {
+        timeframe: 'H1',
+        label: 'Reversal (CHoCH)',
+        detail: isReversalSetup ? `Terdeteksi — sinyal ikut arah ${bias}, bukan trend dasar` : 'Tidak ada, ikut trend dasar',
+        status: isReversalSetup ? 'confirm' : 'neutral',
+      },
+      ...(isReversalSetup ? [{
+        timeframe: 'H1',
+        label: 'Liquidity Sweep',
+        detail: liquiditySwept ? 'Terkonfirmasi — reversal lebih valid' : 'Belum ada, reversal cuma dari close lewat',
+        status: (liquiditySwept ? 'confirm' : 'warning') as TFBreakdownItem['status'],
+      }] : []),
+      {
+        timeframe: 'M15',
+        label: 'Zona Entry',
+        detail: `${bestZone15.zoneType} — Tier ${bestZone15.tier}${(bestZone15.touches ?? 0) <= 1 ? ' (fresh)' : ` (disentuh ${bestZone15.touches}x)`}`,
+        status: bestZone15.tier <= 2 ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: 'M5',
+        label: 'Trigger',
+        detail: patsM5.length > 0 ? `Pattern: ${patsM5[0]!.name}` : rsiDivergenceM5 ? `RSI Divergence (${rsiM5.toFixed(0)})` : 'Belum ada trigger',
+        status: 'confirm',
+      },
+    ];
+
     // ── Status ────────────────────────────────────────────────────────────
     let status: ExtremeScalpingResult['status'] = 'waiting';
     if (bias === 'bullish') {
@@ -3066,7 +3188,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
         : `WAITING — Harga belum mendekati zona`;
 
     return {
-      status, symbol, bias, isReversalSetup, currentPrice, timestamp, score, maxScore,
+      status, symbol, bias, isReversalSetup, tfBreakdown, currentPrice, timestamp, score, maxScore,
       structureH1: `H1 ${baseBias}${chochH1 ? ` → CHoCH ke ${bias}` : ''}`,
       chochH1,
       ob5M: { low: bestZone15.low, high: bestZone15.high, mid: bestZone15.mid, fresh: true },
@@ -3699,7 +3821,7 @@ export async function analyzeChartPatterns(symbol: string): Promise<{ symbol: st
 // ─── Menu 6: Backtesting Engine ───────────────────────────────────────────────
 
 export interface BacktestTrade {
-  menu: 'sniper' | 'breakout' | 'scalping' | 'extreme_scalping';
+  menu: 'sniper' | 'breakout' | 'scalping' | 'extreme_scalping' | 'breakout_entry';
   entryTime: number;
   entryPrice: number;
   stopLoss: number;
@@ -3723,6 +3845,13 @@ export interface BacktestTrade {
   hasEMA34Confirm?: boolean;
   hasM30Correction?: boolean;
   zoneType?: string;
+  // Skor kekuatan sinyal (0-100) — pakai faktor yang sama kayak scoring live
+  // (RSI Div/Pattern/Zona Tier/dst), TAPI cuma faktor yang emang udah dihitung
+  // di backtest. BTC Correlation & Economic Calendar SENGAJA dikecualikan
+  // (butuh fetch data historis terpisah, terlalu berat buat loop 1 tahun+).
+  // Bukan 100% identik sama scoring live, tapi cukup buat liat pola korelasi
+  // "makin kuat skornya, makin bagus win rate-nya apa engga".
+  strengthScore: number;
 }
 
 export interface BacktestAnalysis {
@@ -3752,6 +3881,10 @@ export interface BacktestAnalysis {
     withoutEMA34Confirm?: { trades: number; wins: number; winRate: number };
     withM30Correction?: { trades: number; wins: number; winRate: number };
     withoutM30Correction?: { trades: number; wins: number; winRate: number };
+    // Breakdown per level kekuatan sinyal (mirip High/Moderate/Low di live scan)
+    strengthLow: { trades: number; wins: number; winRate: number };    // < 40%
+    strengthModerate: { trades: number; wins: number; winRate: number }; // 40-70%
+    strengthHigh: { trades: number; wins: number; winRate: number };   // > 70%
   };
   // Penyebab lose
   lossCauses: Array<{ cause: string; count: number; percentage: number }>;
@@ -3767,6 +3900,7 @@ export interface BacktestResult {
   breakoutResult?: BacktestAnalysis & { trades: BacktestTrade[] };
   scalpingResult?: BacktestAnalysis & { trades: BacktestTrade[] };
   extremeScalpingResult?: BacktestAnalysis & { trades: BacktestTrade[] };
+  breakoutEntryResult?: BacktestAnalysis & { trades: BacktestTrade[] };
   comparison?: {
     better: 'sniper' | 'breakout' | 'equal';
     sniperWinRate: number;
@@ -3818,6 +3952,9 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
     withoutEMA34Confirm: trades.filter(t => t.hasEMA34Confirm === false),
     withM30Correction: trades.filter(t => t.hasM30Correction === true),
     withoutM30Correction: trades.filter(t => t.hasM30Correction === false),
+    strengthLow: trades.filter(t => t.strengthScore < 40),
+    strengthModerate: trades.filter(t => t.strengthScore >= 40 && t.strengthScore <= 70),
+    strengthHigh: trades.filter(t => t.strengthScore > 70),
   };
 
   const breakdown: BacktestAnalysis['breakdown'] = {} as BacktestAnalysis['breakdown'];
@@ -3857,6 +3994,13 @@ function buildAnalysis(trades: BacktestTrade[]): BacktestAnalysis {
       }
       if (t.zoneTier > 2) {
         causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] = (causeCounts['Entry di zona Tier 3+ (kualitas rendah)'] ?? 0) + 1;
+      }
+    } else if (t.menu === 'breakout_entry') {
+      if (!t.hasChoch15M) {
+        causeCounts['Breakout tipe Reversal (bukan Continuation)'] = (causeCounts['Breakout tipe Reversal (bukan Continuation)'] ?? 0) + 1;
+      }
+      if (t.volumeRatio !== undefined && t.volumeRatio < 2) {
+        causeCounts['Volume breakout rendah (< 2x rata-rata)'] = (causeCounts['Volume breakout rendah (< 2x rata-rata)'] ?? 0) + 1;
       }
     } else {
       if (!t.hasChoch15M) {
@@ -3993,6 +4137,8 @@ export interface BreakoutTradingResult {
   symbol: string;
   bias?: 'bullish' | 'bearish';
   breakoutType?: 'continuation' | 'reversal';
+  recentPerformance?: RecentPerformance; // mini-backtest instan, cuma diisi di endpoint single-symbol
+  tfBreakdown?: TFBreakdownItem[]; // breakdown per-timeframe
   currentPrice: number;
   timestamp: string;
   message?: string;
@@ -4365,9 +4511,46 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
     if (risk <= 0) {
       return { status: 'no_setup', symbol, currentPrice, timestamp, message: 'Risk tidak valid', maxScore, filterResults };
     }
+    // FIX: konsolidasi gak punya batas bawah lebar (cuma dibatasin maksimal 12%),
+    // jadi kalau konsolidasinya tipis (height kecil) sementara ATR-nya normal/besar,
+    // TP1 (measured move) bisa lebih deket dari SL (ATR-based) — R:R di bawah 1:1,
+    // bahkan negatif. Ketauan dari backtest: win rate anjlok ke ~19% gara-gara ini.
+    // Sekarang wajib R:R minimal 1:1.2, kalau kurang dari itu setup di-skip.
+    const potentialRR = Math.abs(takeProfit1 - entryPrice) / risk;
+    if (potentialRR < 1.2) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, message: `Konsolidasi terlalu tipis dibanding volatilitas (R:R cuma 1:${potentialRR.toFixed(1)}) — setup di-skip`, maxScore, filterResults };
+    }
     const rr1 = Math.round((Math.abs(takeProfit1 - entryPrice) / risk) * 10) / 10;
     score++;
     filterResults.push(`✅ Entry di level breakout ${brokenLevel.toFixed(4)}, target measured move ${takeProfit1.toFixed(4)} (R:R ${rr1})`);
+
+    // Breakdown per-timeframe (semua H2, tapi beda "peran" tiap tahap)
+    const tfBreakdown: TFBreakdownItem[] = [
+      {
+        timeframe: 'H2',
+        label: 'Trend Sebelum Konsolidasi',
+        detail: preStruct.bias !== 'ranging' ? `${preStruct.bias === 'bullish' ? 'Bullish' : 'Bearish'} (${preStruct.strength})` : 'Ranging — breakout tipe reversal',
+        status: 'neutral',
+      },
+      {
+        timeframe: 'H2',
+        label: 'Konsolidasi + Breakout',
+        detail: `${best.breakoutIdx - best.consolStart} candle, breakout ${best.bias === 'bullish' ? 'ke atas' : 'ke bawah'}, tipe ${breakoutType === 'continuation' ? 'Continuation' : 'Reversal'}`,
+        status: breakoutType === 'continuation' ? 'confirm' : 'warning',
+      },
+      {
+        timeframe: 'H2',
+        label: 'Volume Breakout',
+        detail: `${best.volRatio.toFixed(1)}x rata-rata 20 candle`,
+        status: best.volRatio >= 2 ? 'confirm' : 'neutral',
+      },
+      {
+        timeframe: 'H2',
+        label: 'ZigZag Konfirmasi',
+        detail: 'Terkonfirmasi 3% — breakout didukung swing beneran, bukan noise',
+        status: 'confirm',
+      },
+    ];
 
     // ── Status: WAITING → MENDEKATI → BAGUS (retest) atau EXPIRED (gagal) ──
     let status: BreakoutTradingResult['status'] = 'waiting';
@@ -4402,7 +4585,7 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
       `EXPIRED — Breakout gagal atau sudah lewat waktu retest wajar`;
 
     return {
-      status, symbol, bias: best.bias, breakoutType, currentPrice, timestamp, score, maxScore,
+      status, symbol, bias: best.bias, breakoutType, tfBreakdown, currentPrice, timestamp, score, maxScore,
       consolidationHigh: best.consolHigh, consolidationLow: best.consolLow,
       consolidationCandles: best.breakoutIdx - best.consolStart,
       brokenLevel, entryPrice, stopLoss, takeProfit1, takeProfit2, rr1,
@@ -4422,7 +4605,7 @@ function getPeriodLimit(period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y'): number
 export async function runBacktest(
   symbol: string,
   period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y',
-  menu: 'sniper' | 'breakout' | 'scalping' | 'extreme_scalping' | 'both',
+  menu: 'sniper' | 'breakout' | 'scalping' | 'extreme_scalping' | 'breakout_entry' | 'both',
   useZigZag: boolean = true
 ): Promise<BacktestResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
@@ -4484,6 +4667,11 @@ export async function runBacktest(
     fetchHistorical('15m', limit * 4),
     fetchHistorical('30m', limit * 2),
   ]);
+  // H2 cuma di-fetch kalau emang dibutuhin (Breakout Entry) — biar gak nambah beban
+  // request buat backtest Sniper/Scalping/Extreme yang gak butuh data ini sama sekali.
+  const h2Data = (menu === 'breakout_entry' || menu === 'both')
+    ? await fetchHistorical('2h', Math.ceil(limit / 2))
+    : null;
 
   const result: BacktestResult = {
     symbol,
@@ -4622,6 +4810,14 @@ export async function runBacktest(
       const entryTime = h1Data.times ? h1Data.times[i] : Date.now();
       const hour = getWIBHour(entryTime);
 
+      // Strength score (0-100) — cuma pakai faktor yang udah dihitung di backtest ini.
+      // BTC Correlation, Economic Calendar, Dow Phase, Premium/Discount, H4 Confluence
+      // SENGAJA dikecualikan (butuh data/komputasi tambahan yang berat buat loop panjang).
+      const strengthScore =
+        (rsiDivergenceH1bt ? 45 : 0) +
+        (hasPattern ? 35 : 0) +
+        (selectedZone.tier <= 2 ? 20 : 0);
+
       sniperTrades.push({
         menu: 'sniper',
         entryTime,
@@ -4641,6 +4837,7 @@ export async function runBacktest(
         hasChoch15M: rsiDivergenceH1bt,
         hasRejection15M: rsiDivergenceH1bt,
         hasPattern,
+        strengthScore,
         patternConfidence: hasPattern ? 'MEDIUM' : 'NONE',
         zoneTier: selectedZone.tier, // fix: sebelumnya hardcode 1 (selalu "Tier 1-2"), sekarang pakai tier real
         hour,
@@ -4801,11 +4998,19 @@ export async function runBacktest(
       const entryTime = m30Data.times ? m30Data.times[j]! : Date.now();
       const hour = getWIBHour(entryTime);
 
+      // Strength score (0-100) — pakai faktor bonus yang udah dihitung di backtest ini.
+      const strengthScoreScalp =
+        (bbSqueeze.isSqueezing ? 30 : 0) +
+        (ema34Confirm ? 25 : 0) +
+        (bestZone.tier <= 2 ? 25 : 0) +
+        (m30Correction ? 20 : 0);
+
       scalpingTrades.push({
         menu: 'scalping', entryTime, entryPrice, stopLoss, takeProfit1, takeProfit2, bias,
         result: sim.result, exitPrice: sim.exitPrice, rr: sim.rr,
         hasChoch15M: true, hasRejection15M: true, // tidak dipakai di alur baru, default true biar gak keitung "gagal"
         hasPattern: pats30.length > 0,
+        strengthScore: strengthScoreScalp,
         patternConfidence: pats30.length > 0 ? 'MEDIUM' : (rsiDivergence ? 'LOW' : 'NONE'),
         // FIX BUG: sebelumnya re-derive tier dari zoneType.startsWith('OB'/'FVG') — tapi
         // string zoneType di level H1 pakai kata lengkap "Order Block..." bukan "OB", jadi
@@ -4945,6 +5150,12 @@ export async function runBacktest(
       const entryTime = h1Data.times ? h1Data.times[i]! : Date.now();
       const hour = getWIBHour(entryTime);
 
+      // Strength score (0-100) — pakai faktor yang udah dihitung di backtest ini.
+      const strengthScoreExt =
+        (pats15.length > 0 ? 35 : 0) + // pattern lebih kuat dari RSI divergence doang
+        (bestZone.tier <= 2 ? 35 : 0) +
+        (chochH1bt ? 30 : 0); // reversal setup (confluence tambahan dari CHoCH)
+
       extremeTrades.push({
         menu: 'extreme_scalping', entryTime, entryPrice, stopLoss, takeProfit1, takeProfit2, bias,
         result: sim.result, exitPrice: sim.exitPrice, rr: sim.rr,
@@ -4952,6 +5163,7 @@ export async function runBacktest(
         // breaking change ke tipe/UI, sama pola kayak yang dipakai buat RSI Div H1 di Sniper)
         hasChoch15M: chochH1bt, hasRejection15M: hasTrigger,
         hasPattern: pats15.length > 0,
+        strengthScore: strengthScoreExt,
         patternConfidence: pats15.length > 0 ? 'MEDIUM' : (rsiDiv15 ? 'LOW' : 'NONE'),
         zoneTier: bestZone.tier,
         hour,
@@ -4963,6 +5175,126 @@ export async function runBacktest(
     }
 
     result.extremeScalpingResult = { ...buildAnalysis(extremeTrades), trades: extremeTrades };
+  }
+
+  // ─── BACKTEST BREAKOUT ENTRY (Menu 1 — H2 konsolidasi + breakout) ──────────
+  // Beda total dari 3 menu lain: bukan retest zona OB/FVG/S&R, tapi nyari
+  // breakout dari konsolidasi (sama persis logic live). Cuma nyimulasiin
+  // breakout yang UDAH CONFIRMED (bukan status "SIAP BREAKOUT"/anticipation,
+  // karena itu speculative dan gak ada arah pasti buat disimulasiin).
+  if ((menu === 'breakout_entry' || menu === 'both') && h2Data) {
+    const beTrades: BacktestTrade[] = [];
+    const h2Total = h2Data.closes.length;
+    const MIN_H2 = 60;
+    const windowSizes = [40, 25, 15];
+
+    for (let bIdx = MIN_H2; bIdx < h2Total - 6; bIdx++) {
+      let found: { consolHigh: number; consolLow: number; consolStart: number; bias: 'bullish' | 'bearish'; volRatio: number } | null = null;
+
+      for (const winSize of windowSizes) {
+        const consolStart = bIdx - winSize;
+        if (consolStart < 5) continue;
+        const wh = h2Data.highs.slice(consolStart, bIdx);
+        const wl = h2Data.lows.slice(consolStart, bIdx);
+        const consolHigh = Math.max(...wh);
+        const consolLow = Math.min(...wl);
+        const widthPct = ((consolHigh - consolLow) / consolLow) * 100;
+        if (widthPct > 12) continue;
+
+        let resTouches = 0, supTouches = 0;
+        for (let k = 0; k < wh.length; k++) {
+          if (Math.abs(wh[k]! - consolHigh) / consolHigh <= 0.005) resTouches++;
+          if (Math.abs(wl[k]! - consolLow) / consolLow <= 0.005) supTouches++;
+        }
+        if (resTouches < 2 || supTouches < 2) continue;
+
+        const breakoutClose = h2Data.closes[bIdx]!;
+        let bias: 'bullish' | 'bearish' | null = null;
+        if (breakoutClose > consolHigh * 1.003) bias = 'bullish';
+        else if (breakoutClose < consolLow * 0.997) bias = 'bearish';
+        if (!bias) continue;
+
+        // HARD FILTER: ZigZag H2 3% (sama persis logic live)
+        const zzH2bt = zigzagBias(h2Data.highs.slice(0, bIdx + 1), h2Data.lows.slice(0, bIdx + 1), 3);
+        if (zzH2bt.bias === 'ranging' || zzH2bt.bias !== bias) continue;
+
+        const volWindow = h2Data.volumes.slice(Math.max(0, bIdx - 20), bIdx);
+        const avgVol = volWindow.length > 0 ? volWindow.reduce((a, b) => a + b, 0) / volWindow.length : 0;
+        const breakoutVol = h2Data.volumes[bIdx]!;
+        const volRatio = avgVol > 0 ? breakoutVol / avgVol : 0;
+        if (volRatio < 1.5) continue;
+
+        found = { consolHigh, consolLow, consolStart, bias, volRatio };
+        break; // window terpanjang yang valid duluan dipakai, sama kayak live
+      }
+
+      if (!found) continue;
+
+      // Tipe: continuation vs reversal (bandingin trend sebelum konsolidasi)
+      const preStart = Math.max(0, found.consolStart - 20);
+      const preStruct = analyzePriceActionStructure(
+        h2Data.highs.slice(preStart, found.consolStart),
+        h2Data.lows.slice(preStart, found.consolStart),
+        h2Data.closes.slice(preStart, found.consolStart)
+      );
+      const breakoutType: 'continuation' | 'reversal' =
+        preStruct.bias === found.bias ? 'continuation' : preStruct.bias !== 'ranging' ? 'reversal' : 'continuation';
+
+      // Entry, SL, TP — sama persis dengan live
+      const atrH2bt = calcATR(
+        h2Data.highs.slice(0, bIdx + 1), h2Data.lows.slice(0, bIdx + 1), h2Data.closes.slice(0, bIdx + 1)
+      );
+      const bufferH2 = atrH2bt * 0.3;
+      const brokenLevel = found.bias === 'bullish' ? found.consolHigh : found.consolLow;
+      const entryPrice = brokenLevel;
+      const stopLoss = found.bias === 'bullish'
+        ? Math.min(brokenLevel - bufferH2, entryPrice - atrH2bt)
+        : Math.max(brokenLevel + bufferH2, entryPrice + atrH2bt);
+      const height = found.consolHigh - found.consolLow;
+      const dir = found.bias === 'bullish' ? 1 : -1;
+      const takeProfit1 = brokenLevel + height * dir; // measured move
+      const takeProfit2 = brokenLevel + height * 1.618 * dir; // extended target
+
+      const risk = Math.abs(entryPrice - stopLoss);
+      if (risk <= 0) continue;
+      // Sama kayak fix di live: skip kalau R:R measured-move di bawah 1:1.2
+      const potentialRR = Math.abs(takeProfit1 - entryPrice) / risk;
+      if (potentialRR < 1.2) continue;
+
+      // Simulate: 40 candle H2 ke depan (~3.3 hari, sama kayak window expiry live)
+      const futEnd = Math.min(h2Total, bIdx + 40);
+      const futH = h2Data.highs.slice(bIdx, futEnd);
+      const futL = h2Data.lows.slice(bIdx, futEnd);
+      if (futH.length < 2) continue;
+      const sim = simulateTrade(entryPrice, stopLoss, takeProfit1, takeProfit2, found.bias, futH, futL, 40, 8);
+      if (sim.result === 'EXPIRED' || sim.result === 'NO_FILL') continue;
+
+      const entryTime = h2Data.times ? h2Data.times[bIdx]! : Date.now();
+      const hour = getWIBHour(entryTime);
+
+      // Strength score (0-100) — pakai faktor yang udah dihitung di sini.
+      const strengthScoreBE =
+        (breakoutType === 'continuation' ? 40 : 20) + // continuation historis dianggap lebih reliable dari reversal
+        (found.volRatio >= 2 ? 35 : found.volRatio >= 1.5 ? 20 : 0) +
+        25; // baseline (ZigZag 3% udah wajib lolos duluan buat semua trade)
+
+      beTrades.push({
+        menu: 'breakout_entry', entryTime, entryPrice, stopLoss, takeProfit1, takeProfit2, bias: found.bias,
+        result: sim.result, exitPrice: sim.exitPrice, rr: sim.rr,
+        // Reuse field lama (nama gak diubah biar konsisten sama tipe/UI yang udah ada)
+        hasChoch15M: breakoutType === 'continuation',
+        hasRejection15M: true,
+        hasPattern: true, // breakout candle ITU SENDIRI adalah "pattern"/trigger-nya di sini
+        strengthScore: strengthScoreBE,
+        patternConfidence: breakoutType === 'continuation' ? 'MEDIUM' : 'LOW',
+        zoneTier: 1, // Breakout Entry gak pakai sistem tier OB/FVG/S&R
+        breakoutType,
+        volumeRatio: found.volRatio,
+        hour,
+      });
+    }
+
+    result.breakoutEntryResult = { ...buildAnalysis(beTrades), trades: beTrades };
   }
 
   // Comparison
@@ -4999,4 +5331,43 @@ export async function runBacktest(
   }
 
   return result;
+}
+
+// ─── Mini-Backtest Instan (buat tab Analisa, BUKAN Scan) ───────────────────
+// Ide: pas user analisa 1 koin manual, langsung kasih konteks historis
+// "N setup terakhir buat koin ini menang/kalah berapa" — tanpa perlu buka tab
+// Backtest terpisah dan set periode manual. Sengaja SCOPE KECIL (1 bulan aja,
+// bukan periode panjang) biar CEPET — ini dipanggil per-klik user, bukan di
+// loop scan 50 koin (kalau ditaro di analyzeXEntry langsung, Scan jadi 50x
+// lebih lambat). Dipanggil di level ROUTE, cuma buat endpoint single-symbol.
+export interface RecentPerformance {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  periodLabel: string;
+}
+
+export async function getRecentPerformance(
+  symbol: string,
+  menu: 'sniper' | 'breakout_entry' | 'scalping' | 'extreme_scalping'
+): Promise<RecentPerformance | null> {
+  try {
+    const result = await runBacktest(symbol, '1m', menu);
+    const analysis =
+      menu === 'sniper' ? result.sniperResult :
+      menu === 'scalping' ? result.scalpingResult :
+      menu === 'extreme_scalping' ? result.extremeScalpingResult :
+      result.breakoutEntryResult;
+    if (!analysis || analysis.totalTrades === 0) return null; // gak ada histori — biar UI tau buat sembunyiin section ini, bukan nampilin 0/0
+    return {
+      totalTrades: analysis.totalTrades,
+      wins: analysis.wins,
+      losses: analysis.losses,
+      winRate: analysis.winRate,
+      periodLabel: '30 hari terakhir',
+    };
+  } catch {
+    return null; // fail-safe — kalau mini-backtest gagal, jangan ganggu hasil analisa utama
+  }
 }

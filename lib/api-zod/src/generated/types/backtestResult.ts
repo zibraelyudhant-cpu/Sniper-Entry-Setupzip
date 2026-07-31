@@ -15,6 +15,8 @@ export interface BacktestResult {
   sniperResult?: BacktestAnalysisWithTrades;
   breakoutResult?: BacktestAnalysisWithTrades;
   scalpingResult?: BacktestAnalysisWithTrades;
+  extremeScalpingResult?: BacktestAnalysisWithTrades;
+  breakoutEntryResult?: BacktestAnalysisWithTrades;
   comparison?: BacktestComparison;
   timestamp: string;
 }

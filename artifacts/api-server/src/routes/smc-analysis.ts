@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { analyzeSniperEntry } from "../lib/smc";
+import { analyzeSniperEntry, getRecentPerformance } from "../lib/smc";
 
 const router = Router();
 
@@ -17,7 +17,9 @@ router.get("/smc-analysis", async (req, res) => {
     : `${symbol.toUpperCase()}USDT`;
 
   const result = await analyzeSniperEntry(normalizedSymbol);
-  res.json(result);
+  // Mini-backtest instan — cuma di endpoint single-symbol ini, BUKAN di scan
+  const recentPerformance = await getRecentPerformance(normalizedSymbol, 'sniper');
+  res.json({ ...result, recentPerformance });
 });
 
 // GET /api/sniper/scan

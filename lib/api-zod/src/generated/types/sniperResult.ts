@@ -5,13 +5,17 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { RecentPerformance } from './recentPerformance';
 import type { SniperResultBias } from './sniperResultBias';
 import type { SniperResultStatus } from './sniperResultStatus';
+import type { TFBreakdownItem } from './tFBreakdownItem';
 import type { TrendInfo } from './trendInfo';
 import type { ZoneRange } from './zoneRange';
 
 export interface SniperResult {
   status: SniperResultStatus;
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   message: string;
   symbol: string;
   currentPrice: number;

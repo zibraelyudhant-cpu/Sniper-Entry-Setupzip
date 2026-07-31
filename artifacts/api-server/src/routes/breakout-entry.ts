@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeBreakoutTrading } from '../lib/smc';
+import { analyzeBreakoutTrading, getRecentPerformance } from '../lib/smc';
 import { getUniverse } from './screener';
 
 const router = Router();
@@ -12,7 +12,9 @@ router.get('/breakout-entry', async (req, res) => {
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   try {
     const result = await analyzeBreakoutTrading(normalized);
-    res.json(result);
+    // Mini-backtest instan — cuma di endpoint single-symbol ini, BUKAN di scan
+    const recentPerformance = await getRecentPerformance(normalized, 'breakout_entry');
+    res.json({ ...result, recentPerformance });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

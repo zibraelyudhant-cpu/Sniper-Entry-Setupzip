@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeScalpingEntry } from '../lib/smc';
+import { analyzeScalpingEntry, getRecentPerformance } from '../lib/smc';
 import { getUniverse } from './screener';
 
 const router = Router();
@@ -12,7 +12,9 @@ router.get('/breakout', async (req, res) => {
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   try {
     const result = await analyzeScalpingEntry(normalized);
-    res.json(result);
+    // Mini-backtest instan — cuma di endpoint single-symbol ini, BUKAN di scan
+    const recentPerformance = await getRecentPerformance(normalized, 'scalping');
+    res.json({ ...result, recentPerformance });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

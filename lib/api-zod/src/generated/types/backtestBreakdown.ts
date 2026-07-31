@@ -26,4 +26,7 @@ export interface BacktestBreakdown {
   withoutEMA34Confirm?: BacktestBreakdownItem;
   withM30Correction?: BacktestBreakdownItem;
   withoutM30Correction?: BacktestBreakdownItem;
+  strengthLow: BacktestBreakdownItem;
+  strengthModerate: BacktestBreakdownItem;
+  strengthHigh: BacktestBreakdownItem;
 }

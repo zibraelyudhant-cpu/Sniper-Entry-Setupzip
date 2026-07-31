@@ -7,11 +7,15 @@
  */
 import type { ExtremeScalpingResultBias } from './extremeScalpingResultBias';
 import type { ExtremeScalpingResultStatus } from './extremeScalpingResultStatus';
+import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
+import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface ExtremeScalpingResult {
   status: ExtremeScalpingResultStatus;
   symbol: string;
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;
   isReversalSetup?: boolean;
   currentPrice: number;

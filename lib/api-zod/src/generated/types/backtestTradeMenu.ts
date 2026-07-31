@@ -13,4 +13,6 @@ export const BacktestTradeMenu = {
   sniper: 'sniper',
   breakout: 'breakout',
   scalping: 'scalping',
+  extreme_scalping: 'extreme_scalping',
+  breakout_entry: 'breakout_entry',
 } as const;

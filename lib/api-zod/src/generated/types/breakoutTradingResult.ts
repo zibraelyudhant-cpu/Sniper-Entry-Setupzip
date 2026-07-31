@@ -11,12 +11,16 @@ import type { BreakoutTradingResultBreakoutType } from './breakoutTradingResultB
 import type { BreakoutTradingResultLeanBias } from './breakoutTradingResultLeanBias';
 import type { BreakoutTradingResultStatus } from './breakoutTradingResultStatus';
 import type { DirectionalProbability } from './directionalProbability';
+import type { RecentPerformance } from './recentPerformance';
+import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface BreakoutTradingResult {
   status: BreakoutTradingResultStatus;
   symbol: string;
+  recentPerformance?: RecentPerformance;
   bias?: BreakoutTradingResultBias;
   breakoutType?: BreakoutTradingResultBreakoutType;
+  tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
   message?: string;

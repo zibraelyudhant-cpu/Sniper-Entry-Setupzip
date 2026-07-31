@@ -32,4 +32,5 @@ export interface BacktestTrade {
   hasEMA34Confirm?: boolean;
   hasM30Correction?: boolean;
   zoneType?: string;
+  strengthScore: number;
 }

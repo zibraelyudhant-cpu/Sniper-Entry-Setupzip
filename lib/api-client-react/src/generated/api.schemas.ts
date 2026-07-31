@@ -96,6 +96,30 @@ export interface AnticipationEntry {
   trendContext: string;
 }
 
+export interface RecentPerformance {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  periodLabel: string;
+}
+
+export type TFBreakdownItemStatus = typeof TFBreakdownItemStatus[keyof typeof TFBreakdownItemStatus];
+
+
+export const TFBreakdownItemStatus = {
+  confirm: 'confirm',
+  warning: 'warning',
+  neutral: 'neutral',
+} as const;
+
+export interface TFBreakdownItem {
+  timeframe: string;
+  label: string;
+  detail: string;
+  status: TFBreakdownItemStatus;
+}
+
 export type BreakoutTradingResultStatus = typeof BreakoutTradingResultStatus[keyof typeof BreakoutTradingResultStatus];
 
 
@@ -138,8 +162,10 @@ export const BreakoutTradingResultLeanBias = {
 export interface BreakoutTradingResult {
   status: BreakoutTradingResultStatus;
   symbol: string;
+  recentPerformance?: RecentPerformance;
   bias?: BreakoutTradingResultBias;
   breakoutType?: BreakoutTradingResultBreakoutType;
+  tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
   message?: string;
@@ -190,6 +216,8 @@ export const SniperResultBias = {
 
 export interface SniperResult {
   status: SniperResultStatus;
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   message: string;
   symbol: string;
   currentPrice: number;
@@ -273,6 +301,8 @@ export const ScalpingResultBias = {
 export interface ScalpingResult {
   status: ScalpingResultStatus;
   symbol: string;
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   bias?: ScalpingResultBias;
   currentPrice: number;
   timestamp: string;
@@ -324,6 +354,8 @@ export const ExtremeScalpingResultBias = {
 export interface ExtremeScalpingResult {
   status: ExtremeScalpingResultStatus;
   symbol: string;
+  recentPerformance?: RecentPerformance;
+  tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;
   isReversalSetup?: boolean;
   currentPrice: number;
@@ -423,6 +455,8 @@ export const BacktestRequestMenu = {
   sniper: 'sniper',
   breakout: 'breakout',
   scalping: 'scalping',
+  extreme_scalping: 'extreme_scalping',
+  breakout_entry: 'breakout_entry',
   both: 'both',
 } as const;
 
@@ -439,6 +473,8 @@ export const BacktestTradeMenu = {
   sniper: 'sniper',
   breakout: 'breakout',
   scalping: 'scalping',
+  extreme_scalping: 'extreme_scalping',
+  breakout_entry: 'breakout_entry',
 } as const;
 
 export type BacktestTradeBias = typeof BacktestTradeBias[keyof typeof BacktestTradeBias];
@@ -482,6 +518,7 @@ export interface BacktestTrade {
   hasEMA34Confirm?: boolean;
   hasM30Correction?: boolean;
   zoneType?: string;
+  strengthScore: number;
 }
 
 export interface BacktestBreakdownItem {
@@ -509,6 +546,9 @@ export interface BacktestBreakdown {
   withoutEMA34Confirm?: BacktestBreakdownItem;
   withM30Correction?: BacktestBreakdownItem;
   withoutM30Correction?: BacktestBreakdownItem;
+  strengthLow: BacktestBreakdownItem;
+  strengthModerate: BacktestBreakdownItem;
+  strengthHigh: BacktestBreakdownItem;
 }
 
 export interface BacktestLossCause {
@@ -555,6 +595,8 @@ export interface BacktestResult {
   sniperResult?: BacktestAnalysisWithTrades;
   breakoutResult?: BacktestAnalysisWithTrades;
   scalpingResult?: BacktestAnalysisWithTrades;
+  extremeScalpingResult?: BacktestAnalysisWithTrades;
+  breakoutEntryResult?: BacktestAnalysisWithTrades;
   comparison?: BacktestComparison;
   timestamp: string;
 }

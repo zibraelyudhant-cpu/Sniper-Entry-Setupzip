@@ -53,6 +53,9 @@ interface BacktestAnalysis {
     withoutEMA34Confirm?: BreakdownItem;
     withM30Correction?: BreakdownItem;
     withoutM30Correction?: BreakdownItem;
+    strengthLow: BreakdownItem;
+    strengthModerate: BreakdownItem;
+    strengthHigh: BreakdownItem;
   };
   lossCauses: Array<{ cause: string; count: number; percentage: number }>;
   recommendations: string[];
@@ -64,6 +67,9 @@ interface BacktestResult {
   totalCandles: number;
   sniperResult?: BacktestAnalysis;
   breakoutResult?: BacktestAnalysis;
+  scalpingResult?: BacktestAnalysis;
+  extremeScalpingResult?: BacktestAnalysis;
+  breakoutEntryResult?: BacktestAnalysis;
   comparison?: {
     better: 'sniper' | 'breakout' | 'equal';
     sniperWinRate: number;
@@ -80,6 +86,40 @@ function WinRateBadge({ rate, colors }: { rate: number; colors: ReturnType<typeo
   return (
     <View style={[styles.badge, { backgroundColor: `${color}20`, borderColor: color }]}>
       <Text style={[styles.badgeText, { color }]}>{rate.toFixed(1)}%</Text>
+    </View>
+  );
+}
+
+function StrengthTierRow({ low, moderate, high, colors }: {
+  low: BreakdownItem;
+  moderate: BreakdownItem;
+  high: BreakdownItem;
+  colors: ReturnType<typeof useColors>;
+}) {
+  if (low.trades === 0 && moderate.trades === 0 && high.trades === 0) return null;
+
+  return (
+    <View style={{ marginTop: 4, marginBottom: 8 }}>
+      <Text style={[styles.breakdownLabel, { color: colors.foreground, marginBottom: 8 }]}>
+        Win Rate per Level Kekuatan Sinyal
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {[
+          { label: 'Low', sub: '<40%', item: low },
+          { label: 'Moderate', sub: '40-70%', item: moderate },
+          { label: 'High', sub: '>70%', item: high },
+        ].map(({ label, sub, item }) => (
+          <View key={label} style={{ flex: 1, alignItems: 'center', backgroundColor: colors.surfaceMid, borderRadius: 8, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>{label}</Text>
+            <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 6 }}>{sub}</Text>
+            <WinRateBadge rate={item.winRate} colors={colors} />
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4 }}>{item.trades} trade</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 6, fontStyle: 'italic' }}>
+        Skor kekuatan cuma pakai faktor yang dihitung di backtest (belum termasuk BTC Correlation/Economic Calendar) — bukan 100% identik skor live.
+      </Text>
     </View>
   );
 }
@@ -120,7 +160,7 @@ function MenuResult({ title, result, colors, menu }: {
   title: string;
   result: BacktestAnalysis;
   colors: ReturnType<typeof useColors>;
-  menu: 'sniper' | 'scalping' | 'extreme_scalping';
+  menu: 'sniper' | 'scalping' | 'extreme_scalping' | 'breakout_entry';
 }) {
   const [expanded, setExpanded] = useState(false);
   const winColor = result.winRate >= 75 ? colors.bullish : result.winRate >= 50 ? colors.gold : colors.bearish;
@@ -172,6 +212,10 @@ function MenuResult({ title, result, colors, menu }: {
             <>
               <BreakdownRow label="Reversal CHoCH H1" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
             </>
+          ) : menu === 'breakout_entry' ? (
+            <>
+              <BreakdownRow label="Tipe Continuation" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
+            </>
           ) : (
             <>
               {result.breakdown.withBBSqueeze && result.breakdown.withoutBBSqueeze && (
@@ -185,10 +229,29 @@ function MenuResult({ title, result, colors, menu }: {
               )}
             </>
           )}
-          <BreakdownRow label={menu === 'sniper' ? 'Pattern' : menu === 'extreme_scalping' ? 'Pattern M15' : 'Pattern M30'} with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
-          <BreakdownRow label="Zona Tier 1-2" with={result.breakdown.tier1to2} without={result.breakdown.tier3plus} colors={colors} />
+          {/* Pattern & Zona Tier gak relevan buat Breakout Entry — dia gak pakai
+              sistem OB/FVG/S&R tier, dan breakout candle itu sendiri adalah trigger-nya */}
+          {menu !== 'breakout_entry' && (
+            <>
+              <BreakdownRow label={menu === 'sniper' ? 'Pattern' : menu === 'extreme_scalping' ? 'Pattern M15' : 'Pattern M30'} with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
+              <BreakdownRow label="Zona Tier 1-2" with={result.breakdown.tier1to2} without={result.breakdown.tier3plus} colors={colors} />
+            </>
+          )}
           <BreakdownRow label="London/NY" with={result.breakdown.londonNY} without={result.breakdown.asian} colors={colors} />
           <BreakdownRow label="Vol Tinggi (≥2x)" with={result.breakdown.highVolume} without={result.breakdown.lowVolume} colors={colors} />
+
+          {/* Breakdown probabilitas cuma relevan buat Sniper — di live cuma Sniper yang
+              nunjukin angka persen (profitProbability). Scalping/Extreme Scalping di live
+              nunjukin status (WAITING/MENDEKATI/BAGUS), bukan persen, jadi breakdown ini
+              gak nyambung/gak konsisten kalau dipasang di situ juga. */}
+          {menu === 'sniper' && (
+            <StrengthTierRow
+              low={result.breakdown.strengthLow}
+              moderate={result.breakdown.strengthModerate}
+              high={result.breakdown.strengthHigh}
+              colors={colors}
+            />
+          )}
 
           {/* Penyebab lose */}
           {result.lossCauses.length > 0 && (
@@ -241,10 +304,11 @@ const PERIODS = [
 ] as const;
 
 const MENUS = [
+  { label: 'Breakout', value: 'breakout_entry' },
   { label: 'Sniper', value: 'sniper' },
   { label: 'Scalping', value: 'breakout' },
   { label: 'Extreme', value: 'extreme_scalping' },
-  { label: 'Keduanya', value: 'both' },
+  { label: 'Semua', value: 'both' },
 ] as const;
 
 export default function BacktestScreen({ embedded = false }: { embedded?: boolean } = {}) {
@@ -255,7 +319,7 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
 
   const [symbol, setSymbol] = useState('');
   const [period, setPeriod] = useState<'1m' | '3m' | '6m' | '1y' | '2y' | '3y'>('3m');
-  const [menu, setMenu] = useState<'sniper' | 'breakout' | 'extreme_scalping' | 'both'>('both');
+  const [menu, setMenu] = useState<'sniper' | 'breakout' | 'extreme_scalping' | 'breakout_entry' | 'both'>('both');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -408,6 +472,16 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
                 {result.totalCandles} candle H1 · {result.timestamp}
               </Text>
             </View>
+
+            {/* Hasil Breakout Entry */}
+            {result.breakoutEntryResult && (
+              <MenuResult
+                title="Menu 1 — Breakout Entry H2"
+                result={result.breakoutEntryResult}
+                colors={colors}
+                menu="breakout_entry"
+              />
+            )}
 
             {/* Hasil Sniper */}
             {result.sniperResult && (

@@ -44,8 +44,21 @@ export const GetBreakoutEntryQueryParams = zod.object({
 export const GetBreakoutEntryResponse = zod.object({
   "status": zod.enum(['ready', 'waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'skip', 'error']),
   "symbol": zod.string(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
   "breakoutType": zod.enum(['continuation', 'reversal']).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
@@ -88,8 +101,21 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['ready', 'waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'skip', 'error']),
   "symbol": zod.string(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
   "breakoutType": zod.enum(['continuation', 'reversal']).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
@@ -137,6 +163,19 @@ export const GetSmcAnalysisQueryParams = zod.object({
 
 export const GetSmcAnalysisResponse = zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'error']),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "message": zod.string(),
   "symbol": zod.string(),
   "currentPrice": zod.number(),
@@ -196,6 +235,19 @@ export const GetSmcAnalysisResponse = zod.object({
 export const GetSniperScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'error']),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "message": zod.string(),
   "symbol": zod.string(),
   "currentPrice": zod.number(),
@@ -262,6 +314,19 @@ export const GetScalpingQueryParams = zod.object({
 export const GetScalpingResponse = zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
   "symbol": zod.string(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
@@ -296,6 +361,19 @@ export const GetScalpingScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
   "symbol": zod.string(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
@@ -335,6 +413,19 @@ export const GetExtremeScalpingQueryParams = zod.object({
 export const GetExtremeScalpingResponse = zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
   "symbol": zod.string(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
   "isReversalSetup": zod.boolean().optional(),
   "currentPrice": zod.number(),
@@ -368,6 +459,19 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
   "symbol": zod.string(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
   "isReversalSetup": zod.boolean().optional(),
   "currentPrice": zod.number(),
@@ -444,7 +548,7 @@ export const GetBacktestListingInfoResponse = zod.object({
 export const PostBacktestBody = zod.object({
   "symbol": zod.string(),
   "period": zod.enum(['1m', '3m', '6m', '1y', '2y', '3y']),
-  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'both'])
+  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'extreme_scalping', 'breakout_entry', 'both'])
 })
 
 export const PostBacktestResponse = zod.object({
@@ -547,7 +651,22 @@ export const PostBacktestResponse = zod.object({
   "trades": zod.number(),
   "wins": zod.number(),
   "winRate": zod.number()
-}).optional()
+}).optional(),
+  "strengthLow": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthModerate": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthHigh": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+})
 }),
   "lossCauses": zod.array(zod.object({
   "cause": zod.string(),
@@ -557,7 +676,7 @@ export const PostBacktestResponse = zod.object({
   "recommendations": zod.array(zod.string())
 }).and(zod.object({
   "trades": zod.array(zod.object({
-  "menu": zod.enum(['sniper', 'breakout', 'scalping']),
+  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'extreme_scalping', 'breakout_entry']),
   "entryTime": zod.number(),
   "entryPrice": zod.number(),
   "stopLoss": zod.number(),
@@ -578,7 +697,8 @@ export const PostBacktestResponse = zod.object({
   "hasBBSqueeze": zod.boolean().optional(),
   "hasEMA34Confirm": zod.boolean().optional(),
   "hasM30Correction": zod.boolean().optional(),
-  "zoneType": zod.string().optional()
+  "zoneType": zod.string().optional(),
+  "strengthScore": zod.number()
 }))
 })).optional(),
   "breakoutResult": zod.object({
@@ -677,7 +797,22 @@ export const PostBacktestResponse = zod.object({
   "trades": zod.number(),
   "wins": zod.number(),
   "winRate": zod.number()
-}).optional()
+}).optional(),
+  "strengthLow": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthModerate": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthHigh": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+})
 }),
   "lossCauses": zod.array(zod.object({
   "cause": zod.string(),
@@ -687,7 +822,7 @@ export const PostBacktestResponse = zod.object({
   "recommendations": zod.array(zod.string())
 }).and(zod.object({
   "trades": zod.array(zod.object({
-  "menu": zod.enum(['sniper', 'breakout', 'scalping']),
+  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'extreme_scalping', 'breakout_entry']),
   "entryTime": zod.number(),
   "entryPrice": zod.number(),
   "stopLoss": zod.number(),
@@ -708,7 +843,8 @@ export const PostBacktestResponse = zod.object({
   "hasBBSqueeze": zod.boolean().optional(),
   "hasEMA34Confirm": zod.boolean().optional(),
   "hasM30Correction": zod.boolean().optional(),
-  "zoneType": zod.string().optional()
+  "zoneType": zod.string().optional(),
+  "strengthScore": zod.number()
 }))
 })).optional(),
   "scalpingResult": zod.object({
@@ -807,7 +943,22 @@ export const PostBacktestResponse = zod.object({
   "trades": zod.number(),
   "wins": zod.number(),
   "winRate": zod.number()
-}).optional()
+}).optional(),
+  "strengthLow": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthModerate": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthHigh": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+})
 }),
   "lossCauses": zod.array(zod.object({
   "cause": zod.string(),
@@ -817,7 +968,7 @@ export const PostBacktestResponse = zod.object({
   "recommendations": zod.array(zod.string())
 }).and(zod.object({
   "trades": zod.array(zod.object({
-  "menu": zod.enum(['sniper', 'breakout', 'scalping']),
+  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'extreme_scalping', 'breakout_entry']),
   "entryTime": zod.number(),
   "entryPrice": zod.number(),
   "stopLoss": zod.number(),
@@ -838,7 +989,300 @@ export const PostBacktestResponse = zod.object({
   "hasBBSqueeze": zod.boolean().optional(),
   "hasEMA34Confirm": zod.boolean().optional(),
   "hasM30Correction": zod.boolean().optional(),
-  "zoneType": zod.string().optional()
+  "zoneType": zod.string().optional(),
+  "strengthScore": zod.number()
+}))
+})).optional(),
+  "extremeScalpingResult": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "avgRR": zod.number(),
+  "breakdown": zod.object({
+  "withChoch15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withoutChoch15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withRejection15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withoutRejection15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withPattern": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withoutPattern": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "tier1to2": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "tier3plus": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "londonNY": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "asian": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "highVolume": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "lowVolume": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withBBSqueeze": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withoutBBSqueeze": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withEMA34Confirm": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withoutEMA34Confirm": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withM30Correction": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withoutM30Correction": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "strengthLow": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthModerate": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthHigh": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+})
+}),
+  "lossCauses": zod.array(zod.object({
+  "cause": zod.string(),
+  "count": zod.number(),
+  "percentage": zod.number()
+})),
+  "recommendations": zod.array(zod.string())
+}).and(zod.object({
+  "trades": zod.array(zod.object({
+  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'extreme_scalping', 'breakout_entry']),
+  "entryTime": zod.number(),
+  "entryPrice": zod.number(),
+  "stopLoss": zod.number(),
+  "takeProfit1": zod.number(),
+  "takeProfit2": zod.number(),
+  "bias": zod.enum(['bullish', 'bearish']),
+  "result": zod.enum(['TP1', 'TP2', 'SL', 'EXPIRED']),
+  "exitPrice": zod.number(),
+  "rr": zod.number(),
+  "hasChoch15M": zod.boolean(),
+  "hasRejection15M": zod.boolean(),
+  "hasPattern": zod.boolean(),
+  "patternConfidence": zod.string(),
+  "zoneTier": zod.number(),
+  "breakoutType": zod.string().optional(),
+  "volumeRatio": zod.number().optional(),
+  "hour": zod.number(),
+  "hasBBSqueeze": zod.boolean().optional(),
+  "hasEMA34Confirm": zod.boolean().optional(),
+  "hasM30Correction": zod.boolean().optional(),
+  "zoneType": zod.string().optional(),
+  "strengthScore": zod.number()
+}))
+})).optional(),
+  "breakoutEntryResult": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "avgRR": zod.number(),
+  "breakdown": zod.object({
+  "withChoch15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withoutChoch15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withRejection15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withoutRejection15M": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withPattern": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withoutPattern": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "tier1to2": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "tier3plus": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "londonNY": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "asian": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "highVolume": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "lowVolume": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "withBBSqueeze": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withoutBBSqueeze": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withEMA34Confirm": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withoutEMA34Confirm": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withM30Correction": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "withoutM30Correction": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}).optional(),
+  "strengthLow": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthModerate": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+}),
+  "strengthHigh": zod.object({
+  "trades": zod.number(),
+  "wins": zod.number(),
+  "winRate": zod.number()
+})
+}),
+  "lossCauses": zod.array(zod.object({
+  "cause": zod.string(),
+  "count": zod.number(),
+  "percentage": zod.number()
+})),
+  "recommendations": zod.array(zod.string())
+}).and(zod.object({
+  "trades": zod.array(zod.object({
+  "menu": zod.enum(['sniper', 'breakout', 'scalping', 'extreme_scalping', 'breakout_entry']),
+  "entryTime": zod.number(),
+  "entryPrice": zod.number(),
+  "stopLoss": zod.number(),
+  "takeProfit1": zod.number(),
+  "takeProfit2": zod.number(),
+  "bias": zod.enum(['bullish', 'bearish']),
+  "result": zod.enum(['TP1', 'TP2', 'SL', 'EXPIRED']),
+  "exitPrice": zod.number(),
+  "rr": zod.number(),
+  "hasChoch15M": zod.boolean(),
+  "hasRejection15M": zod.boolean(),
+  "hasPattern": zod.boolean(),
+  "patternConfidence": zod.string(),
+  "zoneTier": zod.number(),
+  "breakoutType": zod.string().optional(),
+  "volumeRatio": zod.number().optional(),
+  "hour": zod.number(),
+  "hasBBSqueeze": zod.boolean().optional(),
+  "hasEMA34Confirm": zod.boolean().optional(),
+  "hasM30Correction": zod.boolean().optional(),
+  "zoneType": zod.string().optional(),
+  "strengthScore": zod.number()
 }))
 })).optional(),
   "comparison": zod.object({
