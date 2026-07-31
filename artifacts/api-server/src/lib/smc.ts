@@ -326,6 +326,151 @@ function calcATR(
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
 
+/**
+ * Session VWAP + Standard Deviation Bands — beda dari EMA/SMA biasa, VWAP
+ * dibobotin VOLUME, jadi levelnya nunjukin "di harga mana transaksi paling
+ * banyak kejadian" (fair value versi institusional), bukan cuma rata-rata
+ * harga doang. Data institusional: 72%+ trader institusi pake VWAP sebagai
+ * benchmark eksekusi utama.
+ *
+ * Session reset tiap hari jam 00:00 UTC (standar buat crypto 24 jam, gak ada
+ * "jam buka bursa" kayak saham). SD bands (1x dan 2x) dari typical price
+ * (H+L+C)/3, dibobotin volume juga.
+ */
+interface VWAPBands {
+  vwap: number;
+  upperBand1: number;
+  lowerBand1: number;
+  upperBand2: number;
+  lowerBand2: number;
+}
+
+function calcSessionVWAP(
+  highs: number[], lows: number[], closes: number[], volumes: number[], times: number[]
+): VWAPBands | null {
+  const n = closes.length;
+  if (n < 5 || times.length !== n) return null;
+
+  // Cari awal sesi hari ini (UTC midnight terakhir)
+  const lastTime = times[n - 1]!;
+  const dayStart = Math.floor(lastTime / 86400000) * 86400000;
+  let sessionStart = 0;
+  for (let i = n - 1; i >= 0; i--) {
+    if (times[i]! < dayStart) { sessionStart = i + 1; break; }
+  }
+
+  const sh = highs.slice(sessionStart);
+  const sl = lows.slice(sessionStart);
+  const sc = closes.slice(sessionStart);
+  const sv = volumes.slice(sessionStart);
+  if (sh.length < 3) return null; // sesi baru mulai, data belum cukup buat VWAP berarti
+
+  let cumTPV = 0, cumV = 0;
+  const typicalPrices: number[] = [];
+  for (let i = 0; i < sh.length; i++) {
+    const tp = (sh[i]! + sl[i]! + sc[i]!) / 3;
+    typicalPrices.push(tp);
+    cumTPV += tp * sv[i]!;
+    cumV += sv[i]!;
+  }
+  if (cumV === 0) return null;
+  const vwap = cumTPV / cumV;
+
+  // Standard deviation dibobotin volume juga (bukan SD biasa)
+  let cumVarV = 0;
+  for (let i = 0; i < sh.length; i++) {
+    cumVarV += sv[i]! * Math.pow(typicalPrices[i]! - vwap, 2);
+  }
+  const sd = Math.sqrt(cumVarV / cumV);
+
+  return {
+    vwap,
+    upperBand1: vwap + sd,
+    lowerBand1: vwap - sd,
+    upperBand2: vwap + sd * 2,
+    lowerBand2: vwap - sd * 2,
+  };
+}
+
+/**
+ * Volume Profile — histogram volume-per-harga. Beda dari VWAP (1 garis rata-rata),
+ * ini nunjukin DI HARGA BERAPA transaksi paling numpuk sepanjang window candle.
+ * Konsep dari Market Profile (CBOT, Steidlmayer 1984) — dipakai institusional
+ * puluhan tahun.
+ *
+ * - POC (Point of Control) = harga dengan volume tertinggi — magnet harga terkuat
+ * - Value Area (VAH/VAL) = range yang nyakup 70% volume — "zona wajar" konsensus pasar
+ * - HVN (High Volume Node) = level volume tinggi — sering berimpit sama Order Block
+ *   (institusi udah "puas" transaksi di situ, jadi support/resistance kuat)
+ * - LVN (Low Volume Node) = level volume rendah — sering berimpit sama Fair Value Gap
+ *   (harga dulu ngelewatin cepat, jadi kurang reliable buat S/R, gampang ditembus)
+ */
+interface VolumeProfileResult {
+  poc: number;
+  vah: number;
+  val: number;
+  hvnLevels: number[];
+  lvnLevels: number[];
+}
+
+function calcVolumeProfile(
+  highs: number[], lows: number[], closes: number[], volumes: number[], numBuckets = 24
+): VolumeProfileResult | null {
+  const n = closes.length;
+  if (n < 15) return null;
+
+  const maxPrice = Math.max(...highs);
+  const minPrice = Math.min(...lows);
+  if (maxPrice <= minPrice) return null;
+  const bucketSize = (maxPrice - minPrice) / numBuckets;
+
+  const volumeByBucket = new Array(numBuckets).fill(0);
+  for (let i = 0; i < n; i++) {
+    const h = highs[i]!, l = lows[i]!, v = volumes[i]!;
+    // Distribusi volume candle ke SEMUA bucket yang di-cover range high-low candle itu
+    // (bukan cuma 1 titik close) — lebih akurat buat ngerepresentasiin di mana transaksi kejadian
+    const startBucket = Math.max(0, Math.min(numBuckets - 1, Math.floor((l - minPrice) / bucketSize)));
+    const endBucket = Math.max(0, Math.min(numBuckets - 1, Math.floor((h - minPrice) / bucketSize)));
+    const bucketsSpanned = endBucket - startBucket + 1;
+    const volPerBucket = v / bucketsSpanned;
+    for (let b = startBucket; b <= endBucket; b++) volumeByBucket[b] += volPerBucket;
+  }
+
+  const totalVolume = volumeByBucket.reduce((a: number, b: number) => a + b, 0);
+  if (totalVolume === 0) return null;
+
+  // POC = bucket volume tertinggi
+  let pocIdx = 0;
+  for (let b = 1; b < numBuckets; b++) if (volumeByBucket[b] > volumeByBucket[pocIdx]) pocIdx = b;
+  const poc = minPrice + (pocIdx + 0.5) * bucketSize;
+
+  // Value Area: expand dari POC ke kiri/kanan sampe 70% volume total ke-cover
+  // (algoritma standar Market Profile: tiap step ambil sisi dengan volume lebih besar)
+  let vaVolume = volumeByBucket[pocIdx];
+  let vaLowIdx = pocIdx, vaHighIdx = pocIdx;
+  const targetVolume = totalVolume * 0.7;
+  while (vaVolume < targetVolume && (vaLowIdx > 0 || vaHighIdx < numBuckets - 1)) {
+    const volBelow = vaLowIdx > 0 ? volumeByBucket[vaLowIdx - 1] : -1;
+    const volAbove = vaHighIdx < numBuckets - 1 ? volumeByBucket[vaHighIdx + 1] : -1;
+    if (volBelow >= volAbove) { vaLowIdx--; vaVolume += volumeByBucket[vaLowIdx]; }
+    else { vaHighIdx++; vaVolume += volumeByBucket[vaHighIdx]; }
+  }
+  const val = minPrice + vaLowIdx * bucketSize;
+  const vah = minPrice + (vaHighIdx + 1) * bucketSize;
+
+  // HVN/LVN: bucket dengan volume jauh di atas/bawah rata-rata
+  const avgVol = totalVolume / numBuckets;
+  const hvnLevels: number[] = [];
+  const lvnLevels: number[] = [];
+  for (let b = 0; b < numBuckets; b++) {
+    const price = minPrice + (b + 0.5) * bucketSize;
+    if (volumeByBucket[b] > avgVol * 1.5) hvnLevels.push(price);
+    else if (volumeByBucket[b] < avgVol * 0.5) lvnLevels.push(price);
+  }
+
+  return { poc, vah, val, hvnLevels, lvnLevels };
+}
+
 function calcRSI(closes: number[], period = 14): number {
   if (closes.length < period + 1) return 50;
   const gains: number[] = [];
@@ -1616,6 +1761,44 @@ function detectCHoCH(
   }
 }
 
+/**
+ * Liquidity Sweep — validasi reversal lebih ketat dari CHoCH biasa. CHoCH cuma
+ * cek "close udah lewatin swing" (bisa jadi breakout beneran, bukan reversal).
+ * Sweep spesifik nyari pola: harga NEMBUS DULU (wick) di luar swing — "nyapu"
+ * stop-loss/liquidity di situ — TAPI closenya balik lagi ke dalam range. Ini
+ * pola ICT/SMC klasik yang nandain exhaustion, sinyal reversal lebih valid.
+ */
+function detectLiquiditySweep(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  bias: "bullish" | "bearish",
+  lookback = 5
+): { swept: boolean; sweepLevel?: number; candlesAgo?: number } {
+  const n = closes.length;
+  if (bias === "bullish") {
+    const swingLows = findSwingLows(lows, 5);
+    if (swingLows.length < 1) return { swept: false };
+    const recentLow = swingLows[swingLows.length - 1];
+    for (let i = n - 1; i >= Math.max(0, n - lookback); i--) {
+      if (lows[i]! < recentLow && closes[i]! > recentLow) {
+        return { swept: true, sweepLevel: lows[i], candlesAgo: n - 1 - i };
+      }
+    }
+    return { swept: false };
+  } else {
+    const swingHighs = findSwingHighs(highs, 5);
+    if (swingHighs.length < 1) return { swept: false };
+    const recentHigh = swingHighs[swingHighs.length - 1];
+    for (let i = n - 1; i >= Math.max(0, n - lookback); i--) {
+      if (highs[i]! > recentHigh && closes[i]! < recentHigh) {
+        return { swept: true, sweepLevel: highs[i], candlesAgo: n - 1 - i };
+      }
+    }
+    return { swept: false };
+  }
+}
+
 // CHoCH 15M: deteksi CHoCH yang SEARAH bias (konfirmasi, bukan skip)
 // Bullish: harga sebelumnya bikin LL, lalu breakout bikin HH → struktur mulai bullish
 // Bearish: harga sebelumnya bikin HH, lalu breakdown bikin LL → struktur mulai bearish
@@ -2388,7 +2571,53 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     } else if (zoneTouches === 1) {
       probabilityFactors.push(`⚠️ Zona sudah disentuh 1x — masih valid`);
     } else {
-      probabilityFactors.push(`🚫 Zona sudah disentuh ${zoneTouches}x — kekuatan berkurang`);
+      profitProbability = Math.max(0, profitProbability - 8);
+      probabilityFactors.push(`🚫 Zona sudah disentuh ${zoneTouches}x — kekuatan berkurang (-8%)`);
+    }
+
+    // VWAP + SD Bands — cek posisi zona relatif ke fair value institusional (H1 session VWAP).
+    // Bonus kalau zona overlap VWAP±1SD (konsensus institusional), bonus lebih besar
+    // kalau zona di luar 2SD DAN searah reversion ke VWAP (bukan makin jauh/chasing).
+    const vwapH1 = calcSessionVWAP(h1.highs, h1.lows, h1.closes, h1.volumes, h1.times);
+    if (vwapH1) {
+      const zonePrice = selectedZone.entryPrice;
+      if (zonePrice >= vwapH1.lowerBand1 && zonePrice <= vwapH1.upperBand1) {
+        profitProbability += 6;
+        probabilityFactors.push(`✅ Zona dekat VWAP (konsensus fair value institusional) (+6%)`);
+      } else if (bias === 'bullish' && zonePrice < vwapH1.lowerBand2) {
+        profitProbability += 10;
+        probabilityFactors.push(`✅ Entry di luar VWAP -2SD, searah reversion ke atas (+10%)`);
+      } else if (bias === 'bearish' && zonePrice > vwapH1.upperBand2) {
+        profitProbability += 10;
+        probabilityFactors.push(`✅ Entry di luar VWAP +2SD, searah reversion ke bawah (+10%)`);
+      } else if ((bias === 'bullish' && zonePrice > vwapH1.upperBand2) || (bias === 'bearish' && zonePrice < vwapH1.lowerBand2)) {
+        probabilityFactors.push(`⚠️ Entry udah jauh dari VWAP ke arah yang SAMA (bukan reversion) — waspada chasing`);
+      }
+    }
+
+    // Volume Profile — cek konfluensi zona sama POC/HVN/LVN (H1, 100 candle terakhir).
+    // HVN sering berimpit sama Order Block (institusi udah "puas" transaksi di situ),
+    // LVN sering berimpit sama FVG (harga dulu lewat cepat, kurang reliable jadi S/R).
+    const vpH1 = calcVolumeProfile(h1.highs, h1.lows, h1.closes, h1.volumes);
+    if (vpH1) {
+      const zonePrice = selectedZone.entryPrice;
+      const pocDistPct = Math.abs(zonePrice - vpH1.poc) / vpH1.poc * 100;
+      const nearHVN = vpH1.hvnLevels.some(lv => Math.abs(zonePrice - lv) / lv * 100 < 0.3);
+      const nearLVN = vpH1.lvnLevels.some(lv => Math.abs(zonePrice - lv) / lv * 100 < 0.3);
+      const inValueArea = zonePrice >= vpH1.val && zonePrice <= vpH1.vah;
+      if (pocDistPct < 0.3) {
+        profitProbability += 10;
+        probabilityFactors.push(`✅ Entry deket POC (${vpH1.poc.toFixed(4)}) — magnet harga terkuat (+10%)`);
+      } else if (nearHVN) {
+        profitProbability += 6;
+        probabilityFactors.push(`✅ Entry di High Volume Node — support/resistance kuat (+6%)`);
+      } else if (nearLVN) {
+        profitProbability = Math.max(0, profitProbability - 6);
+        probabilityFactors.push(`⚠️ Entry di Low Volume Node — zona kurang reliable, harga cenderung cepat lewat (-6%)`);
+      } else if (inValueArea) {
+        profitProbability += 4;
+        probabilityFactors.push(`✅ Entry di dalam Value Area (konsensus 70% volume) (+4%)`);
+      }
     }
 
     // Teori Dow: fase trend
@@ -2625,7 +2854,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
-  const maxScore = 8; // 7 filter asli + 1 BTC correlation check
+  const maxScore = 11; // 7 filter asli + BTC correlation + zone freshness + VWAP + Volume Profile
 
   // Helper: hitung EMA dari array closes
   function calcEMA(closes: number[], period: number): number {
@@ -2749,6 +2978,54 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     }
     score++;
     filterResults.push(`✅ Zona M30: ${bestZone30.zoneType} ${bestZone30.low.toFixed(4)}–${bestZone30.high.toFixed(4)}`);
+
+    // Zone Freshness — zona yang belum pernah/jarang disentuh lebih kuat.
+    const zoneTouches30 = bestZone30.touches ?? 0;
+    if (zoneTouches30 <= 1) {
+      score++;
+      filterResults.push(`✅ Zona fresh (disentuh ${zoneTouches30}x)`);
+    } else {
+      filterResults.push(`⚠️ Zona udah disentuh ${zoneTouches30}x — kekuatan berkurang`);
+    }
+
+    // VWAP + SD Bands — cek posisi zona relatif ke fair value institusional (M30 session VWAP).
+    const vwapM30 = calcSessionVWAP(m30.highs, m30.lows, m30.closes, m30.volumes, m30.times);
+    if (vwapM30) {
+      const zonePrice = bestZone30.entryPrice;
+      if (zonePrice >= vwapM30.lowerBand1 && zonePrice <= vwapM30.upperBand1) {
+        score++;
+        filterResults.push(`✅ Zona dekat VWAP (konsensus fair value institusional)`);
+      } else if (bias === 'bullish' && zonePrice < vwapM30.lowerBand2) {
+        score++;
+        filterResults.push(`✅ Entry di luar VWAP -2SD, searah reversion ke atas`);
+      } else if (bias === 'bearish' && zonePrice > vwapM30.upperBand2) {
+        score++;
+        filterResults.push(`✅ Entry di luar VWAP +2SD, searah reversion ke bawah`);
+      } else if ((bias === 'bullish' && zonePrice > vwapM30.upperBand2) || (bias === 'bearish' && zonePrice < vwapM30.lowerBand2)) {
+        filterResults.push(`⚠️ Entry udah jauh dari VWAP ke arah yang SAMA — waspada chasing`);
+      }
+    }
+
+    // Volume Profile — cek konfluensi zona sama POC/HVN/LVN (M30, 100 candle terakhir).
+    const vpM30 = calcVolumeProfile(m30.highs, m30.lows, m30.closes, m30.volumes);
+    if (vpM30) {
+      const zonePrice = bestZone30.entryPrice;
+      const pocDistPct = Math.abs(zonePrice - vpM30.poc) / vpM30.poc * 100;
+      const nearHVN = vpM30.hvnLevels.some(lv => Math.abs(zonePrice - lv) / lv * 100 < 0.3);
+      const nearLVN = vpM30.lvnLevels.some(lv => Math.abs(zonePrice - lv) / lv * 100 < 0.3);
+      const inValueArea = zonePrice >= vpM30.val && zonePrice <= vpM30.vah;
+      if (pocDistPct < 0.3) {
+        score++;
+        filterResults.push(`✅ Entry deket POC (${vpM30.poc.toFixed(4)}) — magnet harga terkuat`);
+      } else if (nearHVN) {
+        score++;
+        filterResults.push(`✅ Entry di High Volume Node — support/resistance kuat`);
+      } else if (nearLVN) {
+        filterResults.push(`⚠️ Entry di Low Volume Node — zona kurang reliable, harga cenderung cepat lewat`);
+      } else if (inValueArea) {
+        filterResults.push(`✅ Entry di dalam Value Area (konsensus 70% volume)`);
+      }
+    }
 
     // ── Filter 4: Konfirmasi reversal — Pattern M30 ATAU RSI divergence H1 ──
     const bullPatterns = ['Double Bottom', 'Inverse H&S', 'Falling Wedge', 'Bull Flag', 'Ascending Triangle', 'Cup and Handle'];
@@ -2978,7 +3255,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
-  const maxScore = 6; // 5 filter asli + 1 BTC correlation check
+  const maxScore = 10; // 5 filter asli + BTC correlation + liquidity sweep + zone freshness + VWAP + Volume Profile
 
   try {
     const [h1, m15, m5, tickerRes] = await Promise.all([
@@ -3018,6 +3295,21 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
         : `✅ Trend H1: ${bias === 'bullish' ? 'Bullish' : 'Bearish'} (${structH1.bias !== 'ranging' ? structH1.strength : 'via ZigZag'})`
     );
 
+    // Liquidity Sweep — validasi reversal lebih ketat. CHoCH biasa cuma cek "close
+    // udah lewatin swing" (bisa jadi breakout beneran, bukan reversal). Sweep spesifik
+    // nyari pola "nembus dulu (wick) baru balik" — tanda exhaustion yang lebih kuat.
+    let liquiditySwept = false;
+    if (isReversalSetup) {
+      const sweep = detectLiquiditySweep(h1.highs, h1.lows, h1.closes, baseBias);
+      liquiditySwept = sweep.swept;
+      if (sweep.swept) {
+        score++;
+        filterResults.push(`✅ Liquidity Sweep terkonfirmasi (${sweep.candlesAgo} candle lalu) — reversal lebih valid, bukan sekadar break`);
+      } else {
+        filterResults.push(`⚠️ Belum ada Liquidity Sweep jelas — reversal cuma dari "close lewat", validasi lebih lemah`);
+      }
+    }
+
     // ── Filter 2: ATR H1 cukup (volatilitas layak scalping) ──────────────
     const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
     const atrH1Pct = (atrH1 / currentPrice) * 100;
@@ -3053,6 +3345,54 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     }
     score++;
     filterResults.push(`✅ Zona M15: ${bestZone15.zoneType} ${bestZone15.low.toFixed(4)}–${bestZone15.high.toFixed(4)}`);
+
+    // Zone Freshness — zona yang belum pernah/jarang disentuh lebih kuat.
+    const zoneTouches15 = bestZone15.touches ?? 0;
+    if (zoneTouches15 <= 1) {
+      score++;
+      filterResults.push(`✅ Zona fresh (disentuh ${zoneTouches15}x)`);
+    } else {
+      filterResults.push(`⚠️ Zona udah disentuh ${zoneTouches15}x — kekuatan berkurang`);
+    }
+
+    // VWAP + SD Bands — cek posisi zona relatif ke fair value institusional (H1 session VWAP).
+    const vwapH1ext = calcSessionVWAP(h1.highs, h1.lows, h1.closes, h1.volumes, h1.times);
+    if (vwapH1ext) {
+      const zonePrice = bestZone15.entryPrice;
+      if (zonePrice >= vwapH1ext.lowerBand1 && zonePrice <= vwapH1ext.upperBand1) {
+        score++;
+        filterResults.push(`✅ Zona dekat VWAP (konsensus fair value institusional)`);
+      } else if (bias === 'bullish' && zonePrice < vwapH1ext.lowerBand2) {
+        score++;
+        filterResults.push(`✅ Entry di luar VWAP -2SD, searah reversion ke atas`);
+      } else if (bias === 'bearish' && zonePrice > vwapH1ext.upperBand2) {
+        score++;
+        filterResults.push(`✅ Entry di luar VWAP +2SD, searah reversion ke bawah`);
+      } else if ((bias === 'bullish' && zonePrice > vwapH1ext.upperBand2) || (bias === 'bearish' && zonePrice < vwapH1ext.lowerBand2)) {
+        filterResults.push(`⚠️ Entry udah jauh dari VWAP ke arah yang SAMA — waspada chasing`);
+      }
+    }
+
+    // Volume Profile — cek konfluensi zona sama POC/HVN/LVN (H1, 100 candle terakhir).
+    const vpH1ext = calcVolumeProfile(h1.highs, h1.lows, h1.closes, h1.volumes);
+    if (vpH1ext) {
+      const zonePrice = bestZone15.entryPrice;
+      const pocDistPct = Math.abs(zonePrice - vpH1ext.poc) / vpH1ext.poc * 100;
+      const nearHVN = vpH1ext.hvnLevels.some(lv => Math.abs(zonePrice - lv) / lv * 100 < 0.3);
+      const nearLVN = vpH1ext.lvnLevels.some(lv => Math.abs(zonePrice - lv) / lv * 100 < 0.3);
+      const inValueArea = zonePrice >= vpH1ext.val && zonePrice <= vpH1ext.vah;
+      if (pocDistPct < 0.3) {
+        score++;
+        filterResults.push(`✅ Entry deket POC (${vpH1ext.poc.toFixed(4)}) — magnet harga terkuat`);
+      } else if (nearHVN) {
+        score++;
+        filterResults.push(`✅ Entry di High Volume Node — support/resistance kuat`);
+      } else if (nearLVN) {
+        filterResults.push(`⚠️ Entry di Low Volume Node — zona kurang reliable, harga cenderung cepat lewat`);
+      } else if (inValueArea) {
+        filterResults.push(`✅ Entry di dalam Value Area (konsensus 70% volume)`);
+      }
+    }
 
     // ── Filter 4: Trigger M5 — pattern reversal ATAU RSI divergence M5 ──────
     const bullPatterns = ['Double Bottom', 'Inverse H&S'];
@@ -3110,6 +3450,22 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     // Momentum Info (ROC + ATR Expansion) — relevan banget buat scalping cepat
     const momentumInfo = calcMomentumInfo(h1.highs, h1.lows, h1.closes);
     if (momentumInfo.message) filterResults.push(momentumInfo.message);
+
+    // PENALTI BESAR: reversal setup TAPI momentum masih kenceng SEARAH trend lama
+    // (lawan arah entry baru) — pola klasik "nangkep pisau jatuh": CHoCH baru break,
+    // tapi tekanan trend lama masih dominan, resiko reversal gagal/palsu tinggi.
+    if (isReversalSetup) {
+      const oldTrendDirection = baseBias === 'bullish' ? 'up' : 'down';
+      const momentumMasihLawanArah =
+        momentumInfo.direction === oldTrendDirection &&
+        (momentumInfo.classification === 'very_fast' || momentumInfo.classification === 'fast');
+      if (momentumMasihLawanArah) {
+        score = Math.max(0, score - 3);
+        filterResults.push(
+          `🔻 PERINGATAN KERAS: reversal setup tapi momentum masih kenceng ke arah trend lama (${baseBias}) — pola "nangkep pisau jatuh", resiko reversal gagal/palsu TINGGI (-3 score)`
+        );
+      }
+    }
 
     // ── Entry, SL, TP ─────────────────────────────────────────────────────
     const entryPrice = bestZone15.entryPrice ?? bestZone15.mid;
@@ -4260,7 +4616,7 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
     day: '2-digit', month: 'long', year: 'numeric',
   }) + ' WIB';
-  const maxScore = 6; // 5 filter asli + 1 BTC correlation check
+  const maxScore = 8; // 5 filter asli + BTC correlation + VWAP + Volume Profile
   const filterResults: string[] = [];
 
   try {
@@ -4523,6 +4879,35 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
     const rr1 = Math.round((Math.abs(takeProfit1 - entryPrice) / risk) * 10) / 10;
     score++;
     filterResults.push(`✅ Entry di level breakout ${brokenLevel.toFixed(4)}, target measured move ${takeProfit1.toFixed(4)} (R:R ${rr1})`);
+
+    // VWAP + SD Bands — cek posisi entry relatif ke fair value institusional (H2 session VWAP).
+    const vwapH2 = calcSessionVWAP(h2.highs, h2.lows, h2.closes, h2.volumes, h2.times);
+    if (vwapH2) {
+      if (entryPrice >= vwapH2.lowerBand1 && entryPrice <= vwapH2.upperBand1) {
+        score++;
+        filterResults.push(`✅ Level breakout dekat VWAP (konsensus fair value institusional)`);
+      } else if ((best.bias === 'bullish' && entryPrice > vwapH2.upperBand2) || (best.bias === 'bearish' && entryPrice < vwapH2.lowerBand2)) {
+        filterResults.push(`⚠️ Level breakout udah jauh dari VWAP searah breakout — waspada chasing`);
+      }
+    }
+
+    // Volume Profile — cek konfluensi level breakout sama POC/HVN/LVN (H2, 100 candle terakhir).
+    // Level breakout yang berimpit HVN = udah teruji institusional, lebih kuat sebagai S/R baru.
+    const vpH2 = calcVolumeProfile(h2.highs, h2.lows, h2.closes, h2.volumes);
+    if (vpH2) {
+      const pocDistPct = Math.abs(entryPrice - vpH2.poc) / vpH2.poc * 100;
+      const nearHVN = vpH2.hvnLevels.some(lv => Math.abs(entryPrice - lv) / lv * 100 < 0.3);
+      const nearLVN = vpH2.lvnLevels.some(lv => Math.abs(entryPrice - lv) / lv * 100 < 0.3);
+      if (pocDistPct < 0.3) {
+        score++;
+        filterResults.push(`✅ Level breakout deket POC (${vpH2.poc.toFixed(4)}) — magnet harga terkuat`);
+      } else if (nearHVN) {
+        score++;
+        filterResults.push(`✅ Level breakout di High Volume Node — S/R baru lebih kuat`);
+      } else if (nearLVN) {
+        filterResults.push(`⚠️ Level breakout di Low Volume Node — kurang teruji, gampang ditembus balik`);
+      }
+    }
 
     // Breakdown per-timeframe (semua H2, tapi beda "peran" tiap tahap)
     const tfBreakdown: TFBreakdownItem[] = [

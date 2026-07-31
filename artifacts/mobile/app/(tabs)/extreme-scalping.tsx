@@ -655,7 +655,8 @@ function ExtremeScalpingLogTab({ colors }: { colors: ReturnType<typeof useColors
                 ):null)}
                 {log.rr!==undefined&&<View style={{flex:1,alignItems:'center'}}><Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>R:R</Text><Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:log.rr>0?'#22c55e':'#ef4444',marginTop:2}}>{log.rr>0?`1:${log.rr}`:'-1'}</Text></View>}
               </View>
-              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Score: {log.score}/6</Text>}
+              {/* maxScore Extreme Scalping = 10 (5 filter asli + BTC correlation + liquidity sweep + zone freshness + VWAP + Volume Profile) — update manual kalau maxScore di backend berubah lagi */}
+              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Score: {log.score}/10</Text>}
               {log.evaluatedAt&&<Text style={{fontSize:10,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:6,fontFamily:'Inter_400Regular'}}>Dievaluasi: {log.evaluatedAt}</Text>}
               <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,padding:8,gap:8,alignItems:'center'}}>
                 {log.status==='pending'&&(
