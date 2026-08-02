@@ -124,14 +124,26 @@ export type BreakoutTradingResultStatus = typeof BreakoutTradingResultStatus[key
 
 
 export const BreakoutTradingResultStatus = {
-  ready: 'ready',
-  waiting: 'waiting',
-  approaching: 'approaching',
-  in_zone: 'in_zone',
-  expired: 'expired',
+  siap_breakout: 'siap_breakout',
+  siap_retest: 'siap_retest',
   no_setup: 'no_setup',
-  skip: 'skip',
   error: 'error',
+} as const;
+
+export type BreakoutTradingResultMode = typeof BreakoutTradingResultMode[keyof typeof BreakoutTradingResultMode];
+
+
+export const BreakoutTradingResultMode = {
+  confidence: 'confidence',
+  crossover: 'crossover',
+} as const;
+
+export type BreakoutTradingResultRecommendedMode = typeof BreakoutTradingResultRecommendedMode[keyof typeof BreakoutTradingResultRecommendedMode];
+
+
+export const BreakoutTradingResultRecommendedMode = {
+  confidence: 'confidence',
+  crossover: 'crossover',
 } as const;
 
 export type BreakoutTradingResultBias = typeof BreakoutTradingResultBias[keyof typeof BreakoutTradingResultBias];
@@ -142,52 +154,61 @@ export const BreakoutTradingResultBias = {
   bearish: 'bearish',
 } as const;
 
-export type BreakoutTradingResultBreakoutType = typeof BreakoutTradingResultBreakoutType[keyof typeof BreakoutTradingResultBreakoutType];
+export type BreakoutTradingResultConfidenceTier = typeof BreakoutTradingResultConfidenceTier[keyof typeof BreakoutTradingResultConfidenceTier];
 
 
-export const BreakoutTradingResultBreakoutType = {
-  continuation: 'continuation',
-  reversal: 'reversal',
+export const BreakoutTradingResultConfidenceTier = {
+  high: 'high',
+  medium: 'medium',
 } as const;
 
-export type BreakoutTradingResultLeanBias = typeof BreakoutTradingResultLeanBias[keyof typeof BreakoutTradingResultLeanBias];
+export type BreakoutTradingResultOrderType = typeof BreakoutTradingResultOrderType[keyof typeof BreakoutTradingResultOrderType];
 
 
-export const BreakoutTradingResultLeanBias = {
-  bullish: 'bullish',
-  bearish: 'bearish',
-  neutral: 'neutral',
+export const BreakoutTradingResultOrderType = {
+  stop: 'stop',
+  limit: 'limit',
+} as const;
+
+export type BreakoutTradingResultMomentumClassification = typeof BreakoutTradingResultMomentumClassification[keyof typeof BreakoutTradingResultMomentumClassification];
+
+
+export const BreakoutTradingResultMomentumClassification = {
+  very_fast: 'very_fast',
+  fast: 'fast',
+  normal: 'normal',
+  slow: 'slow',
 } as const;
 
 export interface BreakoutTradingResult {
   status: BreakoutTradingResultStatus;
   symbol: string;
+  mode?: BreakoutTradingResultMode;
+  recommendedMode?: BreakoutTradingResultRecommendedMode;
   recentPerformance?: RecentPerformance;
   bias?: BreakoutTradingResultBias;
-  breakoutType?: BreakoutTradingResultBreakoutType;
   tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
   message?: string;
+  confidenceScore?: number;
+  confidenceTier?: BreakoutTradingResultConfidenceTier;
   score?: number;
   maxScore: number;
-  consolidationHigh?: number;
-  consolidationLow?: number;
-  consolidationCandles?: number;
   brokenLevel?: number;
+  levelHits?: number;
   entryPrice?: number;
+  orderType?: BreakoutTradingResultOrderType;
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
   rr1?: number;
   volumeRatio?: number;
   filterResults?: string[];
-  buyStopPrice?: number;
-  sellStopPrice?: number;
-  rangeHeight?: number;
-  leanBias?: BreakoutTradingResultLeanBias;
-  directionalProbability?: DirectionalProbability;
-  anticipationEntry?: AnticipationEntry;
+  adxRising?: boolean;
+  macdHistogramExpanding?: boolean;
+  vwapBreakout?: boolean;
+  momentumClassification?: BreakoutTradingResultMomentumClassification;
 }
 
 export interface BreakoutTradingScanResponse {
@@ -203,7 +224,32 @@ export const SniperResultStatus = {
   no_trend: 'no_trend',
   no_zone: 'no_zone',
   skip_conditions: 'skip_conditions',
+  not_extreme: 'not_extreme',
   error: 'error',
+} as const;
+
+export type SniperResultMode = typeof SniperResultMode[keyof typeof SniperResultMode];
+
+
+export const SniperResultMode = {
+  sniper: 'sniper',
+  rsi2: 'rsi2',
+} as const;
+
+export type SniperResultRecommendedMode = typeof SniperResultRecommendedMode[keyof typeof SniperResultRecommendedMode];
+
+
+export const SniperResultRecommendedMode = {
+  sniper: 'sniper',
+  rsi2: 'rsi2',
+} as const;
+
+export type SniperResultMa200Relation = typeof SniperResultMa200Relation[keyof typeof SniperResultMa200Relation];
+
+
+export const SniperResultMa200Relation = {
+  above: 'above',
+  below: 'below',
 } as const;
 
 export type SniperResultBias = typeof SniperResultBias[keyof typeof SniperResultBias];
@@ -216,6 +262,15 @@ export const SniperResultBias = {
 
 export interface SniperResult {
   status: SniperResultStatus;
+  mode?: SniperResultMode;
+  recommendedMode?: SniperResultRecommendedMode;
+  rsi2Value?: number;
+  ma200Relation?: SniperResultMa200Relation;
+  adxH4?: number;
+  ma5ExitTarget?: number;
+  score?: number;
+  maxScore?: number;
+  filterResults?: string[];
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   message: string;
@@ -606,14 +661,38 @@ export type GetBreakoutEntryParams = {
  * Futures symbol e.g. BTCUSDT
  */
 symbol: string;
+/**
+ * Skill yang dipakai — kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis
+ */
+mode?: GetBreakoutEntryMode;
 };
+
+export type GetBreakoutEntryMode = typeof GetBreakoutEntryMode[keyof typeof GetBreakoutEntryMode];
+
+
+export const GetBreakoutEntryMode = {
+  confidence: 'confidence',
+  crossover: 'crossover',
+} as const;
 
 export type GetSmcAnalysisParams = {
 /**
  * Futures symbol e.g. BTCUSDT
  */
 symbol: string;
+/**
+ * Skill yang dipakai — kalau gak dikasih, classifier (ADX+RSI2) yang nentuin otomatis
+ */
+mode?: GetSmcAnalysisMode;
 };
+
+export type GetSmcAnalysisMode = typeof GetSmcAnalysisMode[keyof typeof GetSmcAnalysisMode];
+
+
+export const GetSmcAnalysisMode = {
+  sniper: 'sniper',
+  rsi2: 'rsi2',
+} as const;
 
 export type GetScalpingParams = {
 /**

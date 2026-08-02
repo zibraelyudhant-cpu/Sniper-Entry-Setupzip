@@ -14,5 +14,6 @@ export const SniperResultStatus = {
   no_trend: 'no_trend',
   no_zone: 'no_zone',
   skip_conditions: 'skip_conditions',
+  not_extreme: 'not_extreme',
   error: 'error',
 } as const;

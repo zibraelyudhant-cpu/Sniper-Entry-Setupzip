@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
@@ -48,49 +48,39 @@ interface TFBreakdownItem {
 }
 
 interface BreakoutTradingResult {
-  status: 'ready' | 'waiting' | 'approaching' | 'in_zone' | 'expired' | 'no_setup' | 'skip' | 'error';
+  status: 'siap_breakout' | 'siap_retest' | 'no_setup' | 'error';
   symbol: string;
   bias?: 'bullish' | 'bearish';
-  breakoutType?: 'continuation' | 'reversal';
+  mode?: 'confidence' | 'crossover';
+  recommendedMode?: 'confidence' | 'crossover';
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
   message?: string;
+  confidenceScore?: number;
+  confidenceTier?: 'high' | 'medium';
   score?: number;
   maxScore: number;
-  consolidationHigh?: number;
-  consolidationLow?: number;
-  consolidationCandles?: number;
   brokenLevel?: number;
+  levelHits?: number;
   entryPrice?: number;
+  orderType?: 'stop' | 'limit';
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
   rr1?: number;
   volumeRatio?: number;
   filterResults?: string[];
-  buyStopPrice?: number;
-  sellStopPrice?: number;
-  rangeHeight?: number;
-  leanBias?: 'bullish' | 'bearish' | 'neutral';
-  directionalProbability?: {
-    bullishPct: number;
-    bearishPct: number;
-    reasoning: string[];
-  };
-  anticipationEntry?: {
-    direction: 'bullish' | 'bearish';
-    entryPrice: number;
-    stopLoss: number;
-    sizeNote: string;
-    trendContext: string;
-  };
+  adxRising?: boolean;
+  macdHistogramExpanding?: boolean;
+  vwapBreakout?: boolean;
+  momentumClassification?: 'very_fast' | 'fast' | 'normal' | 'slow';
 }
 
 // ─── Fetch hooks (fetch langsung ke backend, relative path /api) ───────────────
 
-function useBreakoutEntry(symbol: string) {
+function useBreakoutEntry(symbol: string, mode?: 'confidence' | 'crossover') {
   const [data, setData] = useState<BreakoutTradingResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
@@ -100,7 +90,8 @@ function useBreakoutEntry(symbol: string) {
     setIsLoading(true);
     setIsError(false);
     try {
-      const res = await fetch(`/api/breakout-entry?symbol=${symbol}`);
+      const modeQuery = mode ? `&mode=${mode}` : '';
+      const res = await fetch(`/api/breakout-entry?symbol=${symbol}${modeQuery}`);
       if (!res.ok) throw new Error('fetch failed');
       setData(await res.json());
     } catch {
@@ -108,7 +99,7 @@ function useBreakoutEntry(symbol: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [symbol]);
+  }, [symbol, mode]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -150,23 +141,19 @@ function formatPrice(price: number): string {
 
 // ─── Breakout Type Badge (khusus Menu 1) ────────────────────────────────────
 
-function BreakoutTypeBadge({ type, colors }: { type: 'continuation' | 'reversal'; colors: ReturnType<typeof useColors> }) {
-  const color = type === 'continuation' ? colors.bullish : colors.gold;
-  const label = type === 'continuation' ? '➡ CONTINUATION' : '🔄 REVERSAL';
-  return (
-    <View style={[scanStyles.biasBadge, { backgroundColor: `${color}18`, borderColor: color }]}>
-      <Text style={[scanStyles.biasBadgeText, { color }]}>{label}</Text>
-    </View>
-  );
-}
-
 // ─── Scan Coin Card ───────────────────────────────────────────────────────────
 
 function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTradingResult; onPress: () => void; colors: ReturnType<typeof useColors>; index?: number }) {
   const base = coin.symbol.replace('USDT', '');
-  const isReady = coin.status === 'ready';
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
+  const isSiapRetest = coin.status === 'siap_retest';
+  const statusColor = isSiapRetest ? colors.gold : '#818CF8';
+  const isCrossover = coin.mode === 'crossover';
+  const modeColor = isCrossover ? '#F97316' : ACCENT;
+  // Normalisasi score biar Confidence Score (0-100) dan Crossover (score/maxScore) konsisten ditampilin
+  const displayScore = isCrossover ? (coin.score ?? 0) : (coin.confidenceScore ?? 0);
+  const displayMax = isCrossover ? (coin.maxScore ?? 9) : (coin.maxScore ?? 100);
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -178,89 +165,52 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
             <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
-            {isReady ? (
-              <>
-                <View style={[scanStyles.biasBadge, { backgroundColor: '#f9731618', borderColor: '#f97316' }]}>
-                  <Text style={[scanStyles.biasBadgeText, { color: '#f97316' }]}>
-                    {coin.leanBias === 'bullish' ? '↗ LEAN LONG' : coin.leanBias === 'bearish' ? '↘ LEAN SHORT' : '↔ NETRAL'}
-                  </Text>
-                </View>
-                {coin.anticipationEntry && (
-                  <View style={[scanStyles.biasBadge, { backgroundColor: '#f9731618', borderColor: '#f97316' }]}>
-                    <Text style={[scanStyles.biasBadgeText, { color: '#f97316' }]}>🎯 ANTICIPATION</Text>
-                  </View>
-                )}
-              </>
-            ) : (
-              <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
-                <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
-              </View>
-            )}
-            {coin.breakoutType && <BreakoutTypeBadge type={coin.breakoutType} colors={colors} />}
+            <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
+              <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
+            </View>
+            <View style={[scanStyles.biasBadge, { backgroundColor: `${statusColor}18`, borderColor: statusColor }]}>
+              <Text style={[scanStyles.biasBadgeText, { color: statusColor }]}>
+                {isSiapRetest ? '🎯 SIAP RETEST' : '⏳ SIAP BREAKOUT'}
+              </Text>
+            </View>
+            <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isCrossover ? '🔀 Crossover' : '📊 Confidence'}</Text>
+            </View>
           </View>
           {coin.volumeRatio !== undefined && (
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
-              Volume breakout {coin.volumeRatio.toFixed(1)}x rata-rata
+              Volume {(coin.volumeRatio * 100).toFixed(0)}% avg{coin.orderType ? ` · ${coin.orderType === 'stop' ? 'BUY/SELL STOP' : 'BUY/SELL LIMIT'}` : ''}
             </Text>
           )}
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <StatusBadge status={coin.status} />
-          {coin.score !== undefined && <ScoreBadge score={coin.score} max={coin.maxScore} />}
+          <ScoreBadge score={displayScore} max={displayMax} />
         </View>
         <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
       </View>
 
-      {isReady ? (
-        <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>BUY STOP</Text>
-            <Text style={[scanStyles.condValue, { color: colors.bullish }]}>{coin.buyStopPrice ? formatPrice(coin.buyStopPrice) : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SELL STOP</Text>
-            <Text style={[scanStyles.condValue, { color: colors.bearish }]}>{coin.sellStopPrice ? formatPrice(coin.sellStopPrice) : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RANGE</Text>
-            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rangeHeight ? formatPrice(coin.rangeHeight) : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>CANDLE</Text>
-            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.consolidationCandles ?? '—'}</Text>
-          </View>
+      <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
+          <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.entryPrice ? formatPrice(coin.entryPrice) : '—'}</Text>
         </View>
-      ) : (
-        <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
-            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.entryPrice ? formatPrice(coin.entryPrice) : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SL</Text>
-            <Text style={[scanStyles.condValue, { color: colors.bearish }]}>{coin.stopLoss ? formatPrice(coin.stopLoss) : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP1</Text>
-            <Text style={[scanStyles.condValue, { color: colors.bullish }]}>{coin.takeProfit1 ? formatPrice(coin.takeProfit1) : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RR</Text>
-            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rr1 ? `1:${coin.rr1.toFixed(1)}` : '—'}</Text>
-          </View>
-          <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
-          <View style={scanStyles.condItem}>
-            <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>CANDLE</Text>
-            <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.consolidationCandles ?? '—'}</Text>
-          </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>SL</Text>
+          <Text style={[scanStyles.condValue, { color: colors.bearish }]}>{coin.stopLoss ? formatPrice(coin.stopLoss) : '—'}</Text>
         </View>
-      )}
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>TP1</Text>
+          <Text style={[scanStyles.condValue, { color: colors.bullish }]}>{coin.takeProfit1 ? formatPrice(coin.takeProfit1) : '—'}</Text>
+        </View>
+        <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
+        <View style={scanStyles.condItem}>
+          <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RR</Text>
+          <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rr1 ? `1:${coin.rr1.toFixed(1)}` : '—'}</Text>
+        </View>
+      </View>
     </DirectionalCard>
     </AnimatedCard>
   );
@@ -292,7 +242,7 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
   );
 }
 
-function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string) => void }) {
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string, mode?: 'confidence' | 'crossover') => void }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, refetch } = useBreakoutEntryScan();
 
@@ -300,7 +250,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa konsolidasi H4 → breakout tervolume → retest</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Confidence Score & Breakout Crossover — 2 skill</Text>
       </View>
     );
   }
@@ -319,10 +269,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date(data.fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
-  const inZone      = coins.filter(c => c.status === 'in_zone');
-  const approaching = coins.filter(c => c.status === 'approaching');
-  const waiting      = coins.filter(c => c.status === 'waiting');
-  const ready       = coins.filter(c => c.status === 'ready');
+  const inZone      = coins.filter(c => c.status === 'siap_retest');
+  const ready       = coins.filter(c => c.status === 'siap_breakout');
 
   if (coins.length === 0) {
     return (
@@ -349,26 +297,14 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
       {inZone.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 BAGUS — Sudah Tersentuh, Entry Sekarang</Text>
-          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
-        </>
-      )}
-      {approaching.length > 0 && (
-        <>
-          <Text style={[scanStyles.groupHeader, { color: ACCENT }]}>⚡ MENDEKATI — Siap Pasang Limit</Text>
-          {approaching.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
-        </>
-      )}
-      {waiting.length > 0 && (
-        <>
-          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Baru Breakout, Menunggu Retest</Text>
-          {waiting.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🎯 SIAP RETEST — Entry Sekarang</Text>
+          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, c.mode as 'confidence' | 'crossover' | undefined); }} />)}
         </>
       )}
       {ready.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: '#f97316' }]}>🔥 SIAP BREAKOUT — Pasang Stop Order Duluan</Text>
-          {ready.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+          <Text style={[scanStyles.groupHeader, { color: '#818CF8' }]}>⏳ SIAP BREAKOUT — Tunggu Retest</Text>
+          {ready.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, c.mode as 'confidence' | 'crossover' | undefined); }} />)}
         </>
       )}
     </ScrollView>
@@ -399,20 +335,26 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
+function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave }: {
   colors: ReturnType<typeof useColors>;
   initialSymbol?: string;
+  initialMode?: 'confidence' | 'crossover';
   onSignalReady?: (d: BreakoutTradingResult | null) => void;
   onSave?: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
-  const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
+  const params = useLocalSearchParams<{ symbol?: string; mode?: string }>();
+  const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? params.symbol ?? '');
+  const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? params.symbol ?? '');
+  // undefined = belum dipilih manual, biar classifier backend (ADX H1) yang nentuin otomatis
+  const [mode, setMode] = useState<'confidence' | 'crossover' | undefined>(
+    initialMode ?? (params.mode === 'confidence' || params.mode === 'crossover' ? params.mode : undefined)
+  );
 
-  const { data, isLoading, isError, refetch } = useBreakoutEntry(querySymbol);
+  const { data, isLoading, isError, refetch } = useBreakoutEntry(querySymbol, mode);
 
   useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'approaching' || data?.status === 'in_zone' ? data : null);
+    if (onSignalReady) onSignalReady(data?.status === 'siap_breakout' || data?.status === 'siap_retest' ? data : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -428,6 +370,31 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
 
   return (
     <View style={{ flex: 1 }}>
+      {/* Mode Switcher — Confidence Score (S/R + weighted score) vs Breakout Crossover (multi-TF SMA) */}
+      <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
+        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {(['confidence', 'crossover'] as const).map((m) => {
+            const active = (mode ?? data?.recommendedMode) === m;
+            return (
+              <Pressable
+                key={m}
+                onPress={() => setMode(m)}
+                style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
+              >
+                <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
+                  {m === 'confidence' ? 'Confidence Score' : 'Breakout Crossover'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {data?.recommendedMode && mode && data.recommendedMode !== mode && (
+          <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
+            💡 Classifier rekomendasiin "{data.recommendedMode === 'confidence' ? 'Confidence Score' : 'Breakout Crossover'}" buat koin ini
+          </Text>
+        )}
+      </View>
+
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="trending-up" size={15} color={ACCENT} />
@@ -459,7 +426,7 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
         <View style={styles.emptyState}>
           <Feather name="trending-up" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Breakout Entry Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa konsolidasi H4 → breakout tervolume → retest</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair buat analisa level S/R + confidence score</Text>
         </View>
       ) : isLoading ? (
         <View style={styles.emptyState}>
@@ -487,14 +454,9 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
               </View>
               <View style={{ gap: 6, alignItems: 'flex-end' }}>
                 <StatusBadge status={data.status} />
-                {data.score !== undefined && <ScoreBadge score={data.score} max={data.maxScore} />}
+                <ScoreBadge score={data.mode === 'crossover' ? (data.score ?? 0) : (data.confidenceScore ?? 0)} max={data.mode === 'crossover' ? (data.maxScore ?? 9) : (data.maxScore ?? 100)} />
               </View>
             </View>
-            {data.breakoutType && (
-              <View style={{ marginTop: 8, flexDirection: 'row' }}>
-                <BreakoutTypeBadge type={data.breakoutType} colors={colors} />
-              </View>
-            )}
             {data.message && (
               <View style={[styles.messageBox, { backgroundColor: `${ACCENT}10`, borderLeftColor: ACCENT }]}>
                 <Text style={[styles.messageText, { color: colors.mutedForeground }]}>{data.message}</Text>
@@ -503,142 +465,8 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
           </View>
           </AnimatedCard>
 
-          {/* Konsolidasi H4 */}
-          {data.consolidationHigh !== undefined && (
-            <AnimatedCard index={1}>
-            <View style={[styles.section, { backgroundColor: 'rgba(167,139,250,0.06)', borderColor: 'rgba(167,139,250,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>KONSOLIDASI H4</Text>
-              {data.bias ? (
-                <>
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
-                    <Text style={[styles.infoValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
-                      {data.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}
-                    </Text>
-                  </View>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                </>
-              ) : data.leanBias ? (
-                <>
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Kecenderungan</Text>
-                    <Text style={[styles.infoValue, { color: '#f97316' }]}>
-                      {data.leanBias === 'bullish' ? '↗ LEAN LONG' : data.leanBias === 'bearish' ? '↘ LEAN SHORT' : '↔ NETRAL — belum jelas'}
-                    </Text>
-                  </View>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                </>
-              ) : null}
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range Konsolidasi</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                  {formatPrice(data.consolidationLow ?? 0)} – {formatPrice(data.consolidationHigh)}
-                </Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Durasi</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.consolidationCandles} candle H4</Text>
-              </View>
-              {data.volumeRatio !== undefined && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={[styles.infoRow, {
-                    backgroundColor: `${ACCENT}18`,
-                    marginHorizontal: -12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 8,
-                  }]}>
-                    <Text style={[styles.infoLabel, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>⚡ VOLUME BREAKOUT</Text>
-                    <Text style={[styles.infoValue, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>
-                      {data.volumeRatio.toFixed(1)}x rata-rata
-                    </Text>
-                  </View>
-                </>
-              )}
-            </View>
-            </AnimatedCard>
-          )}
-
-          {/* Probabilitas Arah — SELALU dua sisi, ini bobot tambahan bukan sinyal pasti */}
-          {data.status === 'ready' && data.directionalProbability && (
-            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>PROBABILITAS ARAH (dua sisi tetap disiapin)</Text>
-              <View style={{ flexDirection: 'row', height: 10, borderRadius: 5, overflow: 'hidden', marginBottom: 8 }}>
-                <View style={{ flex: data.directionalProbability.bullishPct, backgroundColor: colors.bullish }} />
-                <View style={{ flex: data.directionalProbability.bearishPct, backgroundColor: colors.bearish }} />
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-                <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.bullish }}>▲ {data.directionalProbability.bullishPct}% Bullish</Text>
-                <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.bearish }}>{data.directionalProbability.bearishPct}% Bearish ▼</Text>
-              </View>
-              {data.directionalProbability.reasoning.map((r, i) => (
-                <Text key={i} style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 3, lineHeight: 16 }}>• {r}</Text>
-              ))}
-              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 8, fontStyle: 'italic' }}>
-                Ini bobot tambahan buat sizing, bukan jaminan arah — tetep pasang stop order di kedua sisi.
-              </Text>
-            </View>
-          )}
-
-          {/* Anticipation Entry — khusus status ready & ada trend besar jelas */}
-          {data.status === 'ready' && data.anticipationEntry && (
-            <View style={[styles.section, { backgroundColor: `#f9731608`, borderColor: '#f97316' }]}>
-              <Text style={[styles.sectionTitle, { color: '#f97316' }]}>🎯 ANTICIPATION ENTRY</Text>
-              <Text style={[styles.messageText, { color: colors.mutedForeground, marginBottom: 10 }]}>
-                {data.anticipationEntry.trendContext}
-              </Text>
-              <View style={[styles.levelCard, {
-                backgroundColor: `${data.anticipationEntry.direction === 'bullish' ? colors.bullish : colors.bearish}10`,
-                borderColor: data.anticipationEntry.direction === 'bullish' ? colors.bullish : colors.bearish,
-              }]}>
-                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>
-                  ENTRY {data.anticipationEntry.direction === 'bullish' ? '(deket support)' : '(deket resistance)'}
-                </Text>
-                <Text style={[styles.levelCardPrice, { color: data.anticipationEntry.direction === 'bullish' ? colors.bullish : colors.bearish }]}>
-                  {formatPrice(data.anticipationEntry.entryPrice)}
-                </Text>
-                <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  SL ketat: {formatPrice(data.anticipationEntry.stopLoss)}
-                </Text>
-              </View>
-              <View style={[styles.infoRow, { backgroundColor: '#f9731615', marginHorizontal: -12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }]}>
-                <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.foreground, lineHeight: 18, flex: 1 }}>
-                  {data.anticipationEntry.sizeNote}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* Stop Order — khusus status ready (belum breakout) */}
-          {data.status === 'ready' && data.buyStopPrice !== undefined && (
-            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>PASANG STOP ORDER DULUAN</Text>
-              <Text style={[styles.messageText, { color: colors.mutedForeground, marginBottom: 10 }]}>
-                Arah belum pasti — pasang di kedua sisi. Kalau salah satu kena, batalkan sisi satunya.
-              </Text>
-              <View style={[styles.levelCard, { backgroundColor: `${colors.bullish}10`, borderColor: colors.bullish, marginBottom: 8 }]}>
-                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>BUY STOP (kalau tembus ke atas)</Text>
-                <Text style={[styles.levelCardPrice, { color: colors.bullish }]}>{formatPrice(data.buyStopPrice)}</Text>
-                <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  TP measured move: {data.rangeHeight ? formatPrice(data.buyStopPrice + data.rangeHeight) : '—'}
-                </Text>
-              </View>
-              {data.sellStopPrice !== undefined && (
-                <View style={[styles.levelCard, { backgroundColor: `${colors.bearish}10`, borderColor: colors.bearish }]}>
-                  <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>SELL STOP (kalau tembus ke bawah)</Text>
-                  <Text style={[styles.levelCardPrice, { color: colors.bearish }]}>{formatPrice(data.sellStopPrice)}</Text>
-                  <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                    TP measured move: {data.rangeHeight ? formatPrice(data.sellStopPrice - data.rangeHeight) : '—'}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-
           {/* Simpan Sinyal */}
-          {(data.status === 'waiting' || data.status === 'approaching' || data.status === 'in_zone') && onSave && (
+          {(data.status === 'siap_breakout' || data.status === 'siap_retest') && onSave && (
             <Pressable onPress={onSave}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
               <Feather name="bookmark" size={15} color={colors.primaryForeground} />
@@ -646,21 +474,25 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
             </Pressable>
           )}
 
-          {/* Limit Order */}
+          {/* Order (STOP kalau siap_breakout, LIMIT kalau siap_retest) */}
           {data.entryPrice !== undefined && (
             <AnimatedCard index={2}>
             <View style={[styles.section, { backgroundColor: 'rgba(74,222,128,0.06)', borderColor: 'rgba(74,222,128,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER (RETEST)</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
+                {data.orderType === 'stop' ? 'PASANG STOP ORDER' : 'PASANG LIMIT ORDER (RETEST)'}
+              </Text>
               <View style={[styles.levelCard, {
                 backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
                 borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish
               }]}>
-                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY (LEVEL BREAKOUT)</Text>
+                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>LEVEL S&R</Text>
                 <Text style={[styles.levelCardPrice, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — retest resistance/support baru
+                  {data.bias === 'bullish'
+                    ? (data.orderType === 'stop' ? 'BUY STOP — nangkep breakout otomatis' : 'BUY LIMIT — nunggu retest balik ke level')
+                    : (data.orderType === 'stop' ? 'SELL STOP — nangkep breakout otomatis' : 'SELL LIMIT — nunggu retest balik ke level')}
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -669,14 +501,27 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 — Measured Move (RR 1:{data.rr1?.toFixed(1)})</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{data.mode === 'crossover' ? `TP1 — R:R 1:${data.rr1?.toFixed(0) ?? 2}` : `TP — R:R 1:${data.rr1?.toFixed(1) ?? '1.8'}`}</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 — Extended 1.618x</Text>
-                <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2 ? formatPrice(data.takeProfit2) : '—'}</Text>
-              </View>
+              {data.mode === 'crossover' && data.takeProfit2 !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 — R:R 1:3</Text>
+                    <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
+                  </View>
+                </>
+              )}
+              {data.levelHits !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Level Hits</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.levelHits}x disentuh sebelumnya</Text>
+                  </View>
+                </>
+              )}
             </View>
             </AnimatedCard>
           )}
@@ -685,7 +530,11 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
           {data.filterResults && data.filterResults.length > 0 && (
             <AnimatedCard index={3}>
             <View style={[styles.section, { backgroundColor: 'rgba(251,191,36,0.05)', borderColor: 'rgba(251,191,36,0.2)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>HASIL FILTER (Score: {data.score}/{data.maxScore})</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
+                {data.mode === 'crossover'
+                  ? `HASIL VALIDASI (Score: ${data.score}/${data.maxScore})`
+                  : `CONFIDENCE FACTORS (${data.confidenceScore}/100 — ${data.confidenceTier === 'high' ? 'High' : 'Medium'})`}
+              </Text>
               {data.filterResults.map((f, i) => {
                 const isPassed = f.startsWith('✅');
                 return (
@@ -714,7 +563,6 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: {
                     entryPrice: String(data.entryPrice ?? 0),
                     stopLoss: String(data.stopLoss ?? 0),
                     takeProfit1: String(data.takeProfit1 ?? 0),
-                    takeProfit2: String(data.takeProfit2 ?? 0),
                     symbol: data.symbol,
                     direction: data.bias ?? 'bullish',
                     source: 'breakout_entry',
@@ -803,7 +651,19 @@ function BreakoutLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
             <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden', borderLeftWidth: 3, borderLeftColor: sc(log.status) }}>
               <View style={{ flexDirection: 'row', padding: 12, alignItems: 'flex-start' }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
+                    {log.mode && (
+                      <View style={{
+                        paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+                        backgroundColor: log.mode === 'crossover' ? '#F9731618' : `${ACCENT}18`,
+                      }}>
+                        <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: log.mode === 'crossover' ? '#F97316' : ACCENT }}>
+                          {log.mode === 'crossover' ? 'Crossover' : 'Confidence'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{log.timestamp}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -851,13 +711,16 @@ export default function BreakoutEntryScreen() {
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
   const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
   const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
+  const [selectedMode, setSelectedMode] = useState<'confidence' | 'crossover' | undefined>();
   const [currentSignal, setCurrentSignal] = useState<BreakoutTradingResult | null>(null);
 
   const handleSaveSignal = useCallback(async () => {
     if (!currentSignal || currentSignal.entryPrice === undefined) return;
+    const isCrossover = currentSignal.mode === 'crossover';
     const log: SignalLog = {
       id: `${Date.now()}_${currentSignal.symbol}`,
       menu: 'breakout_entry',
+      mode: currentSignal.mode,
       symbol: currentSignal.symbol,
       bias: currentSignal.bias ?? 'bullish',
       entryPrice: currentSignal.entryPrice,
@@ -867,16 +730,18 @@ export default function BreakoutEntryScreen() {
       currentPriceAtSignal: currentSignal.currentPrice,
       timestamp: currentSignal.timestamp,
       savedAt: Date.now(),
-      probabilityOrScore: currentSignal.score,
-      zoneType: currentSignal.breakoutType,
+      // Normalisasi: mode crossover pakai score/maxScore, mode confidence pakai confidenceScore (0-100) langsung
+      probabilityOrScore: isCrossover ? ((currentSignal.score ?? 0) / (currentSignal.maxScore || 1)) * 100 : currentSignal.confidenceScore,
+      zoneType: currentSignal.status,
       status: 'pending',
     };
     await addLog(STORAGE_KEY_BREAKOUT_ENTRY, log);
     setActiveTab('log');
   }, [currentSignal]);
 
-  const handleSelectCoin = useCallback((symbol: string) => {
+  const handleSelectCoin = useCallback((symbol: string, mode?: 'confidence' | 'crossover') => {
     setSelectedSymbol(symbol);
+    setSelectedMode(mode);
     setActiveTab('analisa');
   }, []);
 
@@ -887,7 +752,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Breakout Entry</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Konsolidasi H4 → Breakout + Volume → Retest → Entry</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Confidence Score (S/R+scoring) & Breakout Crossover (multi-TF)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -911,7 +776,7 @@ export default function BreakoutEntryScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} initialMode={selectedMode} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
         : <BreakoutLogTab colors={colors} />
       }
     </View>

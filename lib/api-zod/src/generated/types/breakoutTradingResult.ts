@@ -5,42 +5,43 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
-import type { AnticipationEntry } from './anticipationEntry';
 import type { BreakoutTradingResultBias } from './breakoutTradingResultBias';
-import type { BreakoutTradingResultBreakoutType } from './breakoutTradingResultBreakoutType';
-import type { BreakoutTradingResultLeanBias } from './breakoutTradingResultLeanBias';
+import type { BreakoutTradingResultConfidenceTier } from './breakoutTradingResultConfidenceTier';
+import type { BreakoutTradingResultMode } from './breakoutTradingResultMode';
+import type { BreakoutTradingResultMomentumClassification } from './breakoutTradingResultMomentumClassification';
+import type { BreakoutTradingResultOrderType } from './breakoutTradingResultOrderType';
+import type { BreakoutTradingResultRecommendedMode } from './breakoutTradingResultRecommendedMode';
 import type { BreakoutTradingResultStatus } from './breakoutTradingResultStatus';
-import type { DirectionalProbability } from './directionalProbability';
 import type { RecentPerformance } from './recentPerformance';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface BreakoutTradingResult {
   status: BreakoutTradingResultStatus;
   symbol: string;
+  mode?: BreakoutTradingResultMode;
+  recommendedMode?: BreakoutTradingResultRecommendedMode;
   recentPerformance?: RecentPerformance;
   bias?: BreakoutTradingResultBias;
-  breakoutType?: BreakoutTradingResultBreakoutType;
   tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
   message?: string;
+  confidenceScore?: number;
+  confidenceTier?: BreakoutTradingResultConfidenceTier;
   score?: number;
   maxScore: number;
-  consolidationHigh?: number;
-  consolidationLow?: number;
-  consolidationCandles?: number;
   brokenLevel?: number;
+  levelHits?: number;
   entryPrice?: number;
+  orderType?: BreakoutTradingResultOrderType;
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
   rr1?: number;
   volumeRatio?: number;
   filterResults?: string[];
-  buyStopPrice?: number;
-  sellStopPrice?: number;
-  rangeHeight?: number;
-  leanBias?: BreakoutTradingResultLeanBias;
-  directionalProbability?: DirectionalProbability;
-  anticipationEntry?: AnticipationEntry;
+  adxRising?: boolean;
+  macdHistogramExpanding?: boolean;
+  vwapBreakout?: boolean;
+  momentumClassification?: BreakoutTradingResultMomentumClassification;
 }

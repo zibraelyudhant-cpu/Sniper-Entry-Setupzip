@@ -7,6 +7,9 @@
  */
 import type { RecentPerformance } from './recentPerformance';
 import type { SniperResultBias } from './sniperResultBias';
+import type { SniperResultMa200Relation } from './sniperResultMa200Relation';
+import type { SniperResultMode } from './sniperResultMode';
+import type { SniperResultRecommendedMode } from './sniperResultRecommendedMode';
 import type { SniperResultStatus } from './sniperResultStatus';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 import type { TrendInfo } from './trendInfo';
@@ -14,6 +17,15 @@ import type { ZoneRange } from './zoneRange';
 
 export interface SniperResult {
   status: SniperResultStatus;
+  mode?: SniperResultMode;
+  recommendedMode?: SniperResultRecommendedMode;
+  rsi2Value?: number;
+  ma200Relation?: SniperResultMa200Relation;
+  adxH4?: number;
+  ma5ExitTarget?: number;
+  score?: number;
+  maxScore?: number;
+  filterResults?: string[];
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   message: string;

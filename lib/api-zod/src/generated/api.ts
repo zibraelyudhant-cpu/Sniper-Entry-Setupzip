@@ -38,12 +38,15 @@ export const GetScreenerResponse = zod.object({
  * @summary Analisa Breakout Entry (Menu 1) untuk 1 symbol
  */
 export const GetBreakoutEntryQueryParams = zod.object({
-  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT'),
+  "mode": zod.enum(['confidence', 'crossover']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis')
 })
 
 export const GetBreakoutEntryResponse = zod.object({
-  "status": zod.enum(['ready', 'waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'skip', 'error']),
+  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error']),
   "symbol": zod.string(),
+  "mode": zod.enum(['confidence', 'crossover']).optional(),
+  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -52,7 +55,6 @@ export const GetBreakoutEntryResponse = zod.object({
   "periodLabel": zod.string()
 }).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
-  "breakoutType": zod.enum(['continuation', 'reversal']).optional(),
   "tfBreakdown": zod.array(zod.object({
   "timeframe": zod.string(),
   "label": zod.string(),
@@ -62,35 +64,24 @@ export const GetBreakoutEntryResponse = zod.object({
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
+  "confidenceScore": zod.number().optional(),
+  "confidenceTier": zod.enum(['high', 'medium']).optional(),
   "score": zod.number().optional(),
   "maxScore": zod.number(),
-  "consolidationHigh": zod.number().optional(),
-  "consolidationLow": zod.number().optional(),
-  "consolidationCandles": zod.number().optional(),
   "brokenLevel": zod.number().optional(),
+  "levelHits": zod.number().optional(),
   "entryPrice": zod.number().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "takeProfit2": zod.number().optional(),
   "rr1": zod.number().optional(),
   "volumeRatio": zod.number().optional(),
   "filterResults": zod.array(zod.string()).optional(),
-  "buyStopPrice": zod.number().optional(),
-  "sellStopPrice": zod.number().optional(),
-  "rangeHeight": zod.number().optional(),
-  "leanBias": zod.enum(['bullish', 'bearish', 'neutral']).optional(),
-  "directionalProbability": zod.object({
-  "bullishPct": zod.number(),
-  "bearishPct": zod.number(),
-  "reasoning": zod.array(zod.string())
-}).optional(),
-  "anticipationEntry": zod.object({
-  "direction": zod.enum(['bullish', 'bearish']),
-  "entryPrice": zod.number(),
-  "stopLoss": zod.number(),
-  "sizeNote": zod.string(),
-  "trendContext": zod.string()
-}).optional()
+  "adxRising": zod.boolean().optional(),
+  "macdHistogramExpanding": zod.boolean().optional(),
+  "vwapBreakout": zod.boolean().optional(),
+  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional()
 })
 
 
@@ -99,8 +90,10 @@ export const GetBreakoutEntryResponse = zod.object({
  */
 export const GetBreakoutEntryScanResponse = zod.object({
   "coins": zod.array(zod.object({
-  "status": zod.enum(['ready', 'waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'skip', 'error']),
+  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error']),
   "symbol": zod.string(),
+  "mode": zod.enum(['confidence', 'crossover']).optional(),
+  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -109,7 +102,6 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "periodLabel": zod.string()
 }).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
-  "breakoutType": zod.enum(['continuation', 'reversal']).optional(),
   "tfBreakdown": zod.array(zod.object({
   "timeframe": zod.string(),
   "label": zod.string(),
@@ -119,35 +111,24 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
+  "confidenceScore": zod.number().optional(),
+  "confidenceTier": zod.enum(['high', 'medium']).optional(),
   "score": zod.number().optional(),
   "maxScore": zod.number(),
-  "consolidationHigh": zod.number().optional(),
-  "consolidationLow": zod.number().optional(),
-  "consolidationCandles": zod.number().optional(),
   "brokenLevel": zod.number().optional(),
+  "levelHits": zod.number().optional(),
   "entryPrice": zod.number().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "takeProfit2": zod.number().optional(),
   "rr1": zod.number().optional(),
   "volumeRatio": zod.number().optional(),
   "filterResults": zod.array(zod.string()).optional(),
-  "buyStopPrice": zod.number().optional(),
-  "sellStopPrice": zod.number().optional(),
-  "rangeHeight": zod.number().optional(),
-  "leanBias": zod.enum(['bullish', 'bearish', 'neutral']).optional(),
-  "directionalProbability": zod.object({
-  "bullishPct": zod.number(),
-  "bearishPct": zod.number(),
-  "reasoning": zod.array(zod.string())
-}).optional(),
-  "anticipationEntry": zod.object({
-  "direction": zod.enum(['bullish', 'bearish']),
-  "entryPrice": zod.number(),
-  "stopLoss": zod.number(),
-  "sizeNote": zod.string(),
-  "trendContext": zod.string()
-}).optional()
+  "adxRising": zod.boolean().optional(),
+  "macdHistogramExpanding": zod.boolean().optional(),
+  "vwapBreakout": zod.boolean().optional(),
+  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional()
 })),
   "fetchedAt": zod.number()
 })
@@ -158,11 +139,21 @@ export const GetBreakoutEntryScanResponse = zod.object({
  * @summary Run SMC sniper entry analysis
  */
 export const GetSmcAnalysisQueryParams = zod.object({
-  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT'),
+  "mode": zod.enum(['sniper', 'rsi2']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier (ADX+RSI2) yang nentuin otomatis')
 })
 
 export const GetSmcAnalysisResponse = zod.object({
-  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'error']),
+  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error']),
+  "mode": zod.enum(['sniper', 'rsi2']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "rsi2Value": zod.number().optional(),
+  "ma200Relation": zod.enum(['above', 'below']).optional(),
+  "adxH4": zod.number().optional(),
+  "ma5ExitTarget": zod.number().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -234,7 +225,16 @@ export const GetSmcAnalysisResponse = zod.object({
  */
 export const GetSniperScanResponse = zod.object({
   "coins": zod.array(zod.object({
-  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'error']),
+  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error']),
+  "mode": zod.enum(['sniper', 'rsi2']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "rsi2Value": zod.number().optional(),
+  "ma200Relation": zod.enum(['above', 'below']).optional(),
+  "adxH4": zod.number().optional(),
+  "ma5ExitTarget": zod.number().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),

@@ -42,6 +42,8 @@ export const STATUS_COLORS = {
   approaching: { bg: 'rgba(251,191,36,.12)', border: 'rgba(251,191,36,.35)', text: '#FBBF24', label: 'MENDEKATI', icon: 'zap' as const, pulse: true },
   waiting: { bg: 'rgba(148,163,184,.1)', border: 'rgba(148,163,184,.25)', text: '#94A3B8', label: 'WAITING', icon: 'clock' as const, pulse: false },
   ready: { bg: 'rgba(249,115,22,.12)', border: 'rgba(249,115,22,.35)', text: '#FB923C', label: 'SIAP BREAKOUT', icon: 'radio' as const, pulse: true },
+  siap_breakout: { bg: 'rgba(129,140,248,.12)', border: 'rgba(129,140,248,.35)', text: '#818CF8', label: 'SIAP BREAKOUT', icon: 'radio' as const, pulse: true },
+  siap_retest: { bg: 'rgba(251,191,36,.12)', border: 'rgba(251,191,36,.35)', text: '#FBBF24', label: 'SIAP RETEST', icon: 'target' as const, pulse: true },
   expired: { bg: 'rgba(75,85,99,.1)', border: 'rgba(75,85,99,.2)', text: '#6B7280', label: 'EXPIRED', icon: 'x-circle' as const, pulse: false },
   no_setup: { bg: 'rgba(248,113,113,.1)', border: 'rgba(248,113,113,.25)', text: '#F87171', label: 'NO SETUP', icon: 'slash' as const, pulse: false },
   skip: { bg: 'rgba(107,114,128,.1)', border: 'rgba(107,114,128,.2)', text: '#6B7280', label: 'SKIP', icon: 'skip-forward' as const, pulse: false },

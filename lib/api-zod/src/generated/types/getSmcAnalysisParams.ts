@@ -5,10 +5,15 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { GetSmcAnalysisMode } from './getSmcAnalysisMode';
 
 export type GetSmcAnalysisParams = {
 /**
  * Futures symbol e.g. BTCUSDT
  */
 symbol: string;
+/**
+ * Skill yang dipakai — kalau gak dikasih, classifier (ADX+RSI2) yang nentuin otomatis
+ */
+mode?: GetSmcAnalysisMode;
 };

@@ -5,10 +5,15 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { GetBreakoutEntryMode } from './getBreakoutEntryMode';
 
 export type GetBreakoutEntryParams = {
 /**
  * Futures symbol e.g. BTCUSDT
  */
 symbol: string;
+/**
+ * Skill yang dipakai — kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis
+ */
+mode?: GetBreakoutEntryMode;
 };

@@ -10,12 +10,8 @@ export type BreakoutTradingResultStatus = typeof BreakoutTradingResultStatus[key
 
 
 export const BreakoutTradingResultStatus = {
-  ready: 'ready',
-  waiting: 'waiting',
-  approaching: 'approaching',
-  in_zone: 'in_zone',
-  expired: 'expired',
+  siap_breakout: 'siap_breakout',
+  siap_retest: 'siap_retest',
   no_setup: 'no_setup',
-  skip: 'skip',
   error: 'error',
 } as const;

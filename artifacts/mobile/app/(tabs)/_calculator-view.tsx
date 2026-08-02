@@ -301,7 +301,7 @@ export default function CalculatorScreen({ embedded = false }: { embedded?: bool
                 borderWidth: 1, borderColor: '#534AB7',
               }}>
                 <Text style={{ fontSize: 11, fontWeight: '500', color: '#7F77DD' }}>
-                  {source === 'sniper' ? 'Sniper' : source === 'scalping' ? 'Scalping' : source}
+                  {source === 'sniper' ? 'Sniper' : source === 'sniper_rsi2' ? 'RSI Connors' : source === 'scalping' ? 'Scalping' : source}
                 </Text>
               </View>
             </View>

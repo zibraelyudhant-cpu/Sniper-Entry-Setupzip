@@ -4,6 +4,7 @@ import { StyleSheet } from "react-native";
 export interface SignalLog {
   id: string;
   menu: "sniper" | "scalping" | "breakout_entry";
+  mode?: string; // skill yang hasilin sinyal ini (misal 'confidence'/'crossover' buat Breakout Entry, 'sniper'/'rsi2' buat Sniper)
   symbol: string;
   bias: "bullish" | "bearish";
   entryPrice: number;
