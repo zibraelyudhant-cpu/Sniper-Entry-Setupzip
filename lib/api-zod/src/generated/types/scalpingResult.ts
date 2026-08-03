@@ -8,12 +8,16 @@
 import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
 import type { ScalpingResultBias } from './scalpingResultBias';
+import type { ScalpingResultMode } from './scalpingResultMode';
+import type { ScalpingResultRecommendedMode } from './scalpingResultRecommendedMode';
 import type { ScalpingResultStatus } from './scalpingResultStatus';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface ScalpingResult {
   status: ScalpingResultStatus;
   symbol: string;
+  mode?: ScalpingResultMode;
+  recommendedMode?: ScalpingResultRecommendedMode;
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ScalpingResultBias;
@@ -25,6 +29,9 @@ export interface ScalpingResult {
   structure15M?: string;
   choch15M?: boolean;
   ob5M?: ScalpingOB5M;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;

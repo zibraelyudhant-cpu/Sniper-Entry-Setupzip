@@ -308,12 +308,15 @@ export const GetSniperScanResponse = zod.object({
  * @summary Analisa Scalping SMC (Menu 4) untuk 1 symbol
  */
 export const GetScalpingQueryParams = zod.object({
-  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT'),
+  "mode": zod.enum(['structural', 'scalping15m']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier (volume M15) yang nentuin otomatis')
 })
 
 export const GetScalpingResponse = zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
   "symbol": zod.string(),
+  "mode": zod.enum(['structural', 'scalping15m']).optional(),
+  "recommendedMode": zod.enum(['structural', 'scalping15m']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -341,6 +344,9 @@ export const GetScalpingResponse = zod.object({
   "mid": zod.number(),
   "fresh": zod.boolean()
 }).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
@@ -361,6 +367,8 @@ export const GetScalpingScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
   "symbol": zod.string(),
+  "mode": zod.enum(['structural', 'scalping15m']).optional(),
+  "recommendedMode": zod.enum(['structural', 'scalping15m']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -388,6 +396,9 @@ export const GetScalpingScanResponse = zod.object({
   "mid": zod.number(),
   "fresh": zod.boolean()
 }).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),

@@ -5,10 +5,15 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { GetScalpingMode } from './getScalpingMode';
 
 export type GetScalpingParams = {
 /**
  * Futures symbol e.g. BTCUSDT
  */
 symbol: string;
+/**
+ * Skill yang dipakai — kalau gak dikasih, classifier (volume M15) yang nentuin otomatis
+ */
+mode?: GetScalpingMode;
 };

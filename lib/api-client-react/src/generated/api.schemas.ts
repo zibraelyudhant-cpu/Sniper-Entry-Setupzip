@@ -345,6 +345,22 @@ export const ScalpingResultStatus = {
   error: 'error',
 } as const;
 
+export type ScalpingResultMode = typeof ScalpingResultMode[keyof typeof ScalpingResultMode];
+
+
+export const ScalpingResultMode = {
+  structural: 'structural',
+  scalping15m: 'scalping15m',
+} as const;
+
+export type ScalpingResultRecommendedMode = typeof ScalpingResultRecommendedMode[keyof typeof ScalpingResultRecommendedMode];
+
+
+export const ScalpingResultRecommendedMode = {
+  structural: 'structural',
+  scalping15m: 'scalping15m',
+} as const;
+
 export type ScalpingResultBias = typeof ScalpingResultBias[keyof typeof ScalpingResultBias];
 
 
@@ -356,6 +372,8 @@ export const ScalpingResultBias = {
 export interface ScalpingResult {
   status: ScalpingResultStatus;
   symbol: string;
+  mode?: ScalpingResultMode;
+  recommendedMode?: ScalpingResultRecommendedMode;
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ScalpingResultBias;
@@ -367,6 +385,9 @@ export interface ScalpingResult {
   structure15M?: string;
   choch15M?: boolean;
   ob5M?: ScalpingOB5M;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
@@ -699,7 +720,19 @@ export type GetScalpingParams = {
  * Futures symbol e.g. BTCUSDT
  */
 symbol: string;
+/**
+ * Skill yang dipakai — kalau gak dikasih, classifier (volume M15) yang nentuin otomatis
+ */
+mode?: GetScalpingMode;
 };
+
+export type GetScalpingMode = typeof GetScalpingMode[keyof typeof GetScalpingMode];
+
+
+export const GetScalpingMode = {
+  structural: 'structural',
+  scalping15m: 'scalping15m',
+} as const;
 
 export type GetExtremeScalpingParams = {
 /**

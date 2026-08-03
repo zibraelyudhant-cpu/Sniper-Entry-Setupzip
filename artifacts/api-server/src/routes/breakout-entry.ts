@@ -15,8 +15,8 @@ router.get('/breakout-entry', async (req, res) => {
   try {
     // Classifier dulu (murah) — buat kasih tau recommendedMode ke UI, independen
     // dari mode yang akhirnya dipilih (user bisa override manual)
-    const classifyData = await fetchKlines(normalized, '1h', 250);
-    const classification = classifyBreakoutMode(classifyData.highs, classifyData.lows, classifyData.closes);
+    const classifyData = await fetchKlines(normalized, '30m', 250);
+    const classification = classifyBreakoutMode(classifyData.highs, classifyData.lows, classifyData.closes, classifyData.volumes);
 
     const mode: 'confidence' | 'crossover' =
       modeParam === 'confidence' || modeParam === 'crossover' ? modeParam : classification.recommendedMode;
@@ -43,8 +43,8 @@ router.get('/breakout-entry/scan', async (req, res) => {
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(batch.map(async (s) => {
-        const classifyData = await fetchKlines(s, '1h', 250);
-        const classification = classifyBreakoutMode(classifyData.highs, classifyData.lows, classifyData.closes);
+        const classifyData = await fetchKlines(s, '30m', 250);
+        const classification = classifyBreakoutMode(classifyData.highs, classifyData.lows, classifyData.closes, classifyData.volumes);
         const val = classification.recommendedMode === 'crossover'
           ? await analyzeBreakoutCrossover(s)
           : await analyzeBreakoutTrading(s);

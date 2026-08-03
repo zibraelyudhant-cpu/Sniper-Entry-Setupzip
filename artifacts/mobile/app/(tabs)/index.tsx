@@ -454,7 +454,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               </View>
               <View style={{ gap: 6, alignItems: 'flex-end' }}>
                 <StatusBadge status={data.status} />
-                <ScoreBadge score={data.mode === 'crossover' ? (data.score ?? 0) : (data.confidenceScore ?? 0)} max={data.mode === 'crossover' ? (data.maxScore ?? 9) : (data.maxScore ?? 100)} />
+                <ScoreBadge score={data.confidenceScore ?? 0} max={100} />
               </View>
             </View>
             {data.message && (
@@ -501,7 +501,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{data.mode === 'crossover' ? `TP1 — R:R 1:${data.rr1?.toFixed(0) ?? 2}` : `TP — R:R 1:${data.rr1?.toFixed(1) ?? '1.8'}`}</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? (data.mode === 'crossover' ? '2' : '1.8')}`}</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
               {data.mode === 'crossover' && data.takeProfit2 !== undefined && (
@@ -531,9 +531,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
             <AnimatedCard index={3}>
             <View style={[styles.section, { backgroundColor: 'rgba(251,191,36,0.05)', borderColor: 'rgba(251,191,36,0.2)' }]}>
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-                {data.mode === 'crossover'
-                  ? `HASIL VALIDASI (Score: ${data.score}/${data.maxScore})`
-                  : `CONFIDENCE FACTORS (${data.confidenceScore}/100 — ${data.confidenceTier === 'high' ? 'High' : 'Medium'})`}
+                CONFIDENCE FACTORS ({data.confidenceScore}/100 — {data.confidenceTier === 'high' ? 'High' : 'Medium'})
               </Text>
               {data.filterResults.map((f, i) => {
                 const isPassed = f.startsWith('✅');

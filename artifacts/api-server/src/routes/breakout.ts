@@ -1,35 +1,55 @@
 import { Router } from 'express';
-import { analyzeScalpingEntry, getRecentPerformance } from '../lib/smc';
+import { analyzeScalpingEntry, analyzeScalping15M, classifyScalpingMode, fetchKlines, getRecentPerformance } from '../lib/smc';
 import { getUniverse } from './screener';
 
 const router = Router();
 
-// GET /api/breakout?symbol=BTCUSDT  (route name dipertahankan agar tidak perlu ubah index.ts)
+// GET /api/breakout?symbol=BTCUSDT&mode=structural|scalping15m (route name
+// dipertahankan agar tidak perlu ubah index.ts). mode opsional — kalau gak
+// dikasih, classifier (volume M15 vs MA20) yang nentuin otomatis.
 router.get('/breakout', async (req, res) => {
   const symbol = req.query['symbol'] as string;
+  const modeParam = req.query['mode'] as string | undefined;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
   const normalized = symbol.toUpperCase().endsWith('USDT')
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   try {
-    const result = await analyzeScalpingEntry(normalized);
-    // Mini-backtest instan — cuma di endpoint single-symbol ini, BUKAN di scan
+    const classifyData = await fetchKlines(normalized, '15m', 250);
+    const classification = classifyScalpingMode(classifyData.closes, classifyData.volumes);
+
+    const mode: 'structural' | 'scalping15m' =
+      modeParam === 'structural' || modeParam === 'scalping15m' ? modeParam : classification.recommendedMode;
+
+    const result = mode === 'scalping15m'
+      ? await analyzeScalping15M(normalized)
+      : await analyzeScalpingEntry(normalized);
+
     const recentPerformance = await getRecentPerformance(normalized, 'scalping');
-    res.json({ ...result, recentPerformance });
+    res.json({ ...result, mode, recommendedMode: classification.recommendedMode, recentPerformance });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });
   }
 });
 
-// GET /api/breakout/scan
+// GET /api/breakout/scan — classifier-driven: tiap koin di-classify dulu (murah,
+// pake data M15 yang emang udah di-fetch), BARU dianalisa penuh sesuai mode yang
+// cocok (1x per koin, BUKAN 2x/koin)
 router.get('/breakout/scan', async (req, res) => {
   try {
     const universe = await getUniverse();
-    const results: Awaited<ReturnType<typeof analyzeScalpingEntry>>[] = [];
+    const results: Array<Awaited<ReturnType<typeof analyzeScalpingEntry>> & { mode: string; recommendedMode: string }> = [];
     const batchSize = 3;
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
-      const batchResults = await Promise.allSettled(batch.map(s => analyzeScalpingEntry(s)));
+      const batchResults = await Promise.allSettled(batch.map(async (s) => {
+        const classifyData = await fetchKlines(s, '15m', 250);
+        const classification = classifyScalpingMode(classifyData.closes, classifyData.volumes);
+        const val = classification.recommendedMode === 'scalping15m'
+          ? await analyzeScalping15M(s)
+          : await analyzeScalpingEntry(s);
+        return { ...val, mode: classification.recommendedMode, recommendedMode: classification.recommendedMode };
+      }));
       if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300));
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
