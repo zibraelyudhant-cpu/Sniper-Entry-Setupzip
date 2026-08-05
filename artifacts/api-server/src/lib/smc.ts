@@ -2439,10 +2439,10 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
   try {
     // Fetch all data in parallel — D1 udah gak dipake lagi, H4 sekarang jadi trend utama SEKALIGUS zona entry
     const [h4, h1, m15, m5, currentTickerRes] = await Promise.all([
-      fetchKlines(symbol, "4h", 100),  // H4 — trend utama + zona entry
-      fetchKlines(symbol, "1h", 50),   // H1 — refine zona + RSI divergence
-      fetchKlines(symbol, "15m", 100), // 15M — refine lebih presisi
-      fetchKlines(symbol, "5m", 200),  // 5M — entry presisi
+      fetchKlines(symbol, "4h", 360),  // H4 — trend utama + zona entry
+      fetchKlines(symbol, "1h", 720),   // H1 — refine zona + RSI divergence
+      fetchKlines(symbol, "15m", 480), // 15M — refine lebih presisi
+      fetchKlines(symbol, "5m", 288),  // 5M — entry presisi
       fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
 
@@ -2948,7 +2948,7 @@ export async function analyzeRSI2Entry(symbol: string): Promise<SniperResult> {
 
   try {
     const [h4, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '4h', 250), // butuh minimal 200 candle buat MA200 valid + buffer
+      fetchKlines(symbol, '4h', 360), // standarisasi candle count per TF
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -3111,10 +3111,10 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
 
   try {
     const [h4, h1, m30, m5, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '4h', 250),   // H4 — trend utama, SMA200/SMA13, RSI(2), SL (naik dari 100, butuh 200+ buat SMA200)
-      fetchKlines(symbol, '1h', 50),    // H1 — RSI divergence
-      fetchKlines(symbol, '30m', 100),  // M30 — zona entry & pattern
-      fetchKlines(symbol, '5m', 200),   // M5 — refine zona
+      fetchKlines(symbol, '4h', 360),   // H4 — trend utama, SMA200/SMA13, RSI(2), SL
+      fetchKlines(symbol, '1h', 720),    // H1 — RSI divergence
+      fetchKlines(symbol, '30m', 336),  // M30 — zona entry & pattern
+      fetchKlines(symbol, '5m', 288),   // M5 — refine zona
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -3494,7 +3494,7 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
 
   try {
     const [m15, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '15m', 250),
+      fetchKlines(symbol, '15m', 480),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -3780,8 +3780,8 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
 
   try {
     const [m15, m5, ticker24hRes, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '15m', 350), // naik dari 250 - butuh 300+ minimum, plus buffer
-      fetchKlines(symbol, '5m', 200), // naik dari 100
+      fetchKlines(symbol, '15m', 480), // standarisasi candle count per TF
+      fetchKlines(symbol, '5m', 288), // standarisasi candle count per TF
       fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${symbol}`),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
@@ -4065,12 +4065,12 @@ function classifyTFTrend(highs: number[], lows: number[], closes: number[]): TFC
   else confirmations.push('⚠️ ZigZag: Ranging');
 
   const ema50Series = calcEMASeries(closes, 50);
-  const ema200Series = calcEMASeries(closes, 200);
+  const ema100Series = calcEMASeries(closes, 100); // EMA200 -> EMA100, biar match D1 (100 candle)
   const lastClose = closes[closes.length - 1]!;
   const ema50 = ema50Series[ema50Series.length - 1]!;
-  const ema200 = ema200Series[ema200Series.length - 1]!;
-  if (ema50 > ema200 && lastClose > ema50) { bullVotes++; confirmations.push('✅ EMA: Bullish (harga>EMA50>EMA200)'); }
-  else if (ema50 < ema200 && lastClose < ema50) { bearVotes++; confirmations.push('✅ EMA: Bearish (harga<EMA50<EMA200)'); }
+  const ema100 = ema100Series[ema100Series.length - 1]!;
+  if (ema50 > ema100 && lastClose > ema50) { bullVotes++; confirmations.push('✅ EMA: Bullish (harga>EMA50>EMA100)'); }
+  else if (ema50 < ema100 && lastClose < ema50) { bearVotes++; confirmations.push('✅ EMA: Bearish (harga<EMA50<EMA100)'); }
   else confirmations.push('⚠️ EMA: Gak searah jelas');
 
   const macd = calcMACD(closes);
@@ -4225,7 +4225,10 @@ export interface MultiTFDetailResult {
 }
 
 async function buildTFDetail(timeframe: TFDetail['timeframe'], interval: string, symbol: string): Promise<TFDetail> {
-  const limit = timeframe === 'D1' ? 250 : 250; // semua 250, cukup buat EMA200 + ATR + swing
+  const limitMap: Record<TFDetail['timeframe'], number> = {
+    D1: 100, H4: 360, H1: 720, M30: 336, M15: 480, M5: 288,
+  };
+  const limit = limitMap[timeframe];
   const data = await fetchKlines(symbol, interval, limit);
   const classification = classifyTFTrend(data.highs, data.lows, data.closes);
   const zone = detectStrongestZonePerTF(data.opens, data.highs, data.lows, data.closes, classification.bias);
@@ -4250,8 +4253,8 @@ const TF_MAP: { tf: TFDetail['timeframe']; interval: string }[] = [
 export async function scanMultiTFTrendCoin(symbol: string): Promise<MultiTFScanCoin | null> {
   try {
     const [d1, h4] = await Promise.all([
-      fetchKlines(symbol, '1d', 250),
-      fetchKlines(symbol, '4h', 250),
+      fetchKlines(symbol, '1d', 100),
+      fetchKlines(symbol, '4h', 360),
     ]);
     const d1Class = classifyTFTrend(d1.highs, d1.lows, d1.closes);
     const h4Class = classifyTFTrend(h4.highs, h4.lows, h4.closes);
@@ -4856,11 +4859,11 @@ export async function analyzeChartPatterns(symbol: string): Promise<{ symbol: st
   }) + ' WIB';
 
   const [h4, h1, m30, m15, m5] = await Promise.all([
-    fetchKlines(symbol, '4h', 100),
-    fetchKlines(symbol, '1h', 100),
-    fetchKlines(symbol, '30m', 100),
-    fetchKlines(symbol, '15m', 100),
-    fetchKlines(symbol, '5m', 100),
+    fetchKlines(symbol, '4h', 360),
+    fetchKlines(symbol, '1h', 720),
+    fetchKlines(symbol, '30m', 336),
+    fetchKlines(symbol, '15m', 480),
+    fetchKlines(symbol, '5m', 288),
   ]);
 
   const detect = (kline: KlineData): PatternResult[] => {
@@ -5401,7 +5404,7 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
 
   try {
     const [m30, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '30m', 250),
+      fetchKlines(symbol, '30m', 336),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -5650,7 +5653,7 @@ export async function analyzeBreakoutCrossover(symbol: string): Promise<Breakout
 
   try {
     const [m30, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '30m', 250),
+      fetchKlines(symbol, '30m', 336),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
