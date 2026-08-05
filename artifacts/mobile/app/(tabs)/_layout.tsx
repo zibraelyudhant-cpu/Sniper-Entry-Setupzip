@@ -29,6 +29,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'flame', selected: 'flame.fill' }} />
         <Label>Extreme</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="multi-tf-scan">
+        <Icon sf={{ default: 'square.grid.3x3', selected: 'square.grid.3x3.fill' }} />
+        <Label>Multi-TF</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="tools">
         <Icon sf={{ default: 'wrench.and.screwdriver', selected: 'wrench.and.screwdriver.fill' }} />
         <Label>Tools</Label>
@@ -136,6 +140,22 @@ function ClassicTabLayout() {
                 <SymbolView name="flame.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="zap" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="multi-tf-scan"
+        options={{
+          title: 'Multi-TF',
+          tabBarActiveTintColor: MENU_COLORS.multiTfScan,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="square.grid.3x3.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="grid" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),

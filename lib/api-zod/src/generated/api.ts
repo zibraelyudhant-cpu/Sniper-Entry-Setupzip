@@ -422,7 +422,7 @@ export const GetExtremeScalpingQueryParams = zod.object({
 })
 
 export const GetExtremeScalpingResponse = zod.object({
-  "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
+  "status": zod.enum(['siap_entry', 'no_setup', 'error']),
   "symbol": zod.string(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
@@ -438,27 +438,31 @@ export const GetExtremeScalpingResponse = zod.object({
   "status": zod.enum(['confirm', 'warning', 'neutral'])
 })).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
-  "isReversalSetup": zod.boolean().optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
-  "score": zod.number().optional(),
+  "confidence": zod.number().optional(),
   "maxScore": zod.number(),
-  "structureH1": zod.string().optional(),
-  "chochH1": zod.boolean().optional(),
-  "ob5M": zod.object({
+  "volume24h": zod.number().optional(),
+  "atrPct": zod.number().optional(),
+  "entryType": zod.enum(['aggressive', 'conservative']).optional(),
+  "ob15M": zod.object({
   "low": zod.number(),
   "high": zod.number(),
   "mid": zod.number(),
   "fresh": zod.boolean()
 }).optional(),
+  "fvg15M": zod.object({
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional()
+}).optional(),
+  "liquidityPoolLevel": zod.number().optional(),
+  "rsi5M": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
-  "takeProfit2": zod.number().optional(),
   "rr1": zod.number().optional(),
-  "rr2": zod.number().optional(),
-  "atr5MPct": zod.number().optional(),
   "filterResults": zod.array(zod.string()).optional()
 })
 
@@ -468,7 +472,7 @@ export const GetExtremeScalpingResponse = zod.object({
  */
 export const GetExtremeScalpingScanResponse = zod.object({
   "coins": zod.array(zod.object({
-  "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
+  "status": zod.enum(['siap_entry', 'no_setup', 'error']),
   "symbol": zod.string(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
@@ -484,27 +488,31 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "status": zod.enum(['confirm', 'warning', 'neutral'])
 })).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
-  "isReversalSetup": zod.boolean().optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
-  "score": zod.number().optional(),
+  "confidence": zod.number().optional(),
   "maxScore": zod.number(),
-  "structureH1": zod.string().optional(),
-  "chochH1": zod.boolean().optional(),
-  "ob5M": zod.object({
+  "volume24h": zod.number().optional(),
+  "atrPct": zod.number().optional(),
+  "entryType": zod.enum(['aggressive', 'conservative']).optional(),
+  "ob15M": zod.object({
   "low": zod.number(),
   "high": zod.number(),
   "mid": zod.number(),
   "fresh": zod.boolean()
 }).optional(),
+  "fvg15M": zod.object({
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional()
+}).optional(),
+  "liquidityPoolLevel": zod.number().optional(),
+  "rsi5M": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
-  "takeProfit2": zod.number().optional(),
   "rr1": zod.number().optional(),
-  "rr2": zod.number().optional(),
-  "atr5MPct": zod.number().optional(),
   "filterResults": zod.array(zod.string()).optional()
 })),
   "fetchedAt": zod.number()
@@ -1303,6 +1311,79 @@ export const PostBacktestResponse = zod.object({
   "mostImpactfulFilter": zod.string()
 }).optional(),
   "timestamp": zod.string()
+})
+
+
+/**
+ * Menu SCAN-ONLY, gak ada endpoint analisa single-symbol manual — kriteria D1 ADX>=25 DAN H4 ADX>=25 (independen, gak perlu searah)
+ * @summary Scan koin dengan D1+H4 trending kuat (Menu Multi-TF Scanner)
+ */
+export const GetMultiTfScanResponse = zod.object({
+  "coins": zod.array(zod.object({
+  "symbol": zod.string(),
+  "d1Bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "d1Adx": zod.number(),
+  "h4Bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "h4Adx": zod.number()
+})).optional(),
+  "fetchedAt": zod.number().optional()
+})
+
+
+/**
+ * @summary Breakdown 6 timeframe (D1/H4/H1/M30/M15/M5) buat 1 koin + BTC
+ */
+export const GetMultiTfDetailQueryParams = zod.object({
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+})
+
+export const GetMultiTfDetailResponse = zod.object({
+  "status": zod.enum(['ok', 'error']),
+  "symbol": zod.string(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "coinTFs": zod.array(zod.object({
+  "timeframe": zod.enum(['D1', 'H4', 'H1', 'M30', 'M15', 'M5']).optional(),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']).optional(),
+  "adx": zod.number().optional(),
+  "confirmations": zod.array(zod.string()).optional(),
+  "zone": zod.object({
+  "type": zod.enum(['order_block', 'sr_fib']).optional(),
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional(),
+  "touches": zod.number().optional()
+}).optional(),
+  "rsiDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional(),
+  "volumeDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional()
+})).optional(),
+  "btcTFs": zod.array(zod.object({
+  "timeframe": zod.enum(['D1', 'H4', 'H1', 'M30', 'M15', 'M5']).optional(),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']).optional(),
+  "adx": zod.number().optional(),
+  "confirmations": zod.array(zod.string()).optional(),
+  "zone": zod.object({
+  "type": zod.enum(['order_block', 'sr_fib']).optional(),
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional(),
+  "touches": zod.number().optional()
+}).optional(),
+  "rsiDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional(),
+  "volumeDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional()
+})).optional()
 })
 
 

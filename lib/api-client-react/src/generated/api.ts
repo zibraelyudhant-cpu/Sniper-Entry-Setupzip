@@ -30,11 +30,14 @@ import type {
   GetBacktestListingInfoParams,
   GetBreakoutEntryParams,
   GetExtremeScalpingParams,
+  GetMultiTfDetailParams,
   GetPatternsParams,
   GetScalpingParams,
   GetSmcAnalysisParams,
   HealthStatus,
   ListingInfo,
+  MultiTFDetailResult,
+  MultiTFScanResponse,
   PatternsResponse,
   ScalpingResult,
   ScalpingScanResponse,
@@ -1110,4 +1113,166 @@ export const usePostBacktest = <TError = ErrorType<ErrorResponse>,
       > => {
       return useMutation(getPostBacktestMutationOptions(options));
     }
+
+export const getGetMultiTfScanUrl = () => {
+
+
+
+
+  return `/api/multi-tf-scan`
+}
+
+/**
+ * Menu SCAN-ONLY, gak ada endpoint analisa single-symbol manual — kriteria D1 ADX>=25 DAN H4 ADX>=25 (independen, gak perlu searah)
+ * @summary Scan koin dengan D1+H4 trending kuat (Menu Multi-TF Scanner)
+ */
+export const getMultiTfScan = async ( options?: RequestInit): Promise<MultiTFScanResponse> => {
+
+  return customFetch<MultiTFScanResponse>(getGetMultiTfScanUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMultiTfScanQueryKey = () => {
+    return [
+    `/api/multi-tf-scan`
+    ] as const;
+    }
+
+
+export const getGetMultiTfScanQueryOptions = <TData = Awaited<ReturnType<typeof getMultiTfScan>>, TError = ErrorType<ErrorResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMultiTfScan>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMultiTfScanQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMultiTfScan>>> = ({ signal }) => getMultiTfScan({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMultiTfScan>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMultiTfScanQueryResult = NonNullable<Awaited<ReturnType<typeof getMultiTfScan>>>
+export type GetMultiTfScanQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Scan koin dengan D1+H4 trending kuat (Menu Multi-TF Scanner)
+ */
+
+export function useGetMultiTfScan<TData = Awaited<ReturnType<typeof getMultiTfScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMultiTfScan>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMultiTfScanQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetMultiTfDetailUrl = (params: GetMultiTfDetailParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/multi-tf-detail?${stringifiedParams}` : `/api/multi-tf-detail`
+}
+
+/**
+ * @summary Breakdown 6 timeframe (D1/H4/H1/M30/M15/M5) buat 1 koin + BTC
+ */
+export const getMultiTfDetail = async (params: GetMultiTfDetailParams, options?: RequestInit): Promise<MultiTFDetailResult> => {
+
+  return customFetch<MultiTFDetailResult>(getGetMultiTfDetailUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMultiTfDetailQueryKey = (params?: GetMultiTfDetailParams,) => {
+    return [
+    `/api/multi-tf-detail`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetMultiTfDetailQueryOptions = <TData = Awaited<ReturnType<typeof getMultiTfDetail>>, TError = ErrorType<ErrorResponse>>(params: GetMultiTfDetailParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMultiTfDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMultiTfDetailQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMultiTfDetail>>> = ({ signal }) => getMultiTfDetail(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMultiTfDetail>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMultiTfDetailQueryResult = NonNullable<Awaited<ReturnType<typeof getMultiTfDetail>>>
+export type GetMultiTfDetailQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Breakdown 6 timeframe (D1/H4/H1/M30/M15/M5) buat 1 koin + BTC
+ */
+
+export function useGetMultiTfDetail<TData = Awaited<ReturnType<typeof getMultiTfDetail>>, TError = ErrorType<ErrorResponse>>(
+ params: GetMultiTfDetailParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMultiTfDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMultiTfDetailQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 

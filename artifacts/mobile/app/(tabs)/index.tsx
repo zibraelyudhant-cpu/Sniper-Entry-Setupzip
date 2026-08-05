@@ -454,7 +454,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               </View>
               <View style={{ gap: 6, alignItems: 'flex-end' }}>
                 <StatusBadge status={data.status} />
-                <ScoreBadge score={data.confidenceScore ?? 0} max={100} />
+                {data.confidenceScore !== undefined && <ScoreBadge score={data.confidenceScore} max={100} />}
               </View>
             </View>
             {data.message && (

@@ -34,17 +34,16 @@ router.get('/extreme-scalping/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status === 'in_zone' || val.status === 'approaching' || val.status === 'waiting')
-            results.push(val);
+          // Rule engine v4 (TF15M struktur -> TF5M eksekusi) — cuma status
+          // 'siap_entry' yang ditampilin (semua syarat wajib udah lolos di
+          // dalam analyzeExtremeScalpingEntry)
+          if (val.status === 'siap_entry') results.push(val);
         }
       }
     }
-    const order: Record<string, number> = { in_zone: 0, approaching: 1, waiting: 2 };
-    results.sort((a, b) => {
-      const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
-      if (ao !== bo) return ao - bo;
-      return (b.score ?? 0) - (a.score ?? 0);
-    });
+    // Sort by confidence desc (informasional — SEMUA hasil di sini udah lolos
+    // rule engine wajib, confidence cuma nunjukin kekuatan konfluensi bonus)
+    results.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
     res.json({ coins: results, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

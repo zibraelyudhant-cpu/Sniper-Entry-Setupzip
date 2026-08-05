@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { ExtremeScalpingResultBias } from './extremeScalpingResultBias';
+import type { ExtremeScalpingResultEntryType } from './extremeScalpingResultEntryType';
+import type { ExtremeScalpingResultFvg15M } from './extremeScalpingResultFvg15M';
 import type { ExtremeScalpingResultStatus } from './extremeScalpingResultStatus';
 import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
@@ -17,21 +19,21 @@ export interface ExtremeScalpingResult {
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;
-  isReversalSetup?: boolean;
   currentPrice: number;
   timestamp: string;
   message?: string;
-  score?: number;
+  confidence?: number;
   maxScore: number;
-  structureH1?: string;
-  chochH1?: boolean;
-  ob5M?: ScalpingOB5M;
+  volume24h?: number;
+  atrPct?: number;
+  entryType?: ExtremeScalpingResultEntryType;
+  ob15M?: ScalpingOB5M;
+  fvg15M?: ExtremeScalpingResultFvg15M;
+  liquidityPoolLevel?: number;
+  rsi5M?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
-  takeProfit2?: number;
   rr1?: number;
-  rr2?: number;
-  atr5MPct?: number;
   filterResults?: string[];
 }

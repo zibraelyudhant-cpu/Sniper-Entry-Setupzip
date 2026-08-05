@@ -8,6 +8,7 @@ import patternsRouter from "./patterns";
 import backtestRouter from "./backtest";
 import economicCalendarRouter from "./economic-calendar";
 import extremeScalpingRouter from "./extreme-scalping";
+import multiTfScanRouter from "./multi-tf-scan";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(patternsRouter);
 router.use(backtestRouter);
 router.use(economicCalendarRouter);
 router.use(extremeScalpingRouter);
+router.use(multiTfScanRouter);
 
 export default router;

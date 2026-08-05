@@ -149,7 +149,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa zona retest M30 → refine M5</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→M30→M5) & Scalping 15M</Text>
       </View>
     );
   }
@@ -767,7 +767,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4 Trend → M30 Koreksi → Zona M30 → Refine M5</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→M30→M5) & Scalping 15M</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

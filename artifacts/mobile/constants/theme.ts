@@ -10,6 +10,7 @@ export const MENU_COLORS = {
   calculator: '#FBBF24', // Menu 3 — amber
   scalping: '#FB923C',   // Menu 4 — oranye
   extremeScalping: '#F43F5E', // Menu 5 — rose/merah (kesan "extreme")
+  multiTfScan: '#34D399', // Menu 6 — emerald (kesan "overview/dashboard")
   insight: '#60A5FA',    // Menu 5 (lama, sekarang sub-tab Tools) — biru
   backtest: '#2DD4BF',   // Menu 6 (lama, sekarang sub-tab Tools) — teal
   tools: '#818CF8',      // Menu gabungan (Kalkulator+Insight+Backtest) — indigo

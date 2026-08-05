@@ -971,7 +971,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SNIPER" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Analisa H4→H1→15M tiap koin</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→H1→15M) & RSI Connors</Text>
       </View>
     );
   }
@@ -1315,7 +1315,7 @@ export default function SniperScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Entry</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>SMC Top-Down H4→H1→15M</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→H1→15M) & RSI Connors</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

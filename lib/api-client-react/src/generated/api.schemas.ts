@@ -409,13 +409,8 @@ export type ExtremeScalpingResultStatus = typeof ExtremeScalpingResultStatus[key
 
 
 export const ExtremeScalpingResultStatus = {
-  waiting: 'waiting',
-  approaching: 'approaching',
-  in_zone: 'in_zone',
-  expired: 'expired',
+  siap_entry: 'siap_entry',
   no_setup: 'no_setup',
-  no_structure: 'no_structure',
-  skip: 'skip',
   error: 'error',
 } as const;
 
@@ -427,28 +422,42 @@ export const ExtremeScalpingResultBias = {
   bearish: 'bearish',
 } as const;
 
+export type ExtremeScalpingResultEntryType = typeof ExtremeScalpingResultEntryType[keyof typeof ExtremeScalpingResultEntryType];
+
+
+export const ExtremeScalpingResultEntryType = {
+  aggressive: 'aggressive',
+  conservative: 'conservative',
+} as const;
+
+export type ExtremeScalpingResultFvg15M = {
+  low?: number;
+  high?: number;
+  mid?: number;
+};
+
 export interface ExtremeScalpingResult {
   status: ExtremeScalpingResultStatus;
   symbol: string;
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;
-  isReversalSetup?: boolean;
   currentPrice: number;
   timestamp: string;
   message?: string;
-  score?: number;
+  confidence?: number;
   maxScore: number;
-  structureH1?: string;
-  chochH1?: boolean;
-  ob5M?: ScalpingOB5M;
+  volume24h?: number;
+  atrPct?: number;
+  entryType?: ExtremeScalpingResultEntryType;
+  ob15M?: ScalpingOB5M;
+  fvg15M?: ExtremeScalpingResultFvg15M;
+  liquidityPoolLevel?: number;
+  rsi5M?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
-  takeProfit2?: number;
   rr1?: number;
-  rr2?: number;
-  atr5MPct?: number;
   filterResults?: string[];
 }
 
@@ -677,6 +686,106 @@ export interface BacktestResult {
   timestamp: string;
 }
 
+export type ZoneInfoType = typeof ZoneInfoType[keyof typeof ZoneInfoType];
+
+
+export const ZoneInfoType = {
+  order_block: 'order_block',
+  sr_fib: 'sr_fib',
+} as const;
+
+export interface ZoneInfo {
+  type?: ZoneInfoType;
+  low?: number;
+  high?: number;
+  mid?: number;
+  touches?: number;
+}
+
+export interface DivergenceResult {
+  bullish?: boolean;
+  bearish?: boolean;
+}
+
+export type TFDetailTimeframe = typeof TFDetailTimeframe[keyof typeof TFDetailTimeframe];
+
+
+export const TFDetailTimeframe = {
+  D1: 'D1',
+  H4: 'H4',
+  H1: 'H1',
+  M30: 'M30',
+  M15: 'M15',
+  M5: 'M5',
+} as const;
+
+export type TFDetailBias = typeof TFDetailBias[keyof typeof TFDetailBias];
+
+
+export const TFDetailBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  sideways: 'sideways',
+} as const;
+
+export interface TFDetail {
+  timeframe?: TFDetailTimeframe;
+  bias?: TFDetailBias;
+  adx?: number;
+  confirmations?: string[];
+  zone?: ZoneInfo;
+  rsiDivergence?: DivergenceResult;
+  volumeDivergence?: DivergenceResult;
+}
+
+export type MultiTFScanCoinD1Bias = typeof MultiTFScanCoinD1Bias[keyof typeof MultiTFScanCoinD1Bias];
+
+
+export const MultiTFScanCoinD1Bias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  sideways: 'sideways',
+} as const;
+
+export type MultiTFScanCoinH4Bias = typeof MultiTFScanCoinH4Bias[keyof typeof MultiTFScanCoinH4Bias];
+
+
+export const MultiTFScanCoinH4Bias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  sideways: 'sideways',
+} as const;
+
+export interface MultiTFScanCoin {
+  symbol: string;
+  d1Bias: MultiTFScanCoinD1Bias;
+  d1Adx: number;
+  h4Bias: MultiTFScanCoinH4Bias;
+  h4Adx: number;
+}
+
+export interface MultiTFScanResponse {
+  coins?: MultiTFScanCoin[];
+  fetchedAt?: number;
+}
+
+export type MultiTFDetailResultStatus = typeof MultiTFDetailResultStatus[keyof typeof MultiTFDetailResultStatus];
+
+
+export const MultiTFDetailResultStatus = {
+  ok: 'ok',
+  error: 'error',
+} as const;
+
+export interface MultiTFDetailResult {
+  status: MultiTFDetailResultStatus;
+  symbol: string;
+  timestamp: string;
+  message?: string;
+  coinTFs?: TFDetail[];
+  btcTFs?: TFDetail[];
+}
+
 export type GetBreakoutEntryParams = {
 /**
  * Futures symbol e.g. BTCUSDT
@@ -749,6 +858,13 @@ symbol: string;
 };
 
 export type GetBacktestListingInfoParams = {
+symbol: string;
+};
+
+export type GetMultiTfDetailParams = {
+/**
+ * Futures symbol e.g. BTCUSDT
+ */
 symbol: string;
 };
 

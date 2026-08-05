@@ -10,12 +10,7 @@ export type ExtremeScalpingResultStatus = typeof ExtremeScalpingResultStatus[key
 
 
 export const ExtremeScalpingResultStatus = {
-  waiting: 'waiting',
-  approaching: 'approaching',
-  in_zone: 'in_zone',
-  expired: 'expired',
+  siap_entry: 'siap_entry',
   no_setup: 'no_setup',
-  no_structure: 'no_structure',
-  skip: 'skip',
   error: 'error',
 } as const;
