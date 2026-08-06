@@ -8,6 +8,8 @@
 import type { ExtremeScalpingResultBias } from './extremeScalpingResultBias';
 import type { ExtremeScalpingResultEntryType } from './extremeScalpingResultEntryType';
 import type { ExtremeScalpingResultFvg15M } from './extremeScalpingResultFvg15M';
+import type { ExtremeScalpingResultMode } from './extremeScalpingResultMode';
+import type { ExtremeScalpingResultRecommendedMode } from './extremeScalpingResultRecommendedMode';
 import type { ExtremeScalpingResultStatus } from './extremeScalpingResultStatus';
 import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
@@ -16,6 +18,8 @@ import type { TFBreakdownItem } from './tFBreakdownItem';
 export interface ExtremeScalpingResult {
   status: ExtremeScalpingResultStatus;
   symbol: string;
+  mode?: ExtremeScalpingResultMode;
+  recommendedMode?: ExtremeScalpingResultRecommendedMode;
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;

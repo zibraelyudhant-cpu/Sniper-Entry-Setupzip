@@ -414,6 +414,22 @@ export const ExtremeScalpingResultStatus = {
   error: 'error',
 } as const;
 
+export type ExtremeScalpingResultMode = typeof ExtremeScalpingResultMode[keyof typeof ExtremeScalpingResultMode];
+
+
+export const ExtremeScalpingResultMode = {
+  quant: 'quant',
+  sniper: 'sniper',
+} as const;
+
+export type ExtremeScalpingResultRecommendedMode = typeof ExtremeScalpingResultRecommendedMode[keyof typeof ExtremeScalpingResultRecommendedMode];
+
+
+export const ExtremeScalpingResultRecommendedMode = {
+  quant: 'quant',
+  sniper: 'sniper',
+} as const;
+
 export type ExtremeScalpingResultBias = typeof ExtremeScalpingResultBias[keyof typeof ExtremeScalpingResultBias];
 
 
@@ -439,6 +455,8 @@ export type ExtremeScalpingResultFvg15M = {
 export interface ExtremeScalpingResult {
   status: ExtremeScalpingResultStatus;
   symbol: string;
+  mode?: ExtremeScalpingResultMode;
+  recommendedMode?: ExtremeScalpingResultRecommendedMode;
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;

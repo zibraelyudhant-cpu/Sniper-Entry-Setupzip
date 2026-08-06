@@ -424,6 +424,8 @@ export const GetExtremeScalpingQueryParams = zod.object({
 export const GetExtremeScalpingResponse = zod.object({
   "status": zod.enum(['siap_entry', 'no_setup', 'error']),
   "symbol": zod.string(),
+  "mode": zod.enum(['quant', 'sniper']).optional(),
+  "recommendedMode": zod.enum(['quant', 'sniper']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -474,6 +476,8 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['siap_entry', 'no_setup', 'error']),
   "symbol": zod.string(),
+  "mode": zod.enum(['quant', 'sniper']).optional(),
+  "recommendedMode": zod.enum(['quant', 'sniper']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),

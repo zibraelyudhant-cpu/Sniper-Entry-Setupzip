@@ -40,6 +40,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ExtremeScalp
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
   const confidence = (coin as any).confidence as number | undefined;
+  const mode = (coin as any).mode as string | undefined;
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -54,9 +55,11 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ExtremeScalp
             <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
-            <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: ACCENT }]}>✅ Semua Syarat Lolos</Text>
-            </View>
+            {mode && (
+              <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
+                <Text style={[scanStyles.biasBadgeText, { color: ACCENT }]}>{mode === 'sniper' ? '🎯 Sniper' : '⚡ Quant'}</Text>
+              </View>
+            )}
           </View>
           <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
             RSI {(coin as any).rsi5M ? (coin as any).rsi5M.toFixed(0) : '—'} · {(coin as any).entryType === 'aggressive' ? 'Market' : 'Limit'} entry
@@ -121,7 +124,7 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
   );
 }
 
-function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string) => void }) {
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string, mode?: 'quant' | 'sniper') => void }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, refetch } = useGetExtremeScalpingScan({
     query: { queryKey: getGetExtremeScalpingScanQueryKey(), staleTime: 3 * 60 * 1000 },
@@ -175,7 +178,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       </View>
 
       <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🎯 SEMUA SYARAT WAJIB LOLOS (sort by confidence, tertinggi duluan)</Text>
-      {coins.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
+      {coins.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, (c as any).mode); }} />)}
     </ScrollView>
   );
 }
@@ -206,14 +209,21 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; onSignalReady?: (d: any) => void; onSave?: () => void }) {
+function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'quant' | 'sniper'; onSignalReady?: (d: any) => void; onSave?: () => void }) {
   const insets = useSafeAreaInsets();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
+  // undefined = belum dipilih manual, biar classifier backend (ADX 5M) yang nentuin otomatis
+  const [mode, setMode] = useState<'quant' | 'sniper' | undefined>(initialMode);
+
+  useEffect(() => {
+    if (initialSymbol) setQuerySymbol(initialSymbol);
+    if (initialMode) setMode(initialMode);
+  }, [initialSymbol, initialMode]);
 
   const { data, isLoading, isError, refetch } = useGetExtremeScalping(
-    { symbol: querySymbol },
-    { query: { queryKey: getGetExtremeScalpingQueryKey({ symbol: querySymbol }), enabled: !!querySymbol, staleTime: 60_000 } }
+    { symbol: querySymbol, ...(mode ? { mode } : {}) },
+    { query: { queryKey: getGetExtremeScalpingQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol, staleTime: 60_000 } }
   );
 
   useEffect(() => {
@@ -232,6 +242,26 @@ function AnalisaTab({ colors, initialSymbol, onSignalReady, onSave }: { colors: 
 
   return (
     <View style={{ flex: 1 }}>
+      {/* Mode Switcher — Quant (15M->5M) vs Sniper (30M->15M/5M/1M) */}
+      <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
+        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {(['quant', 'sniper'] as const).map((m) => {
+            const active = (mode ?? data?.recommendedMode) === m;
+            return (
+              <Pressable
+                key={m}
+                onPress={() => setMode(m)}
+                style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
+              >
+                <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
+                  {m === 'quant' ? 'Quant (15M→5M)' : 'Sniper (30M→M1)'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="crosshair" size={15} color={ACCENT} />
@@ -497,6 +527,7 @@ interface ExtremeScalpingLog {
   savedAt: number;
   score?: number;
   grade?: string;
+  mode?: 'quant' | 'sniper';
   status: ExtremeScalpingLogStatus;
   evaluatedAt?: string;
   exitPrice?: number;
@@ -618,7 +649,7 @@ function ExtremeScalpingLogTab({ colors }: { colors: ReturnType<typeof useColors
                 {log.rr!==undefined&&<View style={{flex:1,alignItems:'center'}}><Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>R:R</Text><Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:log.rr>0?'#22c55e':'#ef4444',marginTop:2}}>{log.rr>0?`1:${log.rr}`:'-1'}</Text></View>}
               </View>
               {/* maxScore Extreme Scalping = 10 (5 filter asli + BTC correlation + liquidity sweep + zone freshness + VWAP + Volume Profile) — update manual kalau maxScore di backend berubah lagi */}
-              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Confidence: {log.score}/100</Text>}
+              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Confidence: {log.score}/100{log.mode?` · ${log.mode==='sniper'?'🎯 Sniper':'⚡ Quant'}`:''}</Text>}
               {log.evaluatedAt&&<Text style={{fontSize:10,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:6,fontFamily:'Inter_400Regular'}}>Dievaluasi: {log.evaluatedAt}</Text>}
               <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,padding:8,gap:8,alignItems:'center'}}>
                 {log.status==='pending'&&(
@@ -647,6 +678,7 @@ export default function ExtremeScalpingScreen() {
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
   const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
   const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
+  const [selectedMode, setSelectedMode] = useState<'quant' | 'sniper' | undefined>();
   const [currentSignal, setCurrentSignal] = useState<any>(null);
 
   const handleSaveSignal = useCallback(async () => {
@@ -662,14 +694,16 @@ export default function ExtremeScalpingScreen() {
       timestamp: currentSignal.timestamp,
       savedAt: Date.now(),
       score: currentSignal.confidence,
+      mode: currentSignal.mode,
       status: 'pending',
     };
     await scalpSaveLog(log);
     setActiveTab('log');
   }, [currentSignal]);
 
-  const handleSelectCoin = useCallback((symbol: string) => {
+  const handleSelectCoin = useCallback((symbol: string, mode?: 'quant' | 'sniper') => {
     setSelectedSymbol(symbol);
+    setSelectedMode(mode);
     setActiveTab('analisa');
   }, []);
 
@@ -704,7 +738,7 @@ export default function ExtremeScalpingScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} initialMode={selectedMode} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
         : <ExtremeScalpingLogTab colors={colors} />
       }
     </View>

@@ -39,6 +39,8 @@ export * from './extremeScalpingResult';
 export * from './extremeScalpingResultBias';
 export * from './extremeScalpingResultEntryType';
 export * from './extremeScalpingResultFvg15M';
+export * from './extremeScalpingResultMode';
+export * from './extremeScalpingResultRecommendedMode';
 export * from './extremeScalpingResultStatus';
 export * from './extremeScalpingScanResponse';
 export * from './getBacktestListingInfoParams';

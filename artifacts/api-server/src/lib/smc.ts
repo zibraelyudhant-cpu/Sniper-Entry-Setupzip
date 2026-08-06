@@ -3737,6 +3737,8 @@ export function classifyScalpingMode(closes: number[], volumes: number[]): Scalp
 export interface ExtremeScalpingResult {
   status: 'siap_entry' | 'no_setup' | 'error';
   symbol: string;
+  mode?: 'quant' | 'sniper'; // 'quant' = skill 1 (15M->5M), 'sniper' = skill 2 (30M->15M/5M/1M)
+  recommendedMode?: 'quant' | 'sniper';
   bias?: 'bullish' | 'bearish';
   currentPrice: number;
   timestamp: string;
@@ -3746,10 +3748,10 @@ export interface ExtremeScalpingResult {
   volume24h?: number;
   atrPct?: number;
   entryType?: 'aggressive' | 'conservative';
-  ob15M?: { low: number; high: number; mid: number; fresh: boolean };
-  fvg15M?: { low: number; high: number; mid: number };
+  ob15M?: { low: number; high: number; mid: number; fresh: boolean }; // generic zone reference (skill 1: M15, skill 2: M30)
+  fvg15M?: { low: number; high: number; mid: number }; // generic FVG (skill 1: M15, skill 2: M30)
   liquidityPoolLevel?: number;
-  rsi5M?: number;
+  rsi5M?: number; // generic RSI eksekusi (skill 1: M5, skill 2: M1)
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
@@ -3798,7 +3800,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
       volume24h = parseFloat(t.quoteVolume);
     }
     if (volume24h < 10_000_000) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, message: `Volume 24h cuma $${(volume24h / 1e6).toFixed(1)}jt — butuh >$10jt`, maxScore, volume24h };
+      return { status: 'no_setup', mode: 'quant', symbol, currentPrice, timestamp, message: `Volume 24h cuma $${(volume24h / 1e6).toFixed(1)}jt — butuh >$10jt`, maxScore, volume24h };
     }
 
     const atr15 = calcATR(m15.highs, m15.lows, m15.closes);
@@ -3811,13 +3813,13 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     // ── Langkah 2: Struktur SMC TF15M (nentuin bias) ──────────────────────
     const n15 = m15.closes.length;
     if (n15 < 300) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, message: 'Data 15M gak cukup buat EMA200', maxScore, volume24h, atrPct, filterResults };
+      return { status: 'no_setup', mode: 'quant', symbol, currentPrice, timestamp, message: 'Data 15M gak cukup buat EMA200', maxScore, volume24h, atrPct, filterResults };
     }
 
     // ZigZag (request tambahan, bukan dari dokumen asli)
     const zz15 = zigzagBias(m15.highs, m15.lows, 3);
     if (zz15.bias === 'ranging') {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, message: 'ZigZag 15M masih ranging, belum ada trend jelas', maxScore, volume24h, atrPct, filterResults };
+      return { status: 'no_setup', mode: 'quant', symbol, currentPrice, timestamp, message: 'ZigZag 15M masih ranging, belum ada trend jelas', maxScore, volume24h, atrPct, filterResults };
     }
     const bias = zz15.bias;
 
@@ -3886,7 +3888,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
       }
 
       if (!bestSr) {
-        return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: 'Gak ada Order Block DAN gak ada S&R+Fibonacci confluence buat referensi zona entry', maxScore, volume24h, atrPct, filterResults };
+        return { status: 'no_setup', mode: 'quant', symbol, bias, currentPrice, timestamp, message: 'Gak ada Order Block DAN gak ada S&R+Fibonacci confluence buat referensi zona entry', maxScore, volume24h, atrPct, filterResults };
       }
       const zoneWidth = atr15 * 0.15;
       ob = { low: bestSr.price - zoneWidth, high: bestSr.price + zoneWidth, mid: bestSr.price, touches: bestSr.touches };
@@ -3922,7 +3924,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     const struct5 = analyzePriceActionStructure(m5.highs, m5.lows, m5.closes);
     if (struct5.bias !== bias) {
       return {
-        status: 'no_setup', symbol, bias, currentPrice, timestamp,
+        status: 'no_setup', mode: 'quant', symbol, bias, currentPrice, timestamp,
         message: 'Micro-structure 5M belum konfirmasi rejection sesuai bias',
         maxScore, volume24h, atrPct, filterResults, ob15M: { low: ob.low, high: ob.high, mid: ob.mid, fresh: true },
       };
@@ -3943,7 +3945,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     const rsi5 = calcRSI(m5.closes, 14);
     const rsiOk = bias === 'bullish' ? rsi5 > 50 : rsi5 < 50;
     if (!rsiOk) {
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: `RSI(14) 5M = ${rsi5.toFixed(1)} belum cross 50 searah bias`, maxScore, volume24h, atrPct, filterResults, rsi5M: rsi5 };
+      return { status: 'no_setup', mode: 'quant', symbol, bias, currentPrice, timestamp, message: `RSI(14) 5M = ${rsi5.toFixed(1)} belum cross 50 searah bias`, maxScore, volume24h, atrPct, filterResults, rsi5M: rsi5 };
     }
     filterResults.push(`✅ RSI(14) 5M = ${rsi5.toFixed(1)}, searah bias`);
 
@@ -3972,7 +3974,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     // punya bias jelas (bullish/bearish) dan itu LAWAN arah — baru diblok.
     const btcCheck = await checkBtcAlignment(bias, symbol);
     if (btcCheck.btcBias !== 'ranging' && !btcCheck.aligned) {
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: `BTC lawan arah (${btcCheck.btcBias}) — wajib searah kalau BTC punya bias jelas`, maxScore, volume24h, atrPct, filterResults };
+      return { status: 'no_setup', mode: 'quant', symbol, bias, currentPrice, timestamp, message: `BTC lawan arah (${btcCheck.btcBias}) — wajib searah kalau BTC punya bias jelas`, maxScore, volume24h, atrPct, filterResults };
     }
     filterResults.push(`✅ ${btcCheck.message || `BTC ${btcCheck.btcBias === 'ranging' ? 'lagi ranging — netral, tetep lolos' : 'searah'}`}`);
 
@@ -3985,7 +3987,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     const entryPrice = currentPrice; // aggressive: market di close candle konfirmasi
     const risk = Math.abs(entryPrice - stopLoss);
     if (risk <= 0) {
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: 'Risk tidak valid', maxScore, volume24h, atrPct, filterResults };
+      return { status: 'no_setup', mode: 'quant', symbol, bias, currentPrice, timestamp, message: 'Risk tidak valid', maxScore, volume24h, atrPct, filterResults };
     }
     // RR 1.8-3x: makin kuat konfluensi 15M (ada FVG jadi target tambahan) makin ke atas rentangnya
     const rr = fvg ? 3 : 1.8;
@@ -4007,7 +4009,7 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     ];
 
     return {
-      status: 'siap_entry', symbol, bias, currentPrice, timestamp,
+      status: 'siap_entry', symbol, mode: 'quant', bias, currentPrice, timestamp,
       confidence, maxScore, volume24h, atrPct, entryType: 'aggressive',
       ob15M: { low: ob.low, high: ob.high, mid: ob.mid, fresh: true },
       fvg15M: fvg ? { low: fvg.low, high: fvg.high, mid: fvg.mid } : undefined,
@@ -4018,7 +4020,263 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
     };
   } catch (err) {
     return {
-      status: 'error', symbol, currentPrice: 0, timestamp,
+      status: 'error', symbol, mode: 'quant', currentPrice: 0, timestamp,
+      message: err instanceof Error ? err.message : 'Unknown error',
+      maxScore: 100,
+    };
+  }
+}
+
+export interface ExtremeScalpingModeClassification {
+  recommendedMode: 'quant' | 'sniper';
+  adx: number;
+  reason: string;
+}
+
+/**
+ * Classifier — pilih skill mana yang lebih relevan. "Quant" (skill 1, 15M->5M)
+ * cocok buat market yang lagi cepat bergerak (candle 5M timeframe udah cukup).
+ * "Sniper" (skill 2, 30M->15M/5M/1M) cocok buat konfirmasi lebih dalam/precise
+ * — dipake kalau candle 5M kurang meyakinkan (ADX rendah di 5M), butuh drill
+ * down lebih jauh ke M1 buat presisi entry.
+ */
+export function classifyExtremeScalpingMode(highs5m: number[], lows5m: number[], closes5m: number[]): ExtremeScalpingModeClassification {
+  const adx5m = calcADX(highs5m, lows5m, closes5m);
+  if (adx5m >= 25) {
+    return { recommendedMode: 'quant', adx: adx5m, reason: `ADX 5M ${adx5m.toFixed(1)} udah cukup kuat — langsung 15M→5M (Quant)` };
+  }
+  return { recommendedMode: 'sniper', adx: adx5m, reason: `ADX 5M ${adx5m.toFixed(1)} lemah — butuh drill-down lebih dalam ke M1 (Sniper)` };
+}
+
+/**
+ * Extreme Scalping — Skill 2 "Sniper Extreme Scalping". LOGIKA SAMA PERSIS
+ * kayak skill 1 (Quant, 15M->5M), CUMA alur timeframe-nya beda: trend+zona di
+ * M30 (ganti 15M), eksekusi cascading M15(retest)->M5(EMA Ribbon)->M1(rejection+
+ * RSI+ROC+Volume+entry final). M1 pake 1000 candle (request eksplisit).
+ */
+export async function analyzeSniperExtremeScalping(symbol: string): Promise<ExtremeScalpingResult> {
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'long', year: 'numeric',
+  }) + ' WIB';
+  const maxScore = 100;
+
+  try {
+    const [m30, m15, m5, m1, ticker24hRes, tickerRes] = await Promise.all([
+      fetchKlines(symbol, '30m', 336),
+      fetchKlines(symbol, '15m', 480),
+      fetchKlines(symbol, '5m', 288),
+      fetchKlines(symbol, '1m', 1000), // request eksplisit: M1 pake 1000 candle
+      fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${symbol}`),
+      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
+    ]);
+    const currentPrice = tickerRes.ok
+      ? parseFloat((await tickerRes.json() as { price: string }).price)
+      : m1.closes[m1.closes.length - 1]!;
+
+    const filterResults: string[] = [];
+
+    // ── Langkah 1: Pre-filter (sama persis skill 1) ────────────────────────
+    let volume24h = 0;
+    if (ticker24hRes.ok) {
+      const t = (await ticker24hRes.json()) as { quoteVolume: string };
+      volume24h = parseFloat(t.quoteVolume);
+    }
+    if (volume24h < 10_000_000) {
+      return { status: 'no_setup', mode: 'sniper', symbol, currentPrice, timestamp, message: `Volume 24h cuma $${(volume24h / 1e6).toFixed(1)}jt — butuh >$10jt`, maxScore, volume24h };
+    }
+
+    const atr30 = calcATR(m30.highs, m30.lows, m30.closes);
+    const atrPct = (atr30 / currentPrice) * 100;
+    filterResults.push(`✅ Pre-filter: Volume 24h $${(volume24h / 1e6).toFixed(1)}jt, ATR ${atrPct.toFixed(2)}%${atrPct < 0.3 ? ' (rendah, tapi gak nge-block)' : ''}`);
+
+    // ── Langkah 2: Struktur SMC TF30M (nentuin bias) — ganti posisi 15M ────
+    const n30 = m30.closes.length;
+    if (n30 < 300) {
+      return { status: 'no_setup', mode: 'sniper', symbol, currentPrice, timestamp, message: 'Data 30M gak cukup buat EMA200', maxScore, volume24h, atrPct, filterResults };
+    }
+
+    const zz30 = zigzagBias(m30.highs, m30.lows, 3);
+    if (zz30.bias === 'ranging') {
+      return { status: 'no_setup', mode: 'sniper', symbol, currentPrice, timestamp, message: 'ZigZag 30M masih ranging, belum ada trend jelas', maxScore, volume24h, atrPct, filterResults };
+    }
+    const bias = zz30.bias;
+
+    const fractalHighs = findSwingHighs(m30.highs, 20);
+    const fractalLows = findSwingLows(m30.lows, 20);
+    const fractalOk = bias === 'bullish' ? fractalLows.length >= 2 : fractalHighs.length >= 2;
+    filterResults.push(fractalOk
+      ? `✅ Fractal swing points cukup buat validasi struktur`
+      : `⚠️ Fractal swing points kurang — gak wajib, tetep lanjut`);
+
+    const struct30 = analyzePriceActionStructure(m30.highs, m30.lows, m30.closes);
+    const structAligned = struct30.bias === bias;
+    filterResults.push(structAligned
+      ? `✅ Struktur 30M konfirmasi ZigZag (${bias})`
+      : `⚠️ Struktur 30M (${struct30.bias}) beda dari ZigZag (${bias}) — gak wajib, tetep lanjut`);
+
+    const ema200_30 = calcEMASeries(m30.closes, 200);
+    const lastEma200_30 = ema200_30[ema200_30.length - 1]!;
+    const lastClose30 = m30.closes[n30 - 1]!;
+    const emaAligned = bias === 'bullish' ? lastClose30 > lastEma200_30 : lastClose30 < lastEma200_30;
+    filterResults.push(emaAligned
+      ? `✅ Harga 30M ${bias === 'bullish' ? 'di atas' : 'di bawah'} EMA200 — bias konfirmasi`
+      : `⚠️ Harga 30M belum ${bias === 'bullish' ? 'di atas' : 'di bawah'} EMA200 — gak wajib, tetep lanjut`);
+    filterResults.push(`✅ ZigZag: ${bias === 'bullish' ? 'Bullish (HH/HL)' : 'Bearish (LL/LH)'} — EMA200 konfirmasi`);
+
+    // Order Block 30M — HARD FILTER (zona referensi wajib ada), freshness bonus,
+    // fallback S&R+Fibonacci kalau gak ada OB sama sekali (sama persis skill 1)
+    const obs30 = detectOrderBlocksH1(m30.opens, m30.highs, m30.lows, m30.closes, bias, 30);
+    type ZoneRef = { low: number; high: number; mid: number; touches: number };
+    let ob: ZoneRef;
+    let obFresh: boolean;
+
+    if (obs30.length > 0) {
+      const freshOb = obs30.filter(o => o.touches === 0);
+      const picked = freshOb.length > 0 ? freshOb[freshOb.length - 1]! : obs30[obs30.length - 1]!;
+      ob = { low: picked.low, high: picked.high, mid: picked.mid, touches: picked.touches };
+      obFresh = freshOb.length > 0;
+      filterResults.push(obFresh
+        ? `✅ Order Block 30M fresh: ${ob.low.toFixed(4)} - ${ob.high.toFixed(4)}`
+        : `⚠️ Order Block 30M udah pernah di-retest (bukan fresh): ${ob.low.toFixed(4)} - ${ob.high.toFixed(4)} — gak wajib, tetep lanjut`);
+    } else {
+      const srLevels = detectSRLevels(m30.highs, m30.lows, m30.closes, 100);
+      const fib = calcFibonacci(m30.highs, m30.lows, m30.closes);
+      const relevantType = bias === 'bullish' ? 'support' : 'resistance';
+      const candidates = srLevels.filter(s => s.type === relevantType);
+
+      let bestSr: SRLevel | null = null;
+      if (fib && candidates.length > 0) {
+        const fibValues = Object.values(fib.levels);
+        for (const sr of candidates) {
+          const numpukFib = fibValues.some(fv => (Math.abs(sr.price - fv) / sr.price) * 100 < 0.5);
+          if (numpukFib && (!bestSr || sr.touches > bestSr.touches)) bestSr = sr;
+        }
+      }
+
+      if (!bestSr) {
+        return { status: 'no_setup', mode: 'sniper', symbol, bias, currentPrice, timestamp, message: 'Gak ada Order Block DAN gak ada S&R+Fibonacci confluence buat referensi zona entry', maxScore, volume24h, atrPct, filterResults };
+      }
+      const zoneWidth = atr30 * 0.15;
+      ob = { low: bestSr.price - zoneWidth, high: bestSr.price + zoneWidth, mid: bestSr.price, touches: bestSr.touches };
+      obFresh = false;
+      filterResults.push(`✅ Gak ada OB, pakai fallback S&R+Fibonacci confluence: ${ob.low.toFixed(4)} - ${ob.high.toFixed(4)} (${bestSr.touches}x hits)`);
+    }
+
+    const fvgs30 = detectFVGH1(m30.highs, m30.lows, bias, 30);
+    const freshFvgList = fvgs30.filter(f => f.touches === 0);
+    const fvg = freshFvgList.length > 0 ? freshFvgList[freshFvgList.length - 1] : undefined;
+    if (fvg) filterResults.push(`✅ FVG 30M belum keisi: ${fvg.low.toFixed(4)} - ${fvg.high.toFixed(4)}`);
+
+    const liquidityLevel = bias === 'bullish'
+      ? (fractalHighs.length > 0 ? Math.max(...fractalHighs.slice(-3)) : undefined)
+      : (fractalLows.length > 0 ? Math.min(...fractalLows.slice(-3)) : undefined);
+
+    // ── Langkah 3: Cari momentum cascading M15 -> M5 -> M1 ─────────────────
+    // M15: cek retest zona (posisi "harga di dalam OB SEKARANG", bonus, gak block)
+    const lastClose15 = m15.closes[m15.closes.length - 1]!;
+    const inOb15 = lastClose15 >= ob.low && lastClose15 <= ob.high;
+    filterResults.push(inOb15
+      ? `✅ Harga 15M lagi di dalam zona 30M (${ob.low.toFixed(4)} - ${ob.high.toFixed(4)})`
+      : `⚠️ Harga 15M belum PERSIS di zona 30M — gak wajib, tetep lanjut`);
+
+    // M5: EMA Ribbon (bonus, gak block)
+    const ema21_5 = calcEMASeries(m5.closes, 21);
+    const ema50_5 = calcEMASeries(m5.closes, 50);
+    const lastClose5 = m5.closes[m5.closes.length - 1]!;
+    const lastEma21_5 = ema21_5[ema21_5.length - 1]!;
+    const lastEma50_5 = ema50_5[ema50_5.length - 1]!;
+    const emaRibbonOk = bias === 'bullish' ? (lastClose5 > lastEma21_5 && lastClose5 > lastEma50_5) : (lastClose5 < lastEma21_5 && lastClose5 < lastEma50_5);
+    filterResults.push(emaRibbonOk
+      ? `✅ EMA Ribbon 5M searah bias (EMA21/EMA50)`
+      : `⚠️ EMA Ribbon 5M belum searah bias — gak wajib, tetep lanjut`);
+
+    // M1: eksekusi final — rejection micro-structure (HARD), RSI cross 50 (HARD),
+    // ROC (bonus), Volume spike (bonus), Entry/SL/TP dihitung dari sini (paling presisi)
+    const n1 = m1.closes.length;
+    const lastClose1 = m1.closes[n1 - 1]!;
+    const struct1 = analyzePriceActionStructure(m1.highs, m1.lows, m1.closes);
+    if (struct1.bias !== bias) {
+      return {
+        status: 'no_setup', mode: 'sniper', symbol, bias, currentPrice, timestamp,
+        message: 'Micro-structure M1 belum konfirmasi rejection sesuai bias',
+        maxScore, volume24h, atrPct, filterResults, ob15M: { low: ob.low, high: ob.high, mid: ob.mid, fresh: true },
+      };
+    }
+    filterResults.push(`✅ Rejection micro-structure M1 valid`);
+
+    const rsi1 = calcRSI(m1.closes, 14);
+    const rsiOk = bias === 'bullish' ? rsi1 > 50 : rsi1 < 50;
+    if (!rsiOk) {
+      return { status: 'no_setup', mode: 'sniper', symbol, bias, currentPrice, timestamp, message: `RSI(14) M1 = ${rsi1.toFixed(1)} belum cross 50 searah bias`, maxScore, volume24h, atrPct, filterResults, rsi5M: rsi1 };
+    }
+    filterResults.push(`✅ RSI(14) M1 = ${rsi1.toFixed(1)}, searah bias`);
+
+    const rocLookback = 5;
+    const rocRef = m1.closes[n1 - 1 - rocLookback] ?? m1.closes[0]!;
+    const roc = rocRef > 0 ? ((lastClose1 - rocRef) / rocRef) * 100 : 0;
+    const rocOk = bias === 'bullish' ? roc > 0 : roc < 0;
+    const momentum1 = calcMomentumInfo(m1.highs, m1.lows, m1.closes);
+    filterResults.push(rocOk
+      ? `✅ ROC M1 ${roc.toFixed(2)}% searah bias${momentum1.message ? ` — ${momentum1.message}` : ''}`
+      : `⚠️ ROC M1 (${roc.toFixed(2)}%) belum searah bias — gak wajib, tetep lanjut`);
+
+    const volWindow1 = m1.volumes.slice(-21, -1);
+    const avgVol1 = volWindow1.length > 0 ? volWindow1.reduce((a, b) => a + b, 0) / volWindow1.length : 0;
+    const lastVol1 = m1.volumes[n1 - 1]!;
+    const volRatio1 = avgVol1 > 0 ? lastVol1 / avgVol1 : 0;
+    const volSpikeOk = volRatio1 > 1;
+    filterResults.push(volSpikeOk
+      ? `✅ Volume candle M1 spike (${(volRatio1 * 100).toFixed(0)}% dari MA20)`
+      : `⚠️ Volume candle M1 cuma ${(volRatio1 * 100).toFixed(0)}% avg — belum spike, gak wajib, tetep lanjut`);
+
+    const btcCheck = await checkBtcAlignment(bias, symbol);
+    if (btcCheck.btcBias !== 'ranging' && !btcCheck.aligned) {
+      return { status: 'no_setup', mode: 'sniper', symbol, bias, currentPrice, timestamp, message: `BTC lawan arah (${btcCheck.btcBias}) — wajib searah kalau BTC punya bias jelas`, maxScore, volume24h, atrPct, filterResults };
+    }
+    filterResults.push(`✅ ${btcCheck.message || `BTC ${btcCheck.btcBias === 'ranging' ? 'lagi ranging — netral, tetep lolos' : 'searah'}`}`);
+
+    // ── Entry, SL, TP — dari M1 (paling presisi) ───────────────────────────
+    const swingRef1 = bias === 'bullish' ? Math.min(...m1.lows.slice(-5)) : Math.max(...m1.highs.slice(-5));
+    const atr1 = calcATR(m1.highs, m1.lows, m1.closes);
+    const buffer = atr1 * 0.75;
+    const dir = bias === 'bullish' ? 1 : -1;
+    const stopLoss = swingRef1 - buffer * dir;
+    const entryPrice = currentPrice;
+    const risk = Math.abs(entryPrice - stopLoss);
+    if (risk <= 0) {
+      return { status: 'no_setup', mode: 'sniper', symbol, bias, currentPrice, timestamp, message: 'Risk tidak valid', maxScore, volume24h, atrPct, filterResults };
+    }
+    const rr = fvg ? 3 : 1.8;
+    const takeProfit1 = entryPrice + risk * rr * dir;
+
+    const confluenceFactors = [!!fvg, inOb15, structAligned, obFresh, fractalOk, emaAligned, emaRibbonOk, rsiOk, rocOk, volRatio1 > 1.5, btcCheck.btcBias === 'ranging' || btcCheck.aligned, atrPct >= 0.3];
+    const confidence = Math.round((confluenceFactors.filter(Boolean).length / confluenceFactors.length) * 100);
+
+    const tfBreakdown: TFBreakdownItem[] = [
+      { timeframe: '30M', label: 'Struktur + ZigZag + Fractal', detail: `${bias === 'bullish' ? 'Bullish' : 'Bearish'}, EMA200 konfirmasi`, status: 'confirm' },
+      { timeframe: '30M', label: 'Order Block', detail: `Fresh: ${ob.low.toFixed(4)} - ${ob.high.toFixed(4)}`, status: 'confirm' },
+      { timeframe: '30M', label: 'FVG', detail: fvg ? 'Belum keisi (RR ditingkatkan)' : 'Gak ada FVG fresh', status: fvg ? 'confirm' : 'neutral' },
+      { timeframe: '15M', label: 'Retest Zona', detail: inOb15 ? 'Di dalam zona' : 'Belum di dalam zona', status: inOb15 ? 'confirm' : 'neutral' },
+      { timeframe: '5M', label: 'EMA21/50 Ribbon', detail: emaRibbonOk ? 'Searah bias' : 'Belum searah', status: emaRibbonOk ? 'confirm' : 'neutral' },
+      { timeframe: 'M1', label: 'Rejection + RSI(14)', detail: `RSI ${rsi1.toFixed(1)}`, status: 'confirm' },
+      { timeframe: 'M1', label: 'ROC + Volume', detail: `ROC ${roc.toFixed(2)}%, Volume ${(volRatio1 * 100).toFixed(0)}%`, status: 'confirm' },
+      { timeframe: 'BTC', label: 'BTC Correlation', detail: btcCheck.message || 'Searah', status: 'confirm' },
+    ];
+
+    return {
+      status: 'siap_entry', mode: 'sniper', symbol, bias, currentPrice, timestamp,
+      confidence, maxScore, volume24h, atrPct, entryType: 'aggressive',
+      ob15M: { low: ob.low, high: ob.high, mid: ob.mid, fresh: true },
+      fvg15M: fvg ? { low: fvg.low, high: fvg.high, mid: fvg.mid } : undefined,
+      liquidityPoolLevel: liquidityLevel, rsi5M: rsi1,
+      entryPrice, stopLoss, takeProfit1, rr1: rr,
+      filterResults, tfBreakdown,
+      message: `SIAP ENTRY — semua syarat wajib lolos, konfluensi bonus ${confluenceFactors.filter(Boolean).length}/${confluenceFactors.length}, RR 1:${rr}`,
+    };
+  } catch (err) {
+    return {
+      status: 'error', mode: 'sniper', symbol, currentPrice: 0, timestamp,
       message: err instanceof Error ? err.message : 'Unknown error',
       maxScore: 100,
     };
