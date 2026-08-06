@@ -149,7 +149,7 @@ export interface SniperResult {
   mode?: "sniper" | "rsi2"; // skill yang dipakai buat hasilin sinyal ini
   recommendedMode?: "sniper" | "rsi2"; // rekomendasi classifier (ADX+RSI2), independen dari mode yang dipilih
   rsi2Value?: number; // nilai RSI(2) H4 pas analisa
-  ma200Relation?: "above" | "below"; // posisi harga H4 relatif ke MA200 (trend filter Connors)
+  ma150Relation?: "above" | "below"; // posisi harga H2 relatif ke MA150 (trend filter Connors)
   adxH4?: number; // buat transparansi kenapa classifier milih mode ini
   ma5ExitTarget?: number; // level MA5 H4 — patokan exit dinamis versi asli Connors
   recentPerformance?: RecentPerformance; // mini-backtest instan, cuma diisi di endpoint single-symbol
@@ -683,16 +683,28 @@ export interface ZigZagPoint {
   type: 'high' | 'low';
 }
 
+export interface ZigZagResult {
+  points: ZigZagPoint[]; // SEMUA titik CONFIRMED doang (gak termasuk pending)
+  pending: { type: 'high' | 'low'; value: number; distancePct: number } | null; // titik yang lagi berjalan, belum konfirmasi reversal
+}
+
 /**
  * ZigZag klasik: nyambungin swing high/low yang BENERAN signifikan,
  * ngabaikan gerakan kecil di bawah threshold%. Beda dari findSwingHighs/Lows
  * yang fixed left-right bars — ZigZag pakai threshold pergerakan harga (%),
  * jadi lebih adaptif ke volatilitas coin yang beda-beda.
+ *
+ * FIX: sebelumnya titik PENDING (belum terkonfirmasi reversal) ikut kemasukin
+ * ke array `points`, bikin titik "terakhir" itu rawan berubah/hilang begitu
+ * candle baru dateng (repainting) — INI YANG BIKIN SINYAL Extreme Scalping
+ * bisa "batal sendiri" beberapa menit setelah muncul. Sekarang dipisah:
+ * `points` cuma CONFIRMED, `pending` dikasih terpisah + `distancePct` (seberapa
+ * dekat ke threshold reversal) buat keperluan warning stability.
  */
-export function calcZigZag(highs: number[], lows: number[], thresholdPct: number): ZigZagPoint[] {
+export function calcZigZag(highs: number[], lows: number[], thresholdPct: number): ZigZagResult {
   const points: ZigZagPoint[] = [];
   const n = highs.length;
-  if (n < 2) return points;
+  if (n < 2) return { points, pending: null };
 
   let direction: 'up' | 'down' | 'unknown' = 'unknown';
   let pendingIdx = 0;
@@ -742,26 +754,43 @@ export function calcZigZag(highs: number[], lows: number[], thresholdPct: number
       }
     }
   }
-  // Titik pending terakhir (belum terkonfirmasi reversal, tapi tetap dimasukin biar keliatan progress-nya)
-  if (direction === 'up') points.push({ idx: pendingIdx, value: pendingHigh, type: 'high' });
-  else if (direction === 'down') points.push({ idx: pendingIdx, value: pendingLow, type: 'low' });
 
-  return points;
+  // Titik pending — TERPISAH dari points (biar gak ikut kehitung sebagai "confirmed"),
+  // plus distancePct: seberapa jauh harga SEKARANG dari threshold reversal (0% =
+  // baru mulai/rawan banget berubah, mendekati 100% = udah dekat reversal beneran)
+  let pending: ZigZagResult['pending'] = null;
+  const lastClose = direction !== 'unknown' ? (direction === 'up' ? lows[n - 1]! : highs[n - 1]!) : null;
+  if (direction === 'up' && lastClose !== null) {
+    const retrace = pendingHigh > 0 ? ((pendingHigh - lastClose) / pendingHigh) * 100 : 0;
+    pending = { type: 'high', value: pendingHigh, distancePct: Math.min(100, (retrace / thresholdPct) * 100) };
+  } else if (direction === 'down' && lastClose !== null) {
+    const retrace = pendingLow > 0 ? ((lastClose - pendingLow) / pendingLow) * 100 : 0;
+    pending = { type: 'low', value: pendingLow, distancePct: Math.min(100, (retrace / thresholdPct) * 100) };
+  }
+
+  return { points, pending };
 }
 
 /**
- * Tentuin bias trend dari ZigZag point terakhir: HH+HL = bullish, LH+LL = bearish, selain itu ranging.
+ * Tentuin bias trend dari ZigZag — HH+HL = bullish, LH+LL = bearish, selain itu ranging.
  * Dipakai sebagai HARD FILTER konfirmasi trend — kalau ZigZag bilang ranging/gak searah
  * sama structure biasa, sinyal di-skip.
+ *
+ * FIX: evaluasi HH/HL/LH/LL sekarang CUMA pakai titik CONFIRMED (exclude pending) —
+ * lebih stabil, gak gampang berubah tiap candle baru. `nearReversal: true` kalau
+ * pending point udah >=70% menuju threshold reversal — warning "rawan berubah",
+ * karena kalau reversal beneran kejadian, bias BISA LANGSUNG BEDA di scan berikutnya.
  */
 export function zigzagBias(highs: number[], lows: number[], thresholdPct: number): {
   bias: 'bullish' | 'bearish' | 'ranging';
   points: ZigZagPoint[];
+  nearReversal: boolean; // true kalau pending point udah >=70% menuju threshold reversal — warning "rawan berubah"
 } {
-  const points = calcZigZag(highs, lows, thresholdPct);
+  const { points, pending } = calcZigZag(highs, lows, thresholdPct);
+  const nearReversal = pending !== null && pending.distancePct >= 70;
   const zzHighs = points.filter(p => p.type === 'high');
   const zzLows = points.filter(p => p.type === 'low');
-  if (zzHighs.length < 2 || zzLows.length < 2) return { bias: 'ranging', points };
+  if (zzHighs.length < 2 || zzLows.length < 2) return { bias: 'ranging', points, nearReversal };
 
   const h2 = zzHighs.slice(-2);
   const l2 = zzLows.slice(-2);
@@ -770,9 +799,9 @@ export function zigzagBias(highs: number[], lows: number[], thresholdPct: number
   const lh = h2[1]!.value < h2[0]!.value;
   const ll = l2[1]!.value < l2[0]!.value;
 
-  if (hh && hl) return { bias: 'bullish', points };
-  if (lh && ll) return { bias: 'bearish', points };
-  return { bias: 'ranging', points };
+  if (hh && hl) return { bias: 'bullish', points, nearReversal };
+  if (lh && ll) return { bias: 'bearish', points, nearReversal };
+  return { bias: 'ranging', points, nearReversal };
 }
 
 // ─── Step 1: Price Action Structure ──────────────────────────────────────────
@@ -2437,14 +2466,16 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
   }) + ' WIB';
 
   try {
-    // Fetch all data in parallel — D1 udah gak dipake lagi, H4 sekarang jadi trend utama SEKALIGUS zona entry
-    const [h4, h1, m15, m5, currentTickerRes] = await Promise.all([
-      fetchKlines(symbol, "4h", 360),  // H4 — trend utama + zona entry
-      fetchKlines(symbol, "1h", 720),   // H1 — refine zona + RSI divergence
-      fetchKlines(symbol, "15m", 480), // 15M — refine lebih presisi
-      fetchKlines(symbol, "5m", 288),  // 5M — entry presisi
+    // Fetch all data in parallel — alur baru: H2 trend+zona -> 15M refine -> 5M momentum.
+    // H1 gak di-fetch terpisah lagi, "h1" jadi ALIAS ke m15 (semua logic refine yang
+    // tadinya jalan di H1 sekarang otomatis jalan di 15M, tanpa restructure logic).
+    const [h4, m15, m5, currentTickerRes] = await Promise.all([
+      fetchKlines(symbol, "2h", 170),  // H2 (ganti H4) — trend utama + zona entry
+      fetchKlines(symbol, "15m", 480), // 15M — refine (nyerap peran H1 lama + 15M lama)
+      fetchKlines(symbol, "5m", 288),  // 5M — momentum/entry presisi
       fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
+    const h1 = m15; // alias — H1 dihapus dari alur, 15M nyerap perannya
 
     let currentPrice: number;
     if (currentTickerRes.ok) {
@@ -2624,6 +2655,9 @@ export async function analyzeSniperEntry(symbol: string): Promise<SniperResult> 
     // STEP 5: Probability scoring
     let profitProbability = 0;
     const probabilityFactors: string[] = [];
+    if (zzH4.nearReversal) {
+      probabilityFactors.push(`⚠️ PERINGATAN: ZigZag H2 lagi deket titik reversal (>70% threshold) — bias ini RAWAN BERUBAH kalau di-scan ulang beberapa menit lagi`);
+    }
 
     if (rsiDivergenceH1) {
       profitProbability += 25;
@@ -2948,7 +2982,7 @@ export async function analyzeRSI2Entry(symbol: string): Promise<SniperResult> {
 
   try {
     const [h4, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '4h', 360), // standarisasi candle count per TF
+      fetchKlines(symbol, '2h', 170), // ganti H4->H2 sesuai request
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -2956,15 +2990,15 @@ export async function analyzeRSI2Entry(symbol: string): Promise<SniperResult> {
       : h4.closes[h4.closes.length - 1]!;
 
     const n = h4.closes.length;
-    if (n < 200) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'rsi2', message: 'Data H4 gak cukup buat MA200 (butuh minimal 200 candle)' };
+    if (n < 150) {
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'rsi2', message: 'Data H2 gak cukup buat MA150 (butuh minimal 150 candle)' };
     }
 
-    const ma200 = calcSMA(h4.closes, 200);
+    const ma200 = calcSMA(h4.closes, 150);
     const ma5 = calcSMA(h4.closes, 5);
     const adxH4 = calcADX(h4.highs, h4.lows, h4.closes);
     const rsi2 = calcRSI(h4.closes, 2);
-    const ma200Relation: 'above' | 'below' = currentPrice >= ma200 ? 'above' : 'below';
+    const ma150Relation: 'above' | 'below' = currentPrice >= ma200 ? 'above' : 'below';
 
     // HARD FILTER 1: ADX minimal 20 — Connors RSI-2 didesain buat "pullback DALAM
     // trend kuat", bukan buat market choppy/sideways (beda dari mode Sniper yang
@@ -2972,26 +3006,26 @@ export async function analyzeRSI2Entry(symbol: string): Promise<SniperResult> {
     if (adxH4 < 20) {
       return {
         status: 'no_trend', symbol, currentPrice, timestamp, mode: 'rsi2',
-        adxH4, rsi2Value: rsi2, ma200Relation, ma5ExitTarget: ma5,
-        message: `ADX H4 cuma ${adxH4.toFixed(1)} — trend belum cukup kuat buat RSI-2 (butuh ≥20)`,
+        adxH4, rsi2Value: rsi2, ma150Relation, ma5ExitTarget: ma5,
+        message: `ADX H2 cuma ${adxH4.toFixed(1)} — trend belum cukup kuat buat RSI-2 (butuh ≥20)`,
       };
     }
 
-    const bias: 'bullish' | 'bearish' = ma200Relation === 'above' ? 'bullish' : 'bearish';
+    const bias: 'bullish' | 'bearish' = ma150Relation === 'above' ? 'bullish' : 'bearish';
 
     // HARD FILTER 2: RSI(2) wajib ekstrem SEARAH bias (bukan cuma ekstrem doang)
     const isExtreme = bias === 'bullish' ? rsi2 < 10 : rsi2 > 90;
     if (!isExtreme) {
       return {
         status: 'not_extreme', symbol, currentPrice, timestamp, bias, mode: 'rsi2',
-        adxH4, rsi2Value: rsi2, ma200Relation, ma5ExitTarget: ma5,
-        message: `RSI(2) H4 = ${rsi2.toFixed(1)} — belum cukup ekstrem (butuh ${bias === 'bullish' ? '< 10' : '> 90'})`,
+        adxH4, rsi2Value: rsi2, ma150Relation, ma5ExitTarget: ma5,
+        message: `RSI(2) H2 = ${rsi2.toFixed(1)} — belum cukup ekstrem (butuh ${bias === 'bullish' ? '< 10' : '> 90'})`,
       };
     }
 
     const filterResults: string[] = [
-      `✅ Trend H4: ${bias === 'bullish' ? 'di atas MA200' : 'di bawah MA200'} (ADX ${adxH4.toFixed(1)})`,
-      `✅ RSI(2) H4 ekstrem: ${rsi2.toFixed(1)} ${bias === 'bullish' ? '(oversold, cari LONG)' : '(overbought, cari SHORT)'}`,
+      `✅ Trend H2: ${bias === 'bullish' ? 'di atas MA150' : 'di bawah MA150'} (ADX ${adxH4.toFixed(1)})`,
+      `✅ RSI(2) H2 ekstrem: ${rsi2.toFixed(1)} ${bias === 'bullish' ? '(oversold, cari LONG)' : '(overbought, cari SHORT)'}`,
     ];
     let score = 2;
 
@@ -3045,10 +3079,10 @@ export async function analyzeRSI2Entry(symbol: string): Promise<SniperResult> {
 
     return {
       status: 'ready', symbol, currentPrice, timestamp, bias, mode: 'rsi2',
-      rsi2Value: rsi2, ma200Relation, adxH4, ma5ExitTarget: ma5,
+      rsi2Value: rsi2, ma150Relation, adxH4, ma5ExitTarget: ma5,
       entryPrice, stopLoss, takeProfit1, takeProfit2,
       score, maxScore, filterResults,
-      message: `RSI-2 ${bias === 'bullish' ? 'LONG' : 'SHORT'} — RSI(2) H4 ${rsi2.toFixed(1)}, exit dinamis di MA5 (${ma5.toFixed(4)})`,
+      message: `RSI-2 ${bias === 'bullish' ? 'LONG' : 'SHORT'} — RSI(2) H2 ${rsi2.toFixed(1)}, exit dinamis di MA5 (${ma5.toFixed(4)})`,
     };
   } catch (err) {
     return {
@@ -3110,13 +3144,18 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
   const maxScore = 12; // 7 filter asli + SMA200 (soft) + RSI(2) (soft) + BTC correlation + zone freshness + VWAP + Volume Profile
 
   try {
-    const [h4, h1, m30, m5, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '4h', 360),   // H4 — trend utama, SMA200/SMA13, RSI(2), SL
-      fetchKlines(symbol, '1h', 720),    // H1 — RSI divergence
-      fetchKlines(symbol, '30m', 336),  // M30 — zona entry & pattern
-      fetchKlines(symbol, '5m', 288),   // M5 — refine zona
+    // Alur baru: H1 trend+zona -> M15 retest -> M5 ribbon. Variable NAME h4/h1/m30
+    // DIPERTAHANKAN (biar semua logic existing di bawah gak perlu diubah), tapi
+    // SUMBER DATANYA diganti: h4 sekarang isinya H1 (trend utama), h1 & m30
+    // di-ALIAS ke m15 (nyerap peran RSI divergence + zona entry lama).
+    const [h4, m15, m5, tickerRes] = await Promise.all([
+      fetchKlines(symbol, '1h', 720),   // H1 (ganti H4) — trend utama, SMA200/SMA13, RSI(2), SL
+      fetchKlines(symbol, '15m', 480),  // M15 — retest (nyerap peran H1 lama + M30 lama)
+      fetchKlines(symbol, '5m', 288),   // M5 — ribbon/refine
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
+    const h1 = m15; // alias — RSI divergence sekarang dicek di M15
+    const m30 = m15; // alias — zona entry & pattern sekarang dicek di M15
     const currentPrice = tickerRes.ok
       ? parseFloat((await tickerRes.json() as { price: string }).price)
       : m30.closes[m30.closes.length - 1];
@@ -3137,6 +3176,9 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const zzH4 = zigzagBias(h4.highs, h4.lows, 3);
     if (zzH4.bias === 'ranging' || zzH4.bias !== bias) {
       return { status: 'skip', symbol, currentPrice, timestamp, message: `ZigZag H4 tidak konfirmasi trend (structure: ${bias}, zigzag: ${zzH4.bias}) — kemungkinan trend palsu/noise`, score, maxScore, filterResults };
+    }
+    if (zzH4.nearReversal) {
+      filterResults.push(`⚠️ PERINGATAN: ZigZag H1 lagi deket titik reversal (>70% threshold) — bias ini RAWAN BERUBAH kalau di-scan ulang beberapa menit lagi`);
     }
 
     // SMA200 H4 trend confirmation + RSI(2) H4 ekstrem — BALIK jadi soft/bonus
@@ -3493,8 +3535,9 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
   const maxScore = 4; // pullback volume (wajib) + rejection volume + momentum align + BTC correlation
 
   try {
-    const [m15, tickerRes] = await Promise.all([
+    const [m15, m1, tickerRes] = await Promise.all([
       fetchKlines(symbol, '15m', 480),
+      fetchKlines(symbol, '1m', 1000), // eksekusi presisi (request eksplisit: 1000 candle)
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -3651,14 +3694,14 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       filterResults.push('⚠️ Rejection volume belum spike');
     }
 
-    const rsi15 = calcRSI(m15.closes, 14);
-    const macd15 = calcMACD(m15.closes);
-    const momentumAlign = bias === 'bullish' ? (rsi15 > 50 && macd15.histogram > 0) : (rsi15 < 50 && macd15.histogram < 0);
+    const rsi1 = calcRSI(m1.closes, 14);
+    const macd1 = calcMACD(m1.closes);
+    const momentumAlign = bias === 'bullish' ? (rsi1 > 50 && macd1.histogram > 0) : (rsi1 < 50 && macd1.histogram < 0);
     if (momentumAlign) {
       confirmCount++; score++;
-      filterResults.push(`✅ Momentum align — RSI ${rsi15.toFixed(1)}, MACD histogram ${macd15.histogram > 0 ? 'positif' : 'negatif'} searah bias`);
+      filterResults.push(`✅ Momentum align M1 (eksekusi) — RSI ${rsi1.toFixed(1)}, MACD histogram ${macd1.histogram > 0 ? 'positif' : 'negatif'} searah bias`);
     } else {
-      filterResults.push(`⚠️ Momentum belum align — RSI ${rsi15.toFixed(1)}`);
+      filterResults.push(`⚠️ Momentum M1 belum align — RSI ${rsi1.toFixed(1)}`);
     }
 
     if (confirmCount < 1) {
@@ -3687,7 +3730,7 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       { timeframe: 'M15', label: 'Breakout Zona', detail: `${bias === 'bullish' ? 'Bullish' : 'Bearish'} dari ${foundBreakout.zoneLevel.toFixed(4)}, ${candlesSinceBreakout} candle lalu`, status: 'confirm' },
       { timeframe: 'M15', label: 'Pullback Volume', detail: 'Rendah (koreksi lemah)', status: 'confirm' },
       { timeframe: 'M15', label: 'Rejection Volume', detail: rejectionVolumeOk ? 'Spike ≥1.2x' : 'Belum spike', status: rejectionVolumeOk ? 'confirm' : 'neutral' },
-      { timeframe: 'M15', label: 'Momentum Align', detail: momentumAlign ? 'RSI+MACD searah' : 'Belum align', status: momentumAlign ? 'confirm' : 'neutral' },
+      { timeframe: 'M1', label: 'Momentum Align', detail: momentumAlign ? 'RSI+MACD searah' : 'Belum align', status: momentumAlign ? 'confirm' : 'neutral' },
     ];
 
     return {
@@ -3822,6 +3865,9 @@ export async function analyzeExtremeScalpingEntry(symbol: string): Promise<Extre
       return { status: 'no_setup', mode: 'quant', symbol, currentPrice, timestamp, message: 'ZigZag 15M masih ranging, belum ada trend jelas', maxScore, volume24h, atrPct, filterResults };
     }
     const bias = zz15.bias;
+    if (zz15.nearReversal) {
+      filterResults.push(`⚠️ PERINGATAN: ZigZag 15M lagi deket titik reversal (>70% threshold) — bias ini RAWAN BERUBAH kalau di-scan ulang beberapa menit lagi`);
+    }
 
     // Fractal — 5-candle swing (2 kiri + 2 kanan) — DILONGGARIN jadi bonus scoring
     const fractalHighs = findSwingHighs(m15.highs, 20);
@@ -4101,6 +4147,9 @@ export async function analyzeSniperExtremeScalping(symbol: string): Promise<Extr
       return { status: 'no_setup', mode: 'sniper', symbol, currentPrice, timestamp, message: 'ZigZag 30M masih ranging, belum ada trend jelas', maxScore, volume24h, atrPct, filterResults };
     }
     const bias = zz30.bias;
+    if (zz30.nearReversal) {
+      filterResults.push(`⚠️ PERINGATAN: ZigZag 30M lagi deket titik reversal (>70% threshold) — bias ini RAWAN BERUBAH kalau di-scan ulang beberapa menit lagi`);
+    }
 
     const fractalHighs = findSwingHighs(m30.highs, 20);
     const fractalLows = findSwingLows(m30.lows, 20);
@@ -4321,6 +4370,7 @@ function classifyTFTrend(highs: number[], lows: number[], closes: number[]): TFC
   if (zz.bias === 'bullish') { bullVotes++; confirmations.push('✅ ZigZag: Bullish'); }
   else if (zz.bias === 'bearish') { bearVotes++; confirmations.push('✅ ZigZag: Bearish'); }
   else confirmations.push('⚠️ ZigZag: Ranging');
+  if (zz.nearReversal) confirmations.push('⚠️ ZigZag deket titik reversal — rawan berubah di scan berikutnya');
 
   const ema50Series = calcEMASeries(closes, 50);
   const ema100Series = calcEMASeries(closes, 100); // EMA200 -> EMA100, biar match D1 (100 candle)
@@ -5575,8 +5625,9 @@ interface ConfidenceResult {
 }
 
 /**
- * Weighted confidence score — 6 faktor:
- * Volume 30% | Trend MA50/200 20% | RSI(14) 15% | MACD 15% | ATR Expansion 10% | Hits Count 10%
+ * Weighted confidence score — 7 faktor:
+ * Volume 20% | Trend MA50/200 20% | RSI(14) 10% | MACD 15% | ATR Expansion 10%
+ * | Hits Count 5% | BTC Correlation 10% | M5 Momentum 10% (BARU)
  */
 function calcBreakoutConfidenceScore(
   bias: 'bullish' | 'bearish',
@@ -5586,15 +5637,16 @@ function calcBreakoutConfidenceScore(
   macdHistogram: number,
   atrNow: number, atrPrev: number,
   hits: number,
-  btcAligned: boolean, btcBias: 'bullish' | 'bearish' | 'ranging'
+  btcAligned: boolean, btcBias: 'bullish' | 'bearish' | 'ranging',
+  rsi5M: number
 ): ConfidenceResult {
   const factors: ConfidenceFactor[] = [];
   let total = 0;
 
-  // Volume — 25% (dikurangin dari 30, kasih ruang buat BTC Correlation)
-  const volScore = Math.min(25, (volumeRatio / 1.5) * 25);
+  // Volume — 20% (dikurangin dari 25, kasih ruang buat M5 Momentum)
+  const volScore = Math.min(20, (volumeRatio / 1.5) * 20);
   total += volScore;
-  factors.push({ name: 'Volume', contribution: Math.round(volScore), maxContribution: 25, detail: `${(volumeRatio * 100).toFixed(0)}% dari rata-rata` });
+  factors.push({ name: 'Volume', contribution: Math.round(volScore), maxContribution: 20, detail: `${(volumeRatio * 100).toFixed(0)}% dari rata-rata` });
 
   // Trend MA50/200 — 20%
   const trendAligned = bias === 'bullish' ? ma50 > ma200 : ma50 < ma200;
@@ -5602,20 +5654,20 @@ function calcBreakoutConfidenceScore(
   total += trendScore;
   factors.push({ name: 'Trend MA50/200', contribution: trendScore, maxContribution: 20, detail: trendAligned ? 'Searah bias' : 'Lawan arah bias' });
 
-  // RSI(14) — 15%
+  // RSI(14) — 10% (dikurangin dari 15, kasih ruang buat M5 Momentum)
   let rsiScore = 0;
   let rsiDetail = '';
   if (bias === 'bullish') {
-    if (rsi > 50 && rsi < 70) { rsiScore = 15; rsiDetail = 'Momentum bullish sehat'; }
-    else if (rsi >= 70) { rsiScore = 7; rsiDetail = 'Overbought, momentum masih ada tapi beresiko'; }
+    if (rsi > 50 && rsi < 70) { rsiScore = 10; rsiDetail = 'Momentum bullish sehat'; }
+    else if (rsi >= 70) { rsiScore = 5; rsiDetail = 'Overbought, momentum masih ada tapi beresiko'; }
     else { rsiDetail = 'Belum mendukung bullish'; }
   } else {
-    if (rsi < 50 && rsi > 30) { rsiScore = 15; rsiDetail = 'Momentum bearish sehat'; }
-    else if (rsi <= 30) { rsiScore = 7; rsiDetail = 'Oversold, momentum masih ada tapi beresiko'; }
+    if (rsi < 50 && rsi > 30) { rsiScore = 10; rsiDetail = 'Momentum bearish sehat'; }
+    else if (rsi <= 30) { rsiScore = 5; rsiDetail = 'Oversold, momentum masih ada tapi beresiko'; }
     else { rsiDetail = 'Belum mendukung bearish'; }
   }
   total += rsiScore;
-  factors.push({ name: 'RSI(14)', contribution: rsiScore, maxContribution: 15, detail: `${rsi.toFixed(1)} — ${rsiDetail}` });
+  factors.push({ name: 'RSI(14)', contribution: rsiScore, maxContribution: 10, detail: `${rsi.toFixed(1)} — ${rsiDetail}` });
 
   // MACD Histogram — 15%
   const macdAligned = bias === 'bullish' ? macdHistogram > 0 : macdHistogram < 0;
@@ -5629,13 +5681,12 @@ function calcBreakoutConfidenceScore(
   total += atrScore;
   factors.push({ name: 'ATR Expansion', contribution: atrScore, maxContribution: 10, detail: atrExpanding ? 'Volatilitas ekspansi' : 'Volatilitas normal/menyempit' });
 
-  // Hits Count — 5% (dikurangin dari 10, kasih ruang buat BTC Correlation)
+  // Hits Count — 5%
   const hitsScore = Math.min(5, (hits / 5) * 5);
   total += hitsScore;
   factors.push({ name: 'Hits Count', contribution: Math.round(hitsScore), maxContribution: 5, detail: `Level disentuh ${hits}x sebelumnya` });
 
-  // BTC Correlation — 10% (baru). Aligned & searah = full, ranging = netral (gak ada
-  // sinyal jelas dari BTC, kasih separuh), lawan arah BTC = 0.
+  // BTC Correlation — 10%
   let btcScore = 0;
   let btcDetail = '';
   if (btcBias === 'ranging') {
@@ -5650,6 +5701,12 @@ function calcBreakoutConfidenceScore(
   total += btcScore;
   factors.push({ name: 'BTC Correlation', contribution: btcScore, maxContribution: 10, detail: btcDetail });
 
+  // M5 Momentum — 10% (BARU) — RSI(14) M5 searah bias, konfirmasi momentum jangka pendek
+  const m5Aligned = bias === 'bullish' ? rsi5M > 50 : rsi5M < 50;
+  const m5Score = m5Aligned ? 10 : 0;
+  total += m5Score;
+  factors.push({ name: 'M5 Momentum', contribution: m5Score, maxContribution: 10, detail: `RSI(14) M5 ${rsi5M.toFixed(1)} — ${m5Aligned ? 'searah bias' : 'belum searah'}` });
+
   return { score: Math.round(total), factors };
 }
 
@@ -5661,8 +5718,9 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
   const maxScore = 100; // skala confidence score
 
   try {
-    const [m30, tickerRes] = await Promise.all([
+    const [m30, m5, tickerRes] = await Promise.all([
       fetchKlines(symbol, '30m', 336),
+      fetchKlines(symbol, '5m', 288), // M5 momentum (BARU)
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -5704,7 +5762,8 @@ export async function analyzeBreakoutTrading(symbol: string): Promise<BreakoutTr
     const volumeRatio = avgVol > 0 ? lastVol / avgVol : 0;
 
     const btcCheck = await checkBtcAlignment(bias, symbol);
-    const confidence = calcBreakoutConfidenceScore(bias, volumeRatio, ma50, ma200, rsi, macdResult.histogram, atr, atrPrevSlice, hits, btcCheck.aligned, btcCheck.btcBias);
+    const rsi5M = calcRSI(m5.closes, 14);
+    const confidence = calcBreakoutConfidenceScore(bias, volumeRatio, ma50, ma200, rsi, macdResult.histogram, atr, atrPrevSlice, hits, btcCheck.aligned, btcCheck.btcBias, rsi5M);
 
     if (confidence.score < 50) {
       return {
@@ -5838,12 +5897,9 @@ interface CrossoverConfidenceResult {
 }
 
 /**
- * Weighted confidence score Crossover v2 — 6 faktor:
- * Volume 30% | Trend MA50 20% | ATR Expansion 15% | Hits Count 15% |
- * Candle Close Strength 10% | BTC Correlation 10%
- * (bobot asli dari spec: Volume 35/Trend 20/ATR 15/Hits 15/Close 15 — Volume
- * & Close Strength dikurangin dikit buat kasih ruang BTC Correlation 10%,
- * konsisten sama aturan "tiap menu analisa wajib BTC Correlation")
+ * Weighted confidence score Crossover v2 — 7 faktor:
+ * Volume 25% | Trend MA50 20% | ATR Expansion 15% | Hits Count 10% |
+ * Candle Close Strength 10% | BTC Correlation 10% | M5 Momentum 10% (BARU)
  */
 function calcCrossoverConfidenceScore(
   volumeRatio: number,
@@ -5851,14 +5907,15 @@ function calcCrossoverConfidenceScore(
   atrExpanding: boolean,
   hits: number,
   closeStrength: number,
-  btcAligned: boolean, btcBias: 'bullish' | 'bearish' | 'ranging'
+  btcAligned: boolean, btcBias: 'bullish' | 'bearish' | 'ranging',
+  bias: 'bullish' | 'bearish', rsi5M: number
 ): CrossoverConfidenceResult {
   const factors: CrossoverConfidenceFactor[] = [];
   let total = 0;
 
-  const volScore = Math.min(30, (volumeRatio / 1.4) * 30);
+  const volScore = Math.min(25, (volumeRatio / 1.4) * 25);
   total += volScore;
-  factors.push({ name: 'Volume', contribution: Math.round(volScore), maxContribution: 30, detail: `${(volumeRatio * 100).toFixed(0)}% dari rata-rata` });
+  factors.push({ name: 'Volume', contribution: Math.round(volScore), maxContribution: 25, detail: `${(volumeRatio * 100).toFixed(0)}% dari rata-rata` });
 
   const trendScore = trendAligned ? 20 : 0;
   total += trendScore;
@@ -5868,9 +5925,9 @@ function calcCrossoverConfidenceScore(
   total += atrScore;
   factors.push({ name: 'ATR Expansion', contribution: atrScore, maxContribution: 15, detail: atrExpanding ? 'Volatilitas naik' : 'Normal/menyempit' });
 
-  const hitsScore = Math.min(15, (hits / 5) * 15);
+  const hitsScore = Math.min(10, (hits / 5) * 10);
   total += hitsScore;
-  factors.push({ name: 'Hits Count', contribution: Math.round(hitsScore), maxContribution: 15, detail: `Zona disentuh ${hits}x sebelumnya` });
+  factors.push({ name: 'Hits Count', contribution: Math.round(hitsScore), maxContribution: 10, detail: `Zona disentuh ${hits}x sebelumnya` });
 
   const closeScore = Math.min(10, closeStrength * 10);
   total += closeScore;
@@ -5889,6 +5946,12 @@ function calcCrossoverConfidenceScore(
   }
   total += btcScore;
   factors.push({ name: 'BTC Correlation', contribution: btcScore, maxContribution: 10, detail: btcDetail });
+
+  // M5 Momentum — 10% (BARU) — RSI(14) M5 searah bias
+  const m5Aligned = bias === 'bullish' ? rsi5M > 50 : rsi5M < 50;
+  const m5Score = m5Aligned ? 10 : 0;
+  total += m5Score;
+  factors.push({ name: 'M5 Momentum', contribution: m5Score, maxContribution: 10, detail: `RSI(14) M5 ${rsi5M.toFixed(1)} — ${m5Aligned ? 'searah bias' : 'belum searah'}` });
 
   return { score: Math.round(total), factors };
 }
@@ -5910,8 +5973,9 @@ export async function analyzeBreakoutCrossover(symbol: string): Promise<Breakout
   const maxScore = 100;
 
   try {
-    const [m30, tickerRes] = await Promise.all([
+    const [m30, m5, tickerRes] = await Promise.all([
       fetchKlines(symbol, '30m', 336),
+      fetchKlines(symbol, '5m', 288), // M5 momentum (BARU)
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -5998,7 +6062,8 @@ export async function analyzeBreakoutCrossover(symbol: string): Promise<Breakout
       : Math.max(0, (breakout.edgeLower - lastClose) / zoneWidth);
 
     const btcCheck = await checkBtcAlignment(bias, symbol);
-    const confidence = calcCrossoverConfidenceScore(volumeRatio, trendAligned, atrExpanding, breakout.hits, closeStrength, btcCheck.aligned, btcCheck.btcBias);
+    const rsi5M = calcRSI(m5.closes, 14);
+    const confidence = calcCrossoverConfidenceScore(volumeRatio, trendAligned, atrExpanding, breakout.hits, closeStrength, btcCheck.aligned, btcCheck.btcBias, bias, rsi5M);
 
     if (confidence.score < 50) {
       return {
@@ -6824,4 +6889,71 @@ export async function getRecentPerformance(
   } catch {
     return null; // fail-safe — kalau mini-backtest gagal, jangan ganggu hasil analisa utama
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ALL-MENUS ANALYSIS — menu baru, analisa 1 koin di SEMUA menu sekaligus
+// (Breakout Entry x2 skill, Sniper x2 skill, Scalping x2 skill, Extreme
+// Scalping x2 skill, + Multi-TF breakdown). Search-only, gak ada tab Scan
+// sendiri — user cari 1 symbol, langsung liat semua hasil.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface AllMenusResult {
+  symbol: string;
+  timestamp: string;
+  breakoutConfidence: BreakoutTradingResult | null;
+  breakoutCrossover: BreakoutTradingResult | null;
+  sniperStructural: SniperResult | null;
+  sniperRsiConnors: SniperResult | null;
+  scalpingStructural: ScalpingResult | null;
+  scalpingM15: ScalpingResult | null;
+  extremeQuant: ExtremeScalpingResult | null;
+  extremeSniper: ExtremeScalpingResult | null;
+  multiTf: MultiTFDetailResult | null;
+}
+
+/**
+ * Analisa 1 koin di SEMUA menu sekaligus — 9 fungsi dipanggil paralel.
+ * Tiap fungsi dibungkus try-catch individual (Promise.allSettled) biar 1
+ * menu gagal gak bikin SEMUA hasil ilang — yang gagal cukup jadi null,
+ * bagian lain tetep tampil.
+ */
+export async function analyzeAllMenus(symbol: string): Promise<AllMenusResult> {
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'long', year: 'numeric',
+  }) + ' WIB';
+
+  const [
+    breakoutConfidence, breakoutCrossover,
+    sniperStructural, sniperRsiConnors,
+    scalpingStructural, scalpingM15,
+    extremeQuant, extremeSniper,
+    multiTf,
+  ] = await Promise.allSettled([
+    analyzeBreakoutTrading(symbol),
+    analyzeBreakoutCrossover(symbol),
+    analyzeSniperEntry(symbol),
+    analyzeRSI2Entry(symbol),
+    analyzeScalpingEntry(symbol),
+    analyzeScalping15M(symbol),
+    analyzeExtremeScalpingEntry(symbol),
+    analyzeSniperExtremeScalping(symbol),
+    analyzeMultiTFDetail(symbol),
+  ]);
+
+  const pick = <T,>(r: PromiseSettledResult<T>): T | null => r.status === 'fulfilled' ? r.value : null;
+
+  return {
+    symbol, timestamp,
+    breakoutConfidence: pick(breakoutConfidence),
+    breakoutCrossover: pick(breakoutCrossover),
+    sniperStructural: pick(sniperStructural),
+    sniperRsiConnors: pick(sniperRsiConnors),
+    scalpingStructural: pick(scalpingStructural),
+    scalpingM15: pick(scalpingM15),
+    extremeQuant: pick(extremeQuant),
+    extremeSniper: pick(extremeSniper),
+    multiTf: pick(multiTf),
+  };
 }

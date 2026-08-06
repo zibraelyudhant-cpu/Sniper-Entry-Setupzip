@@ -9,6 +9,7 @@ import backtestRouter from "./backtest";
 import economicCalendarRouter from "./economic-calendar";
 import extremeScalpingRouter from "./extreme-scalping";
 import multiTfScanRouter from "./multi-tf-scan";
+import allMenusAnalysisRouter from "./all-menus-analysis";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(backtestRouter);
 router.use(economicCalendarRouter);
 router.use(extremeScalpingRouter);
 router.use(multiTfScanRouter);
+router.use(allMenusAnalysisRouter);
 
 export default router;

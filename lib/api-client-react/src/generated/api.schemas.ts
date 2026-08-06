@@ -244,10 +244,10 @@ export const SniperResultRecommendedMode = {
   rsi2: 'rsi2',
 } as const;
 
-export type SniperResultMa200Relation = typeof SniperResultMa200Relation[keyof typeof SniperResultMa200Relation];
+export type SniperResultMa150Relation = typeof SniperResultMa150Relation[keyof typeof SniperResultMa150Relation];
 
 
-export const SniperResultMa200Relation = {
+export const SniperResultMa150Relation = {
   above: 'above',
   below: 'below',
 } as const;
@@ -265,7 +265,7 @@ export interface SniperResult {
   mode?: SniperResultMode;
   recommendedMode?: SniperResultRecommendedMode;
   rsi2Value?: number;
-  ma200Relation?: SniperResultMa200Relation;
+  ma150Relation?: SniperResultMa150Relation;
   adxH4?: number;
   ma5ExitTarget?: number;
   score?: number;

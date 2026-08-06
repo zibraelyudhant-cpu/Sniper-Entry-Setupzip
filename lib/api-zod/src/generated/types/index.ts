@@ -80,7 +80,7 @@ export * from './screenerCoinStrength';
 export * from './screenerResponse';
 export * from './sniperResult';
 export * from './sniperResultBias';
-export * from './sniperResultMa200Relation';
+export * from './sniperResultMa150Relation';
 export * from './sniperResultMode';
 export * from './sniperResultRecommendedMode';
 export * from './sniperResultStatus';

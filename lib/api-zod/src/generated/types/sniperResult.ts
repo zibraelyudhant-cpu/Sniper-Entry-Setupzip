@@ -7,7 +7,7 @@
  */
 import type { RecentPerformance } from './recentPerformance';
 import type { SniperResultBias } from './sniperResultBias';
-import type { SniperResultMa200Relation } from './sniperResultMa200Relation';
+import type { SniperResultMa150Relation } from './sniperResultMa150Relation';
 import type { SniperResultMode } from './sniperResultMode';
 import type { SniperResultRecommendedMode } from './sniperResultRecommendedMode';
 import type { SniperResultStatus } from './sniperResultStatus';
@@ -20,7 +20,7 @@ export interface SniperResult {
   mode?: SniperResultMode;
   recommendedMode?: SniperResultRecommendedMode;
   rsi2Value?: number;
-  ma200Relation?: SniperResultMa200Relation;
+  ma150Relation?: SniperResultMa150Relation;
   adxH4?: number;
   ma5ExitTarget?: number;
   score?: number;

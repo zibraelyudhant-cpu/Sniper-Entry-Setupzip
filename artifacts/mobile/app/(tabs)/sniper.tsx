@@ -430,7 +430,7 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
   return (
     <>
       <Section title="KONDISI RSI-2" tint="#F472B6" index={0}>
-        <Row label="Trend (vs MA200 H4)" value={data.ma200Relation === 'above' ? 'Di atas MA200 ✅' : 'Di bawah MA200 ✅'} valueColor={biasColor} />
+        <Row label="Trend (vs MA150 H2)" value={data.ma150Relation === 'above' ? 'Di atas MA150 ✅' : 'Di bawah MA150 ✅'} valueColor={biasColor} />
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
         <Row label="ADX H4" value={`${(data.adxH4 ?? 0).toFixed(1)} (trend kuat)`} />
         <View style={[styles.divider, { backgroundColor: colors.border }]} />

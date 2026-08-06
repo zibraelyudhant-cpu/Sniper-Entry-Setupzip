@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.2.0
  */
 
-export type SniperResultMa200Relation = typeof SniperResultMa200Relation[keyof typeof SniperResultMa200Relation];
+export type SniperResultMa150Relation = typeof SniperResultMa150Relation[keyof typeof SniperResultMa150Relation];
 
 
-export const SniperResultMa200Relation = {
+export const SniperResultMa150Relation = {
   above: 'above',
   below: 'below',
 } as const;

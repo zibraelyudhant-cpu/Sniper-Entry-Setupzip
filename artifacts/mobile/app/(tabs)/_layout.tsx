@@ -33,6 +33,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'square.grid.3x3', selected: 'square.grid.3x3.fill' }} />
         <Label>Multi-TF</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="all-menus-analysis">
+        <Icon sf={{ default: 'rectangle.stack', selected: 'rectangle.stack.fill' }} />
+        <Label>Semua Menu</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="tools">
         <Icon sf={{ default: 'wrench.and.screwdriver', selected: 'wrench.and.screwdriver.fill' }} />
         <Label>Tools</Label>
@@ -156,6 +160,22 @@ function ClassicTabLayout() {
                 <SymbolView name="square.grid.3x3.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="grid" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="all-menus-analysis"
+        options={{
+          title: 'Semua Menu',
+          tabBarActiveTintColor: MENU_COLORS.allMenus,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="rectangle.stack.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="layers" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),
