@@ -145,7 +145,7 @@ interface ScreenerEntry {
   change24h: number;
   volume24h: number;
   rsiH4: number;
-  rsiH1: number;
+  rsiD1: number;
   atrH4: number;
   atrH4Pct: number;
   adxH4: number;
@@ -193,10 +193,9 @@ router.get("/screener", async (req, res) => {
           try {
             const price = parseFloat(ticker.lastPrice);
 
-            const [d1, h4, h1] = await Promise.all([
+            const [d1, h4] = await Promise.all([
               fetchKlines(ticker.symbol, "1d", 50),
               fetchKlines(ticker.symbol, "4h", 100),
-              fetchKlines(ticker.symbol, "1h", 50),
             ]);
 
             // ── Filter 1: D1 harus trend jelas (tidak ranging) ───────────────
@@ -211,7 +210,6 @@ router.get("/screener", async (req, res) => {
             const strH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
 
             // ── Filter 2: H4 harus berlawanan dengan D1 (koreksi sedang terjadi)
-            const strH1 = analyzePriceActionStructure(h1.highs, h1.lows, h1.closes);
             const h4IsCorrection = strH4.bias !== bias;
             const h4IsRanging = strH4.bias === "ranging";
             if (!h4IsCorrection && !h4IsRanging) return null; // H4 searah D1 = belum koreksi
@@ -234,7 +232,6 @@ router.get("/screener", async (req, res) => {
             // ── Filter 5: RSI H4 dan D1 ──────────────────────────────────────
             const rsiH4 = calcRSI(h4.closes); // RSI H4 — label fix (sebelumnya kebalik)
             const rsiD1 = calcRSI(d1.closes); // RSI D1 — label fix
-            const rsiH1 = rsiH4; // alias untuk kompatibilitas scoring di bawah
             if (bias === "bullish" && rsiH4 < 25) return null; // koreksi H4 terlalu dalam
             if (bias === "bearish" && rsiH4 > 75) return null; // bounce H4 terlalu tinggi
 

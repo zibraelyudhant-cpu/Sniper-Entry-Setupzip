@@ -64,6 +64,9 @@ interface BreakoutTradingResult {
   maxScore: number;
   brokenLevel?: number;
   levelHits?: number;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesNearEdge?: number;
   entryPrice?: number;
   orderType?: 'stop' | 'limit';
   stopLoss?: number;
@@ -151,9 +154,6 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const statusColor = isSiapRetest ? colors.gold : '#818CF8';
   const isCrossover = coin.mode === 'crossover';
   const modeColor = isCrossover ? '#F97316' : ACCENT;
-  // Normalisasi score biar Confidence Score (0-100) dan Crossover (score/maxScore) konsisten ditampilin
-  const displayScore = isCrossover ? (coin.score ?? 0) : (coin.confidenceScore ?? 0);
-  const displayMax = isCrossover ? (coin.maxScore ?? 9) : (coin.maxScore ?? 100);
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -185,7 +185,12 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <StatusBadge status={coin.status} />
-          <ScoreBadge score={displayScore} max={displayMax} />
+          {isCrossover
+            ? <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${modeColor}18` }}>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: modeColor }}>{coin.candlesSinceBreakout ?? 0}c lalu</Text>
+              </View>
+            : <ScoreBadge score={coin.confidenceScore ?? 0} max={coin.maxScore ?? 100} />
+          }
         </View>
         <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
       </View>
@@ -501,7 +506,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? (data.mode === 'crossover' ? '2' : '1.8')}`}</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? (data.mode === 'crossover' ? '2' : '3')}`}</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
               {data.mode === 'crossover' && data.takeProfit2 !== undefined && (
@@ -510,6 +515,26 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
                   <View style={styles.infoRow}>
                     <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 — R:R 1:3</Text>
                     <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
+                  </View>
+                </>
+              )}
+              {data.mode === 'confidence' && data.zoneEdgeUpper !== undefined && data.zoneEdgeLower !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Zona Edge</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                      {formatPrice(data.zoneEdgeLower)} – {formatPrice(data.zoneEdgeUpper)}
+                    </Text>
+                  </View>
+                </>
+              )}
+              {data.candlesNearEdge !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Nongkrong Deket Edge</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesNearEdge} candle M30</Text>
                   </View>
                 </>
               )}
@@ -728,8 +753,10 @@ export default function BreakoutEntryScreen() {
       currentPriceAtSignal: currentSignal.currentPrice,
       timestamp: currentSignal.timestamp,
       savedAt: Date.now(),
-      // Normalisasi: mode crossover pakai score/maxScore, mode confidence pakai confidenceScore (0-100) langsung
-      probabilityOrScore: isCrossover ? ((currentSignal.score ?? 0) / (currentSignal.maxScore || 1)) * 100 : currentSignal.confidenceScore,
+      // Mode crossover (v3) udah gak punya confidence score numerik lagi (basis
+      // rule-engine Skill 15M) — pakai candlesSinceBreakout sebagai proxy info.
+      // Mode confidence tetep pakai confidenceScore (0-100) langsung.
+      probabilityOrScore: isCrossover ? undefined : currentSignal.confidenceScore,
       zoneType: currentSignal.status,
       status: 'pending',
     };

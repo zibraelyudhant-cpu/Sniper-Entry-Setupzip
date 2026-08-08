@@ -261,19 +261,30 @@ function ProbabilitySection({ data, colors }: { data: SniperResult; colors: Retu
   );
 }
 
+/**
+ * ReadyScreen — mode "Sniper" (structural). REWRITE (request user): dulu nampilin
+ * scoring dari VWAP/Volume Profile/Dow Theory/H4 Confluence/RSI Divergence H1,
+ * sekarang mode Sniper udah full breakout+retest (H1 struktur -> M15 eksekusi),
+ * PERSIS sama alur kayak Menu 4 Skill 15M. Field lama itu udah gak dikirim lagi.
+ */
 function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   const isBuy = data.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
 
   return (
     <>
-      <TrendSection data={data} colors={colors} />
+      <Section title="BREAKOUT + RETEST (H1)" tint="#A78BFA" index={0}>
+        <Row
+          label="Zona breakout"
+          value={`${formatPrice(data.zoneEdgeLower ?? 0)} – ${formatPrice(data.zoneEdgeUpper ?? 0)}`}
+        />
+        <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        <Row label="Breakout terjadi" value={`${data.candlesSinceBreakout ?? 0} candle lalu`} />
+        <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        <Row label="Score (info)" value={`${data.score ?? 0}/${data.maxScore ?? 4}`} />
+      </Section>
 
-      <ProbabilitySection data={data} colors={colors} />
-
-      {/* Main Entry Setup */}
-      <Section title="SNIPER ENTRY SETUP" tint="#A78BFA" index={2}>
-        {/* Header info */}
+      <Section title="SNIPER ENTRY SETUP" tint="#A78BFA" index={1}>
         <View style={[styles.entryHeader, { backgroundColor: colors.surfaceMid, borderRadius: 8, padding: 12, marginBottom: 12 }]}>
           <View style={styles.entryHeaderRow}>
             <Text style={[styles.entryLabel, { color: colors.mutedForeground }]}>Harga Saat Ini</Text>
@@ -286,7 +297,6 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           </Text>
         </View>
 
-        {/* Direction badge */}
         <View style={[styles.directionBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
           <Feather
             name={isBuy ? 'arrow-up-right' : 'arrow-down-right'}
@@ -298,18 +308,14 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           </Text>
         </View>
 
-        {/* Entry levels */}
         <View style={[styles.levelsCard, { backgroundColor: colors.surfaceMid, borderColor: colors.border }]}>
-          <LevelRow label="ENTRY IDEAL" price={data.entryPrice ?? 0} color={colors.highlight} colors={colors} big />
+          <LevelRow label="ENTRY" price={data.entryPrice ?? 0} color={colors.highlight} colors={colors} big />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="STOP LOSS" price={data.stopLoss ?? 0} color={colors.bearish} colors={colors} sub="ATR-based" />
+          <LevelRow label="STOP LOSS" price={data.stopLoss ?? 0} color={colors.bearish} colors={colors} sub="1x ATR H1" />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="TAKE PROFIT 1" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub="R:R 1:1.5" />
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="TAKE PROFIT 2" price={data.takeProfit2 ?? 0} color={colors.gold} colors={colors} sub="R:R 1:3" />
+          <LevelRow label="TAKE PROFIT" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub={`R:R 1:${data.rr1 ?? 1.5}`} />
         </View>
 
-        {/* Kalkulator PnL button */}
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -342,78 +348,80 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
           <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
         </Pressable>
 
-        {/* Chart Pattern button */}
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push({
-              pathname: '/(tabs)/tools',
-              params: { section: 'insight', symbol: data.symbol, tab: 'pattern' },
-            });
-          }}
-          style={({ pressed }) => [
-            styles.calcBtn,
-            {
-              borderColor: colors.mutedForeground,
-              backgroundColor: pressed ? `${colors.mutedForeground}15` : 'transparent',
-            },
-          ]}
-        >
-          <Feather name="activity" size={15} color={colors.mutedForeground} />
-          <Text style={[styles.calcBtnText, { color: colors.mutedForeground }]}>
-            Chart Pattern
-          </Text>
-          <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
-        </Pressable>
-
-        {/* Zone info */}
-        <View style={styles.metaGrid}>
-          <MetaItem label="Zona Entry" value={data.zoneType ?? ''} colors={colors} />
-          {data.zoneRange && (
-            <MetaItem
-              label="Range Zona"
-              value={`${formatPrice(data.zoneRange.low)} – ${formatPrice(data.zoneRange.high)}`}
-              colors={colors}
-            />
-          )}
-          <MetaItem label="Refine (15M)" value={data.refinedZoneType ?? data.zoneType ?? ''} colors={colors} />
-          <MetaItem
-            label="Konfirmasi (5M)"
-            value={data.entryConfirmed ? `✓ ${data.confirmationCandle}` : `⚠ ${data.confirmationCandle}`}
-            valueColor={data.entryConfirmed ? colors.bullish : colors.warning}
-            colors={colors}
-          />
-        </View>
-
-        {/* Timing */}
-        <View style={[styles.timingRow, { backgroundColor: colors.surfaceMid, borderRadius: 8 }]}>
-          <TimingItem label="Setup Valid" value={`${data.setupValidHours}j`} colors={colors} />
-          <View style={[styles.timingDivider, { backgroundColor: colors.border }]} />
-          <TimingItem label="Est. Hit" value={`~${data.estimatedHitHours}j`} colors={colors} />
-          <View style={[styles.timingDivider, { backgroundColor: colors.border }]} />
-          <TimingItem label="Kadaluarsa" value={`${data.expiryHours}j`} colors={colors} />
-        </View>
-
-        {/* Reasoning */}
-        {data.reasoning && (
-          <View style={[styles.reasoning, { backgroundColor: colors.surfaceMid, borderLeftColor: colors.highlight }]}>
-            <Text style={[styles.reasoningLabel, { color: colors.mutedForeground }]}>Alasan</Text>
-            <Text style={[styles.reasoningText, { color: colors.foreground }]}>{data.reasoning}</Text>
-          </View>
-        )}
-
-        {/* Disclaimer */}
         <Text style={[styles.disclaimer, { color: colors.mutedForeground }]}>
           * Hanya referensi manual. Tidak ada auto-eksekusi.
         </Text>
       </Section>
 
-      <MarketSection data={data} colors={colors} />
-
-      <TFBreakdownTable items={data.tfBreakdown} accentColor={ACCENT} />
-
-      <RecentPerformanceCard data={data.recentPerformance} accentColor={ACCENT} />
+      {data.filterResults && data.filterResults.length > 0 && (
+        <Section title="DETAIL FILTER" tint="#A78BFA" index={2}>
+          {data.filterResults.map((f, i) => (
+            <Text key={i} style={[styles.filterItem, { color: f.startsWith('✅') ? colors.foreground : colors.mutedForeground }]}>{f}</Text>
+          ))}
+        </Section>
+      )}
     </>
+  );
+}
+
+/** WaitingScreen — mode Sniper, belum ada breakout valid dalam retest window (24 candle H1). */
+function SniperWaitingScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
+  return (
+    <Section title="BELUM ADA BREAKOUT">
+      <View style={styles.statusBlock}>
+        <Feather name="clock" size={32} color={colors.mutedForeground} />
+        <Text style={[styles.statusTitle, { color: colors.mutedForeground }]}>Nunggu Breakout</Text>
+        <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
+      </View>
+    </Section>
+  );
+}
+
+/** ApproachingScreen — mode Sniper, breakout udah kejadian, nunggu retest ke zona. */
+function SniperApproachingScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
+  const isBuy = data.bias === 'bullish';
+  const biasColor = isBuy ? colors.bullish : colors.bearish;
+  return (
+    <>
+      <Section title="SIAP BREAKOUT — NUNGGU RETEST" tint="#FBBF24" index={0}>
+        <Row
+          label="Zona breakout"
+          value={`${formatPrice(data.zoneEdgeLower ?? 0)} – ${formatPrice(data.zoneEdgeUpper ?? 0)}`}
+        />
+        <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        <Row label="Breakout terjadi" value={`${data.candlesSinceBreakout ?? 0} candle lalu`} />
+      </Section>
+
+      <Section title="PROYEKSI ENTRY" tint="#FBBF24" index={1}>
+        <View style={[styles.directionBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
+          <Feather name={isBuy ? 'arrow-up-right' : 'arrow-down-right'} size={18} color={biasColor} />
+          <Text style={[styles.directionText, { color: biasColor }]}>{isBuy ? 'BUY' : 'SELL'}</Text>
+        </View>
+        <View style={[styles.levelsCard, { backgroundColor: colors.surfaceMid, borderColor: colors.border }]}>
+          <LevelRow label="ENTRY (proyeksi)" price={data.entryPrice ?? 0} color={colors.highlight} colors={colors} big />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <LevelRow label="STOP LOSS" price={data.stopLoss ?? 0} color={colors.bearish} colors={colors} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <LevelRow label="TAKE PROFIT" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub={`R:R 1:${data.rr1 ?? 1.5}`} />
+        </View>
+        <Text style={[styles.entryTime, { color: colors.mutedForeground, marginTop: 10, fontStyle: 'italic' }]}>
+          💡 Angka di atas proyeksi — baru final begitu harga bener-bener retest ke zona.
+        </Text>
+      </Section>
+    </>
+  );
+}
+
+/** ExpiredScreen — mode Sniper, breakout udah lewat retest window atau pullback kelewat dalam. */
+function SniperExpiredScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
+  return (
+    <Section title="BREAKOUT KADALUARSA">
+      <View style={styles.statusBlock}>
+        <Feather name="x-circle" size={32} color={colors.mutedForeground} />
+        <Text style={[styles.statusTitle, { color: colors.mutedForeground }]}>Expired</Text>
+        <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
+      </View>
+    </Section>
   );
 }
 
@@ -462,9 +470,9 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <LevelRow label="STOP LOSS" price={data.stopLoss ?? 0} color={colors.bearish} colors={colors} sub="ATR-based" />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="TAKE PROFIT 1" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub="R:R 1:1.5" />
+          <LevelRow label="TAKE PROFIT 1" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub="R:R 1:2" />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="TAKE PROFIT 2" price={data.takeProfit2 ?? 0} color={colors.gold} colors={colors} sub="R:R 1:2" />
+          <LevelRow label="TAKE PROFIT 2" price={data.takeProfit2 ?? 0} color={colors.gold} colors={colors} sub="R:R 1:3" />
         </View>
 
         {/* Kalkulator PnL button — source 'sniper_rsi2' biar badge di Kalkulator */}
@@ -824,8 +832,9 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
   const isRsi2 = coin.mode === 'rsi2';
-  // Normalisasi confidence biar Sniper (persen) & RSI-2 (score/maxScore) bisa ditampilin konsisten
-  const prob = isRsi2 ? ((coin.score ?? 0) / (coin.maxScore || 1)) * 100 : (coin.profitProbability ?? 0);
+  // Normalisasi confidence — kedua mode sekarang pakai score/maxScore
+  // (profitProbability udah dihapus dari mode Sniper).
+  const prob = ((coin.score ?? 0) / (coin.maxScore || 1)) * 100;
   const modeColor = isRsi2 ? '#F472B6' : ACCENT;
 
   return (
@@ -878,16 +887,16 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
         ) : (
           <>
             <View style={scanStyles.condItem}>
-              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RSI Div H1</Text>
-              <Text style={[scanStyles.condValue, { color: coin.rsiDivergenceH1 ? colors.bullish : colors.bearish }]}>
-                {coin.rsiDivergenceH1 ? '✅' : '⚠️'}
+              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Breakout</Text>
+              <Text style={[scanStyles.condValue, { color: colors.foreground }]}>
+                {coin.candlesSinceBreakout !== undefined ? `${coin.candlesSinceBreakout}c lalu` : '—'}
               </Text>
             </View>
             <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
             <View style={scanStyles.condItem}>
-              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Pattern</Text>
-              <Text style={[scanStyles.condValue, { color: coin.patternConfirmed ? colors.bullish : colors.bearish }]}>
-                {coin.patternConfirmed ? '✅' : '⚠️'}
+              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Score</Text>
+              <Text style={[scanStyles.condValue, { color: colors.foreground }]}>
+                {coin.score ?? 0}/{coin.maxScore ?? 4}
               </Text>
             </View>
           </>
@@ -1006,10 +1015,9 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
     );
   }
 
-  // Confidence dinormalisasi biar Sniper (persen) & RSI-2 (score/maxScore) bisa
-  // dikelompokin bareng dalam 1 daftar dengan adil
-  const confidenceOf = (c: SniperResult) =>
-    c.mode === 'rsi2' ? ((c.score ?? 0) / (c.maxScore || 1)) * 100 : (c.profitProbability ?? 0);
+  // Confidence dinormalisasi — kedua mode sekarang pakai score/maxScore
+  // (profitProbability udah dihapus dari mode Sniper).
+  const confidenceOf = (c: SniperResult) => ((c.score ?? 0) / (c.maxScore || 1)) * 100;
 
   // Group by probability tier
   const high = coins.filter(c => confidenceOf(c) >= 75);
@@ -1230,6 +1238,20 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
           {data.status === 'no_zone' && <NoZoneScreen data={data} colors={colors} />}
           {data.status === 'skip_conditions' && <SkipScreen data={data} colors={colors} />}
           {data.status === 'not_extreme' && <NotExtremeScreen data={data} colors={colors} />}
+          {data.status === 'waiting' && <SniperWaitingScreen data={data} colors={colors} />}
+          {data.status === 'expired' && <SniperExpiredScreen data={data} colors={colors} />}
+          {data.status === 'approaching' && (
+            <>
+              <SniperApproachingScreen data={data} colors={colors} />
+              {onSave && (
+                <Pressable onPress={onSave}
+                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
+                  <Feather name="bookmark" size={15} color={colors.primaryForeground} />
+                  <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
+                </Pressable>
+              )}
+            </>
+          )}
           {data.status === 'ready' && (
             <>
               {data.mode === 'rsi2' ? (
@@ -1297,9 +1319,9 @@ export default function SniperScreen() {
       currentPriceAtSignal: currentSignal.currentPrice,
       timestamp: currentSignal.timestamp,
       savedAt: Date.now(),
-      // Normalisasi: mode RSI-2 pakai score/maxScore (bukan profitProbability yang
-      // cuma ada di mode Sniper), biar Log tetep konsisten nampilin 1 angka confidence
-      probabilityOrScore: isRsi2 ? ((currentSignal.score ?? 0) / (currentSignal.maxScore || 1)) * 100 : currentSignal.profitProbability,
+      // Normalisasi: kedua mode sekarang pakai score/maxScore (profitProbability
+      // udah dihapus dari mode Sniper juga), biar Log tetep konsisten nampilin 1 angka confidence
+      probabilityOrScore: ((currentSignal.score ?? 0) / (currentSignal.maxScore || 1)) * 100,
       zoneType: currentSignal.zoneType,
       status: 'pending',
     };

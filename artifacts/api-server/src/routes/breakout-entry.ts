@@ -59,10 +59,13 @@ router.get('/breakout-entry/scan', async (req, res) => {
         }
       }
     }
-    // Sort: siap_retest duluan, di dalam grup sort by confidence yang dinormalisasi
-    // (confidence mode: confidenceScore 0-100 apa adanya; crossover mode: score/maxScore*100)
+    // Sort: siap_retest duluan, di dalam grup sort by "kesegaran" breakout.
+    // Mode confidence: confidenceScore 0-100 apa adanya. Mode crossover (v3,
+    // basis Skill 15M): udah gak ada confidence score numerik lagi (logic-nya
+    // rule-engine kayak Skill 15M), jadi dipakein candlesSinceBreakout — makin
+    // BARU breakout-nya kejadian, makin tinggi rank-nya (100 - candles, floor 0).
     const confidenceOf = (v: typeof results[number]) =>
-      v.mode === 'crossover' ? ((v.score ?? 0) / (v.maxScore || 1)) * 100 : (v.confidenceScore ?? 0);
+      v.mode === 'crossover' ? Math.max(0, 100 - (v.candlesSinceBreakout ?? 100)) : (v.confidenceScore ?? 0);
     const order: Record<string, number> = { siap_retest: 0, siap_breakout: 1 };
     results.sort((a, b) => {
       const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;

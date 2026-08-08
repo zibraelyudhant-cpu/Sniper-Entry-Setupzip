@@ -60,6 +60,11 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ExtremeScalp
                 <Text style={[scanStyles.biasBadgeText, { color: ACCENT }]}>{mode === 'sniper' ? '🎯 Sniper' : '⚡ Quant'}</Text>
               </View>
             )}
+            {(coin as any).strategy === 'range' && (
+              <View style={[scanStyles.biasBadge, { backgroundColor: '#60A5FA18', borderColor: '#60A5FA' }]}>
+                <Text style={[scanStyles.biasBadgeText, { color: '#60A5FA' }]}>🔁 Range</Text>
+              </View>
+            )}
           </View>
           <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
             RSI {(coin as any).rsi5M ? (coin as any).rsi5M.toFixed(0) : '—'} · {(coin as any).entryType === 'aggressive' ? 'Market' : 'Limit'} entry
@@ -227,7 +232,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
   );
 
   useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'siap_entry' ? data : null);
+    if (onSignalReady) onSignalReady(data?.status === 'siap_entry' || data?.status === 'approaching' ? data : null);
   }, [data]);
 
   const handleAnalyze = useCallback(() => {
@@ -362,37 +367,38 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
             </AnimatedCard>
           )}
 
-          {/* Struktur SMC 15M */}
-          {(data as any).ob15M && (
+          {/* Zona (breakout/rejection) — dipake dua strategy (trend & range) */}
+          {(data as any).zoneEdgeUpper !== undefined && (
             <AnimatedCard index={2}>
-            <View style={[styles.section, { backgroundColor: 'rgba(74,222,128,0.06)', borderColor: 'rgba(74,222,128,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STRUKTUR SMC 15M</Text>
+            <View style={[styles.section, {
+              backgroundColor: (data as any).strategy === 'range' ? 'rgba(96,165,250,0.06)' : 'rgba(74,222,128,0.06)',
+              borderColor: (data as any).strategy === 'range' ? 'rgba(96,165,250,0.22)' : 'rgba(74,222,128,0.22)',
+            }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
+                {(data as any).strategy === 'range' ? 'ZONA REJECTION (RANGE)' : 'ZONA BREAKOUT (TREND)'}
+              </Text>
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Order Block</Text>
-                <Text style={[styles.infoValue, { color: colors.bullish }]}>
-                  {formatPrice((data as any).ob15M.low)} – {formatPrice((data as any).ob15M.high)}
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Edge Zona</Text>
+                <Text style={[styles.infoValue, { color: (data as any).strategy === 'range' ? '#60A5FA' : colors.bullish }]}>
+                  {formatPrice((data as any).zoneEdgeLower)} – {formatPrice((data as any).zoneEdgeUpper)}
                 </Text>
               </View>
-              {(data as any).fvg15M && (
+              {(data as any).candlesSinceBreakout !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>FVG</Text>
-                    <Text style={[styles.infoValue, { color: colors.bullish }]}>
-                      {formatPrice((data as any).fvg15M.low)} – {formatPrice((data as any).fvg15M.high)}
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>
+                      {(data as any).strategy === 'range' ? 'Rejection Terjadi' : 'Breakout Terjadi'}
                     </Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{(data as any).candlesSinceBreakout} candle lalu</Text>
                   </View>
                 </>
               )}
-              {(data as any).liquidityPoolLevel !== undefined && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Liquidity Pool</Text>
-                    <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice((data as any).liquidityPoolLevel)}</Text>
-                  </View>
-                </>
-              )}
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
+                {(data as any).strategy === 'range'
+                  ? 'ZigZag lagi ranging — entry ini mean-reversion (rejection+retest), BUKAN trend-following.'
+                  : 'Breakout+retest — basis Skill 15M.'}
+              </Text>
               {(data as any).confidence !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -400,9 +406,6 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
                     <Text style={[styles.infoLabel, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>Confidence (info)</Text>
                     <Text style={[styles.infoValue, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>{(data as any).confidence}/100</Text>
                   </View>
-                  <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-                    Semua syarat wajib (rule engine) udah lolos — angka ini cuma nunjukin kekuatan konfluensi bonus, bukan syarat lolos/gagal.
-                  </Text>
                 </>
               )}
             </View>
@@ -410,7 +413,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
           )}
 
           {/* Simpan Sinyal */}
-          {data.status === 'siap_entry' && onSave && (
+          {(data.status === 'siap_entry' || data.status === 'approaching') && onSave && (
             <Pressable onPress={onSave}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
               <Feather name="bookmark" size={15} color={colors.primaryForeground} />

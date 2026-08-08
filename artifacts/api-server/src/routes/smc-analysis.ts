@@ -73,18 +73,18 @@ router.get('/sniper/scan', async (req, res) => {
         if (r.status === 'fulfilled') {
           const val = r.value;
           if (val.status !== 'ready') continue;
-          // Threshold beda per mode: Sniper pake profitProbability%, RSI-2 udah
-          // lolos hard filter internal (ADX≥20 + RSI ekstrem), gak perlu threshold tambahan
-          if (val.mode === 'sniper' && (val.profitProbability ?? 0) < 15) continue;
+          // Threshold: kedua mode sekarang pakai score/maxScore (profitProbability
+          // udah dihapus dari mode Sniper — algoritma breakout+retest yang baru
+          // udah punya hard filter sendiri: pullback volume wajib, min 1/2
+          // konfirmasi tambahan, BTC correlation — jadi gak butuh threshold ekstra).
           results.push(val);
         }
       }
     }
 
-    // Sort pakai confidence yang dinormalisasi ke skala 0-100 biar Sniper (persen)
-    // dan RSI-2 (score/maxScore) bisa dibandingin adil dalam 1 daftar
-    const confidenceOf = (v: typeof results[number]) =>
-      v.mode === 'sniper' ? (v.profitProbability ?? 0) : ((v.score ?? 0) / (v.maxScore || 1)) * 100;
+    // Sort pakai confidence yang dinormalisasi ke skala 0-100, konsisten buat
+    // kedua mode (sniper & rsi2) — sama-sama pakai score/maxScore sekarang.
+    const confidenceOf = (v: typeof results[number]) => ((v.score ?? 0) / (v.maxScore || 1)) * 100;
     results.sort((a, b) => confidenceOf(b) - confidenceOf(a));
 
     res.json({ coins: results, fetchedAt: Date.now() });
