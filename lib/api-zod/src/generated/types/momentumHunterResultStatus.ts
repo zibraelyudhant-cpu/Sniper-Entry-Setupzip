@@ -6,14 +6,12 @@
  * OpenAPI spec version: 0.2.0
  */
 
-export type ExtremeScalpingResultStatus = typeof ExtremeScalpingResultStatus[keyof typeof ExtremeScalpingResultStatus];
+export type MomentumHunterResultStatus = typeof MomentumHunterResultStatus[keyof typeof MomentumHunterResultStatus];
 
 
-export const ExtremeScalpingResultStatus = {
+export const MomentumHunterResultStatus = {
   siap_entry: 'siap_entry',
+  approaching: 'approaching',
   no_setup: 'no_setup',
   error: 'error',
-  waiting: 'waiting',
-  approaching: 'approaching',
-  expired: 'expired',
 } as const;

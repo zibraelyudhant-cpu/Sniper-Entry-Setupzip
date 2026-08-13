@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { DivergenceResult } from './divergenceResult';
+import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { TFDetailBias } from './tFDetailBias';
 import type { TFDetailTimeframe } from './tFDetailTimeframe';
 import type { ZoneInfo } from './zoneInfo';
@@ -18,4 +19,5 @@ export interface TFDetail {
   zone?: ZoneInfo;
   rsiDivergence?: DivergenceResult;
   volumeDivergence?: DivergenceResult;
+  marketStructureV2?: MarketStructureV2Result;
 }

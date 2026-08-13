@@ -38,6 +38,19 @@ interface GenericMenuResult {
   rr1?: number;
 }
 
+interface MomentumHunterGenericResult {
+  status?: string;
+  bias?: 'bullish' | 'bearish';
+  message?: string;
+  setupType?: string;
+  tfStruktur?: string;
+  tfEksekusi?: string;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  rr1?: number;
+}
+
 interface AllMenusResult {
   symbol: string;
   timestamp: string;
@@ -53,6 +66,7 @@ interface AllMenusResult {
     status: string;
     coinTFs?: { timeframe: string; bias: string; adx: number }[];
   } | null;
+  momentumHunter: MomentumHunterGenericResult | null;
 }
 
 // Status yang dianggap "ada sinyal aktif" per menu (beda-beda tiap tipe)
@@ -223,7 +237,7 @@ export default function AllMenusAnalysisScreen() {
       <FuturisticBackground accentColor={ACCENT} secondaryColor="#FBCFE8" />
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Semua Menu</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>1 koin, hasil dari SEMUA menu sekaligus (8 skill + Multi-TF)</Text>
+        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>1 koin, hasil dari SEMUA menu sekaligus (9 skill + Multi-TF + Momentum Hunter)</Text>
       </View>
 
       <View style={styles.inputArea}>
@@ -255,7 +269,7 @@ export default function AllMenusAnalysisScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={ACCENT} size="large" />
           <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 12 }}>
-            Menganalisa 9 fungsi sekaligus, mungkin agak lama...
+            Menganalisa 10 fungsi sekaligus, mungkin agak lama...
           </Text>
         </View>
       ) : isError ? (
@@ -268,7 +282,7 @@ export default function AllMenusAnalysisScreen() {
           <Feather name="layers" size={36} color={colors.mutedForeground} />
           <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginTop: 10, textAlign: 'center' }}>Cari 1 koin buat liat semua hasil</Text>
           <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, textAlign: 'center', paddingHorizontal: 32 }}>
-            Breakout Entry, Sniper, Scalping, Extreme Scalping (2 skill masing-masing) + Multi-TF breakdown
+            Breakout Entry, Sniper, Scalping, Extreme Scalping (2 skill masing-masing) + Momentum Hunter + Multi-TF breakdown
           </Text>
         </View>
       ) : (
@@ -277,23 +291,33 @@ export default function AllMenusAnalysisScreen() {
           <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 12 }}>{data.timestamp}</Text>
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.breakout }]}>🎯 BREAKOUT ENTRY</Text>
-          <MenuResultCard title="Confidence Score" subtitle="M30 S/R + weighted score" result={data.breakoutConfidence} colors={colors} index={0} />
-          <MenuResultCard title="Crossover v2" subtitle="M30 stop order breakout" result={data.breakoutCrossover} colors={colors} index={1} />
+          <MenuResultCard title="Confidence Score" subtitle="M15→M1, anticipatory breakout" result={data.breakoutConfidence} colors={colors} index={0} />
+          <MenuResultCard title="Crossover v2" subtitle="M30→M5, breakout+retest" result={data.breakoutCrossover} colors={colors} index={1} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.sniper, marginTop: 8 }]}>🎯 SNIPER</Text>
-          <MenuResultCard title="Structural" subtitle="H2→15M→5M" result={data.sniperStructural} colors={colors} index={2} />
-          <MenuResultCard title="RSI Connors" subtitle="H2, RSI(2) ekstrem" result={data.sniperRsiConnors} colors={colors} index={3} />
+          <MenuResultCard title="Structural" subtitle="H1→M15, breakout+retest" result={data.sniperStructural} colors={colors} index={2} />
+          <MenuResultCard title="RSI Connors" subtitle="H1→M15, RSI(2) ekstrem" result={data.sniperRsiConnors} colors={colors} index={3} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.scalping, marginTop: 8 }]}>⚡ SCALPING</Text>
-          <MenuResultCard title="Structural" subtitle="H1→M15→M5" result={data.scalpingStructural} colors={colors} index={4} />
-          <MenuResultCard title="Scalping 15M" subtitle="15M→M1 eksekusi" result={data.scalpingM15} colors={colors} index={5} />
+          <MenuResultCard title="Structural" subtitle="H1→M5, breakout+retest" result={data.scalpingStructural} colors={colors} index={4} />
+          <MenuResultCard title="Scalping 15M" subtitle="M15→M1 eksekusi" result={data.scalpingM15} colors={colors} index={5} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.extremeScalping, marginTop: 8 }]}>🔥 EXTREME SCALPING</Text>
-          <MenuResultCard title="Quant" subtitle="15M→5M" result={data.extremeQuant} colors={colors} index={6} />
-          <MenuResultCard title="Sniper" subtitle="M30→M15/M5/M1" result={data.extremeSniper} colors={colors} index={7} />
+          <MenuResultCard title="Quant" subtitle="M15→M1" result={data.extremeQuant} colors={colors} index={6} />
+          <MenuResultCard title="Sniper" subtitle="M30→M5" result={data.extremeSniper} colors={colors} index={7} />
+
+          <Text style={[styles.groupHeader, { color: MENU_COLORS.momentumHunter, marginTop: 8 }]}>🔭 MOMENTUM HUNTER</Text>
+          <MenuResultCard
+            title="Momentum Hunter"
+            subtitle={data.momentumHunter?.tfStruktur
+              ? `${data.momentumHunter.tfStruktur}${data.momentumHunter.tfEksekusi ? `→${data.momentumHunter.tfEksekusi}` : ' (single-TF)'} — ${data.momentumHunter.setupType ?? ''}`
+              : '4 TF × 3 tipe setup'}
+            result={data.momentumHunter}
+            colors={colors} index={8}
+          />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.multiTfScan, marginTop: 8 }]}>📊 MULTI-TF</Text>
-          <MultiTFMiniCard data={data.multiTf} colors={colors} index={8} />
+          <MultiTFMiniCard data={data.multiTf} colors={colors} index={9} />
         </ScrollView>
       )}
     </View>

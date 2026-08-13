@@ -11,8 +11,11 @@ import type { ExtremeScalpingResultFvg15M } from './extremeScalpingResultFvg15M'
 import type { ExtremeScalpingResultMode } from './extremeScalpingResultMode';
 import type { ExtremeScalpingResultRecommendedMode } from './extremeScalpingResultRecommendedMode';
 import type { ExtremeScalpingResultStatus } from './extremeScalpingResultStatus';
+import type { ExtremeScalpingResultStrategy } from './extremeScalpingResultStrategy';
+import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
+import type { TechnicalSnapshot } from './technicalSnapshot';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface ExtremeScalpingResult {
@@ -23,6 +26,7 @@ export interface ExtremeScalpingResult {
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;
+  strategy?: ExtremeScalpingResultStrategy;
   currentPrice: number;
   timestamp: string;
   message?: string;
@@ -34,10 +38,17 @@ export interface ExtremeScalpingResult {
   ob15M?: ScalpingOB5M;
   fvg15M?: ExtremeScalpingResultFvg15M;
   liquidityPoolLevel?: number;
+  rangeLow?: number;
+  rangeHigh?: number;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
   rsi5M?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
   rr1?: number;
   filterResults?: string[];
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }

@@ -16,4 +16,7 @@ export const SniperResultStatus = {
   skip_conditions: 'skip_conditions',
   not_extreme: 'not_extreme',
   error: 'error',
+  waiting: 'waiting',
+  approaching: 'approaching',
+  expired: 'expired',
 } as const;

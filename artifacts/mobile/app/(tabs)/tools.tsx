@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
@@ -37,6 +37,18 @@ export default function ToolsScreen() {
       ? params.section
       : 'kalkulator';
   const [section, setSection] = useState<Section>(initialSection);
+  // Fix audit: kalau screen Tools ini UDAH mounted (misal lagi di tab Insight)
+  // terus user tap "Kalkulator PnL" dari menu lain, route yang sama ('/tools')
+  // gak selalu remount komponen — switcher section BISA nyangkut di tab lama
+  // walau data internal CalculatorView udah ke-update. Guard pake ref biar
+  // gak double-process pas mount pertama (initialSection udah bener duluan).
+  const lastProcessedSection = useRef(initialSection);
+  useEffect(() => {
+    const target: Section = params.section === 'insight' || params.section === 'backtest' ? params.section : 'kalkulator';
+    if (target === lastProcessedSection.current) return;
+    lastProcessedSection.current = target;
+    setSection(target);
+  }, [params.section]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

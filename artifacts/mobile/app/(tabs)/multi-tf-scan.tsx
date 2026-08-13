@@ -10,6 +10,8 @@ import * as Haptics from 'expo-haptics';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
+import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { MENU_COLORS } from '@/constants/theme';
 
 const ACCENT = MENU_COLORS.multiTfScan;
@@ -40,6 +42,7 @@ interface TFDetail {
   zone?: ZoneInfo;
   rsiDivergence?: DivergenceResult;
   volumeDivergence?: DivergenceResult;
+  marketStructureV2?: MarketStructureV2Result | null;
 }
 
 interface MultiTFScanCoin {
@@ -232,6 +235,12 @@ function TFDetailCard({ tf, colors, index }: { tf: TFDetail; colors: ReturnType<
             </View>
           </View>
         </View>
+
+        {tf.marketStructureV2 && (
+          <View style={{ marginBottom: 8 }}>
+            <MarketStructureV2Card data={tf.marketStructureV2} compact />
+          </View>
+        )}
 
         {tf.confirmations.length > 0 && (
           <View style={{ marginBottom: 6 }}>

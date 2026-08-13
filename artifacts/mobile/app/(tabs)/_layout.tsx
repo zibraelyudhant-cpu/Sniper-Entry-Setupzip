@@ -37,6 +37,14 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'rectangle.stack', selected: 'rectangle.stack.fill' }} />
         <Label>Semua Menu</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="momentum-hunter">
+        <Icon sf={{ default: 'binoculars', selected: 'binoculars.fill' }} />
+        <Label>Momentum</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="journal">
+        <Icon sf={{ default: 'book', selected: 'book.fill' }} />
+        <Label>Journal</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="tools">
         <Icon sf={{ default: 'wrench.and.screwdriver', selected: 'wrench.and.screwdriver.fill' }} />
         <Label>Tools</Label>
@@ -176,6 +184,38 @@ function ClassicTabLayout() {
                 <SymbolView name="rectangle.stack.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="layers" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="momentum-hunter"
+        options={{
+          title: 'Momentum',
+          tabBarActiveTintColor: MENU_COLORS.momentumHunter,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="binoculars.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="compass" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="journal"
+        options={{
+          title: 'Journal',
+          tabBarActiveTintColor: MENU_COLORS.journal,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="book.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="book-open" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),

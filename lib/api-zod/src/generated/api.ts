@@ -43,7 +43,7 @@ export const GetBreakoutEntryQueryParams = zod.object({
 })
 
 export const GetBreakoutEntryResponse = zod.object({
-  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error']),
+  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
   "mode": zod.enum(['confidence', 'crossover']).optional(),
   "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
@@ -70,6 +70,10 @@ export const GetBreakoutEntryResponse = zod.object({
   "maxScore": zod.number(),
   "brokenLevel": zod.number().optional(),
   "levelHits": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesNearEdge": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "orderType": zod.enum(['stop', 'limit']).optional(),
   "stopLoss": zod.number().optional(),
@@ -81,7 +85,42 @@ export const GetBreakoutEntryResponse = zod.object({
   "adxRising": zod.boolean().optional(),
   "macdHistogramExpanding": zod.boolean().optional(),
   "vwapBreakout": zod.boolean().optional(),
-  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional()
+  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })
 
 
@@ -90,7 +129,7 @@ export const GetBreakoutEntryResponse = zod.object({
  */
 export const GetBreakoutEntryScanResponse = zod.object({
   "coins": zod.array(zod.object({
-  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error']),
+  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
   "mode": zod.enum(['confidence', 'crossover']).optional(),
   "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
@@ -117,6 +156,10 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "maxScore": zod.number(),
   "brokenLevel": zod.number().optional(),
   "levelHits": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesNearEdge": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "orderType": zod.enum(['stop', 'limit']).optional(),
   "stopLoss": zod.number().optional(),
@@ -128,7 +171,42 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "adxRising": zod.boolean().optional(),
   "macdHistogramExpanding": zod.boolean().optional(),
   "vwapBreakout": zod.boolean().optional(),
-  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional()
+  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })),
   "fetchedAt": zod.number()
 })
@@ -144,7 +222,7 @@ export const GetSmcAnalysisQueryParams = zod.object({
 })
 
 export const GetSmcAnalysisResponse = zod.object({
-  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error']),
+  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
   "mode": zod.enum(['sniper', 'rsi2']).optional(),
   "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
   "rsi2Value": zod.number().optional(),
@@ -172,10 +250,14 @@ export const GetSmcAnalysisResponse = zod.object({
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
   "h4": zod.object({
   "bias": zod.enum(['bullish', 'bearish', 'ranging']),
   "strength": zod.enum(['strong', 'moderate', 'weak', 'neutral'])
@@ -216,7 +298,42 @@ export const GetSmcAnalysisResponse = zod.object({
   "chochH4Detected": zod.boolean().optional(),
   "h4ConfluenceConfirmed": zod.boolean().optional(),
   "h4ConfluenceStrength": zod.string().optional(),
-  "h4ConfluenceDesc": zod.string().optional()
+  "h4ConfluenceDesc": zod.string().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })
 
 
@@ -225,7 +342,7 @@ export const GetSmcAnalysisResponse = zod.object({
  */
 export const GetSniperScanResponse = zod.object({
   "coins": zod.array(zod.object({
-  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error']),
+  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
   "mode": zod.enum(['sniper', 'rsi2']).optional(),
   "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
   "rsi2Value": zod.number().optional(),
@@ -253,10 +370,14 @@ export const GetSniperScanResponse = zod.object({
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
   "h4": zod.object({
   "bias": zod.enum(['bullish', 'bearish', 'ranging']),
   "strength": zod.enum(['strong', 'moderate', 'weak', 'neutral'])
@@ -297,7 +418,42 @@ export const GetSniperScanResponse = zod.object({
   "chochH4Detected": zod.boolean().optional(),
   "h4ConfluenceConfirmed": zod.boolean().optional(),
   "h4ConfluenceStrength": zod.string().optional(),
-  "h4ConfluenceDesc": zod.string().optional()
+  "h4ConfluenceDesc": zod.string().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })),
   "fetchedAt": zod.number()
 })
@@ -356,7 +512,42 @@ export const GetScalpingResponse = zod.object({
   "atr15MPct": zod.number().optional(),
   "spreadEstPct": zod.number().optional(),
   "filterResults": zod.array(zod.string()).optional(),
-  "bbSqueezing": zod.boolean().optional()
+  "bbSqueezing": zod.boolean().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })
 
 
@@ -408,7 +599,42 @@ export const GetScalpingScanResponse = zod.object({
   "atr15MPct": zod.number().optional(),
   "spreadEstPct": zod.number().optional(),
   "filterResults": zod.array(zod.string()).optional(),
-  "bbSqueezing": zod.boolean().optional()
+  "bbSqueezing": zod.boolean().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })),
   "fetchedAt": zod.number()
 })
@@ -422,7 +648,7 @@ export const GetExtremeScalpingQueryParams = zod.object({
 })
 
 export const GetExtremeScalpingResponse = zod.object({
-  "status": zod.enum(['siap_entry', 'no_setup', 'error']),
+  "status": zod.enum(['siap_entry', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
   "mode": zod.enum(['quant', 'sniper']).optional(),
   "recommendedMode": zod.enum(['quant', 'sniper']).optional(),
@@ -440,6 +666,7 @@ export const GetExtremeScalpingResponse = zod.object({
   "status": zod.enum(['confirm', 'warning', 'neutral'])
 })).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "strategy": zod.enum(['trend', 'range']).optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
@@ -460,12 +687,52 @@ export const GetExtremeScalpingResponse = zod.object({
   "mid": zod.number().optional()
 }).optional(),
   "liquidityPoolLevel": zod.number().optional(),
+  "rangeLow": zod.number().optional(),
+  "rangeHigh": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "rsi5M": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "rr1": zod.number().optional(),
-  "filterResults": zod.array(zod.string()).optional()
+  "filterResults": zod.array(zod.string()).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })
 
 
@@ -474,7 +741,7 @@ export const GetExtremeScalpingResponse = zod.object({
  */
 export const GetExtremeScalpingScanResponse = zod.object({
   "coins": zod.array(zod.object({
-  "status": zod.enum(['siap_entry', 'no_setup', 'error']),
+  "status": zod.enum(['siap_entry', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
   "mode": zod.enum(['quant', 'sniper']).optional(),
   "recommendedMode": zod.enum(['quant', 'sniper']).optional(),
@@ -492,6 +759,7 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "status": zod.enum(['confirm', 'warning', 'neutral'])
 })).optional(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "strategy": zod.enum(['trend', 'range']).optional(),
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "message": zod.string().optional(),
@@ -512,12 +780,52 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "mid": zod.number().optional()
 }).optional(),
   "liquidityPoolLevel": zod.number().optional(),
+  "rangeLow": zod.number().optional(),
+  "rangeHigh": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
   "rsi5M": zod.number().optional(),
   "entryPrice": zod.number().optional(),
   "stopLoss": zod.number().optional(),
   "takeProfit1": zod.number().optional(),
   "rr1": zod.number().optional(),
-  "filterResults": zod.array(zod.string()).optional()
+  "filterResults": zod.array(zod.string()).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })),
   "fetchedAt": zod.number()
 })
@@ -1365,7 +1673,24 @@ export const GetMultiTfDetailResponse = zod.object({
   "volumeDivergence": zod.object({
   "bullish": zod.boolean().optional(),
   "bearish": zod.boolean().optional()
-}).optional()
+}).optional(),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })).optional(),
   "btcTFs": zod.array(zod.object({
   "timeframe": zod.enum(['D1', 'H4', 'H1', 'M30', 'M15', 'M5']).optional(),
@@ -1386,8 +1711,976 @@ export const GetMultiTfDetailResponse = zod.object({
   "volumeDivergence": zod.object({
   "bullish": zod.boolean().optional(),
   "bearish": zod.boolean().optional()
-}).optional()
+}).optional(),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })).optional()
+})
+
+
+/**
+ * Search-only, gak ada endpoint scan sendiri. 9 fungsi analisa dipanggil paralel; kalau 1 gagal, hasil menu itu null tapi yang lain tetap tampil.
+ * @summary Analisa 1 koin di SEMUA menu sekaligus (Breakout/Sniper/Scalping/Extreme x2 skill + Multi-TF)
+ */
+export const GetAllMenusAnalysisQueryParams = zod.object({
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+})
+
+export const GetAllMenusAnalysisResponse = zod.object({
+  "symbol": zod.string(),
+  "timestamp": zod.string(),
+  "breakoutConfidence": zod.object({
+  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
+  "symbol": zod.string(),
+  "mode": zod.enum(['confidence', 'crossover']).optional(),
+  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "confidenceScore": zod.number().optional(),
+  "confidenceTier": zod.enum(['high', 'medium']).optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number(),
+  "brokenLevel": zod.number().optional(),
+  "levelHits": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesNearEdge": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "volumeRatio": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "adxRising": zod.boolean().optional(),
+  "macdHistogramExpanding": zod.boolean().optional(),
+  "vwapBreakout": zod.boolean().optional(),
+  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "breakoutCrossover": zod.object({
+  "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
+  "symbol": zod.string(),
+  "mode": zod.enum(['confidence', 'crossover']).optional(),
+  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "confidenceScore": zod.number().optional(),
+  "confidenceTier": zod.enum(['high', 'medium']).optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number(),
+  "brokenLevel": zod.number().optional(),
+  "levelHits": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesNearEdge": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "volumeRatio": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "adxRising": zod.boolean().optional(),
+  "macdHistogramExpanding": zod.boolean().optional(),
+  "vwapBreakout": zod.boolean().optional(),
+  "momentumClassification": zod.enum(['very_fast', 'fast', 'normal', 'slow']).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "sniperStructural": zod.object({
+  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
+  "mode": zod.enum(['sniper', 'rsi2']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "rsi2Value": zod.number().optional(),
+  "ma150Relation": zod.enum(['above', 'below']).optional(),
+  "adxH4": zod.number().optional(),
+  "ma5ExitTarget": zod.number().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "message": zod.string(),
+  "symbol": zod.string(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "h4": zod.object({
+  "bias": zod.enum(['bullish', 'bearish', 'ranging']),
+  "strength": zod.enum(['strong', 'moderate', 'weak', 'neutral'])
+}).optional(),
+  "zoneType": zod.string().optional(),
+  "zoneRange": zod.object({
+  "low": zod.number(),
+  "high": zod.number()
+}).optional(),
+  "refinedZoneType": zod.string().optional(),
+  "entryConfirmed": zod.boolean().optional(),
+  "confirmationCandle": zod.string().optional(),
+  "rsi": zod.number().optional(),
+  "rsiDivergence": zod.boolean().optional(),
+  "chochDetected": zod.boolean().optional(),
+  "oiChange": zod.number().optional(),
+  "oiAccumulation": zod.boolean().optional(),
+  "oiAccumulationDesc": zod.string().optional(),
+  "fundingRate": zod.number().optional(),
+  "setupValidHours": zod.number().optional(),
+  "estimatedHitHours": zod.number().optional(),
+  "expiryHours": zod.number().optional(),
+  "skipReasons": zod.array(zod.string()).optional(),
+  "reasoning": zod.string().optional(),
+  "rejection15M": zod.boolean().optional(),
+  "rejection15MCandle": zod.string().optional(),
+  "choch15M": zod.boolean().optional(),
+  "choch15MDescription": zod.string().optional(),
+  "rsiDivergenceH1": zod.boolean().optional(),
+  "patternConfirmed": zod.boolean().optional(),
+  "patternName": zod.string().optional(),
+  "profitProbability": zod.number().optional(),
+  "probabilityFactors": zod.array(zod.string()).optional(),
+  "dowPhase": zod.string().optional(),
+  "dowPhaseDesc": zod.string().optional(),
+  "volumeTrendValid": zod.boolean().optional(),
+  "volumeTrendDesc": zod.string().optional(),
+  "chochH4Detected": zod.boolean().optional(),
+  "h4ConfluenceConfirmed": zod.boolean().optional(),
+  "h4ConfluenceStrength": zod.string().optional(),
+  "h4ConfluenceDesc": zod.string().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "sniperRsiConnors": zod.object({
+  "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
+  "mode": zod.enum(['sniper', 'rsi2']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "rsi2Value": zod.number().optional(),
+  "ma150Relation": zod.enum(['above', 'below']).optional(),
+  "adxH4": zod.number().optional(),
+  "ma5ExitTarget": zod.number().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "message": zod.string(),
+  "symbol": zod.string(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "h4": zod.object({
+  "bias": zod.enum(['bullish', 'bearish', 'ranging']),
+  "strength": zod.enum(['strong', 'moderate', 'weak', 'neutral'])
+}).optional(),
+  "zoneType": zod.string().optional(),
+  "zoneRange": zod.object({
+  "low": zod.number(),
+  "high": zod.number()
+}).optional(),
+  "refinedZoneType": zod.string().optional(),
+  "entryConfirmed": zod.boolean().optional(),
+  "confirmationCandle": zod.string().optional(),
+  "rsi": zod.number().optional(),
+  "rsiDivergence": zod.boolean().optional(),
+  "chochDetected": zod.boolean().optional(),
+  "oiChange": zod.number().optional(),
+  "oiAccumulation": zod.boolean().optional(),
+  "oiAccumulationDesc": zod.string().optional(),
+  "fundingRate": zod.number().optional(),
+  "setupValidHours": zod.number().optional(),
+  "estimatedHitHours": zod.number().optional(),
+  "expiryHours": zod.number().optional(),
+  "skipReasons": zod.array(zod.string()).optional(),
+  "reasoning": zod.string().optional(),
+  "rejection15M": zod.boolean().optional(),
+  "rejection15MCandle": zod.string().optional(),
+  "choch15M": zod.boolean().optional(),
+  "choch15MDescription": zod.string().optional(),
+  "rsiDivergenceH1": zod.boolean().optional(),
+  "patternConfirmed": zod.boolean().optional(),
+  "patternName": zod.string().optional(),
+  "profitProbability": zod.number().optional(),
+  "probabilityFactors": zod.array(zod.string()).optional(),
+  "dowPhase": zod.string().optional(),
+  "dowPhaseDesc": zod.string().optional(),
+  "volumeTrendValid": zod.boolean().optional(),
+  "volumeTrendDesc": zod.string().optional(),
+  "chochH4Detected": zod.boolean().optional(),
+  "h4ConfluenceConfirmed": zod.boolean().optional(),
+  "h4ConfluenceStrength": zod.string().optional(),
+  "h4ConfluenceDesc": zod.string().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "scalpingStructural": zod.object({
+  "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
+  "symbol": zod.string(),
+  "mode": zod.enum(['structural', 'scalping15m']).optional(),
+  "recommendedMode": zod.enum(['structural', 'scalping15m']).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number(),
+  "structure15M": zod.string().optional(),
+  "choch15M": zod.boolean().optional(),
+  "ob5M": zod.object({
+  "low": zod.number(),
+  "high": zod.number(),
+  "mid": zod.number(),
+  "fresh": zod.boolean()
+}).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "rr2": zod.number().optional(),
+  "atr15MPct": zod.number().optional(),
+  "spreadEstPct": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "bbSqueezing": zod.boolean().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "scalpingM15": zod.object({
+  "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
+  "symbol": zod.string(),
+  "mode": zod.enum(['structural', 'scalping15m']).optional(),
+  "recommendedMode": zod.enum(['structural', 'scalping15m']).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "score": zod.number().optional(),
+  "maxScore": zod.number(),
+  "structure15M": zod.string().optional(),
+  "choch15M": zod.boolean().optional(),
+  "ob5M": zod.object({
+  "low": zod.number(),
+  "high": zod.number(),
+  "mid": zod.number(),
+  "fresh": zod.boolean()
+}).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "takeProfit2": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "rr2": zod.number().optional(),
+  "atr15MPct": zod.number().optional(),
+  "spreadEstPct": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "bbSqueezing": zod.boolean().optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "extremeQuant": zod.object({
+  "status": zod.enum(['siap_entry', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
+  "symbol": zod.string(),
+  "mode": zod.enum(['quant', 'sniper']).optional(),
+  "recommendedMode": zod.enum(['quant', 'sniper']).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "strategy": zod.enum(['trend', 'range']).optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "confidence": zod.number().optional(),
+  "maxScore": zod.number(),
+  "volume24h": zod.number().optional(),
+  "atrPct": zod.number().optional(),
+  "entryType": zod.enum(['aggressive', 'conservative']).optional(),
+  "ob15M": zod.object({
+  "low": zod.number(),
+  "high": zod.number(),
+  "mid": zod.number(),
+  "fresh": zod.boolean()
+}).optional(),
+  "fvg15M": zod.object({
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional()
+}).optional(),
+  "liquidityPoolLevel": zod.number().optional(),
+  "rangeLow": zod.number().optional(),
+  "rangeHigh": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "rsi5M": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "extremeSniper": zod.object({
+  "status": zod.enum(['siap_entry', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
+  "symbol": zod.string(),
+  "mode": zod.enum(['quant', 'sniper']).optional(),
+  "recommendedMode": zod.enum(['quant', 'sniper']).optional(),
+  "recentPerformance": zod.object({
+  "totalTrades": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "winRate": zod.number(),
+  "periodLabel": zod.string()
+}).optional(),
+  "tfBreakdown": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "label": zod.string(),
+  "detail": zod.string(),
+  "status": zod.enum(['confirm', 'warning', 'neutral'])
+})).optional(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "strategy": zod.enum(['trend', 'range']).optional(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "confidence": zod.number().optional(),
+  "maxScore": zod.number(),
+  "volume24h": zod.number().optional(),
+  "atrPct": zod.number().optional(),
+  "entryType": zod.enum(['aggressive', 'conservative']).optional(),
+  "ob15M": zod.object({
+  "low": zod.number(),
+  "high": zod.number(),
+  "mid": zod.number(),
+  "fresh": zod.boolean()
+}).optional(),
+  "fvg15M": zod.object({
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional()
+}).optional(),
+  "liquidityPoolLevel": zod.number().optional(),
+  "rangeLow": zod.number().optional(),
+  "rangeHigh": zod.number().optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "rsi5M": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).nullish(),
+  "multiTf": zod.object({
+  "status": zod.enum(['ok', 'error']),
+  "symbol": zod.string(),
+  "timestamp": zod.string(),
+  "message": zod.string().optional(),
+  "coinTFs": zod.array(zod.object({
+  "timeframe": zod.enum(['D1', 'H4', 'H1', 'M30', 'M15', 'M5']).optional(),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']).optional(),
+  "adx": zod.number().optional(),
+  "confirmations": zod.array(zod.string()).optional(),
+  "zone": zod.object({
+  "type": zod.enum(['order_block', 'sr_fib']).optional(),
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional(),
+  "touches": zod.number().optional()
+}).optional(),
+  "rsiDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional(),
+  "volumeDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional(),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+})).optional(),
+  "btcTFs": zod.array(zod.object({
+  "timeframe": zod.enum(['D1', 'H4', 'H1', 'M30', 'M15', 'M5']).optional(),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']).optional(),
+  "adx": zod.number().optional(),
+  "confirmations": zod.array(zod.string()).optional(),
+  "zone": zod.object({
+  "type": zod.enum(['order_block', 'sr_fib']).optional(),
+  "low": zod.number().optional(),
+  "high": zod.number().optional(),
+  "mid": zod.number().optional(),
+  "touches": zod.number().optional()
+}).optional(),
+  "rsiDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional(),
+  "volumeDivergence": zod.object({
+  "bullish": zod.boolean().optional(),
+  "bearish": zod.boolean().optional()
+}).optional(),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+})).optional()
+}).nullish()
+})
+
+
+/**
+ * @summary Analisa Momentum Hunter untuk 1 symbol — scan 4 pasangan TF x 3 tipe setup, fallback sideways
+ */
+export const GetMomentumHunterQueryParams = zod.object({
+  "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT')
+})
+
+export const GetMomentumHunterResponse = zod.object({
+  "status": zod.enum(['siap_entry', 'approaching', 'no_setup', 'error']),
+  "symbol": zod.string(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "setupType": zod.enum(['retest', 'breakout_antisipasi', 'reversal_ekstrem', 'sideways_rejection']).optional(),
+  "tfStruktur": zod.string().optional(),
+  "tfEksekusi": zod.string().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "message": zod.string().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "attemptsLog": zod.array(zod.string()).optional(),
+  "maxScore": zod.number(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+})
+
+
+/**
+ * @summary Scan universe top-50 buat Momentum Hunter
+ */
+export const GetMomentumHunterScanResponse = zod.object({
+  "coins": zod.array(zod.object({
+  "status": zod.enum(['siap_entry', 'approaching', 'no_setup', 'error']),
+  "symbol": zod.string(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "setupType": zod.enum(['retest', 'breakout_antisipasi', 'reversal_ekstrem', 'sideways_rejection']).optional(),
+  "tfStruktur": zod.string().optional(),
+  "tfEksekusi": zod.string().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "message": zod.string().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "attemptsLog": zod.array(zod.string()).optional(),
+  "maxScore": zod.number(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+})),
+  "fetchedAt": zod.number().optional()
 })
 
 

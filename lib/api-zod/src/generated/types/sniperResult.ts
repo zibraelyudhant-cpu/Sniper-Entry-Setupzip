@@ -5,12 +5,14 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { RecentPerformance } from './recentPerformance';
 import type { SniperResultBias } from './sniperResultBias';
 import type { SniperResultMa150Relation } from './sniperResultMa150Relation';
 import type { SniperResultMode } from './sniperResultMode';
 import type { SniperResultRecommendedMode } from './sniperResultRecommendedMode';
 import type { SniperResultStatus } from './sniperResultStatus';
+import type { TechnicalSnapshot } from './technicalSnapshot';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 import type { TrendInfo } from './trendInfo';
 import type { ZoneRange } from './zoneRange';
@@ -33,10 +35,14 @@ export interface SniperResult {
   currentPrice: number;
   timestamp: string;
   bias?: SniperResultBias;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
+  rr1?: number;
   h4?: TrendInfo;
   zoneType?: string;
   zoneRange?: ZoneRange;
@@ -72,4 +78,6 @@ export interface SniperResult {
   h4ConfluenceConfirmed?: boolean;
   h4ConfluenceStrength?: string;
   h4ConfluenceDesc?: string;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }

@@ -128,6 +128,9 @@ export const BreakoutTradingResultStatus = {
   siap_retest: 'siap_retest',
   no_setup: 'no_setup',
   error: 'error',
+  waiting: 'waiting',
+  approaching: 'approaching',
+  expired: 'expired',
 } as const;
 
 export type BreakoutTradingResultMode = typeof BreakoutTradingResultMode[keyof typeof BreakoutTradingResultMode];
@@ -180,6 +183,65 @@ export const BreakoutTradingResultMomentumClassification = {
   slow: 'slow',
 } as const;
 
+export interface TFIndicatorSnapshot {
+  rsi: number;
+  atr: number;
+  atrPct: number;
+  adx: number;
+  stochK: number;
+  stochD: number;
+}
+
+/**
+ * RSI/ATR/ADX/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard/soft filter di logic entry manapun.
+ */
+export interface TechnicalSnapshot {
+  struktur: TFIndicatorSnapshot;
+  eksekusi: TFIndicatorSnapshot;
+}
+
+export type MarketStructureV2ResultClassification = typeof MarketStructureV2ResultClassification[keyof typeof MarketStructureV2ResultClassification];
+
+
+export const MarketStructureV2ResultClassification = {
+  bullish_strong: 'bullish_strong',
+  bullish_weak: 'bullish_weak',
+  bearish_strong: 'bearish_strong',
+  bearish_weak: 'bearish_weak',
+  sideways: 'sideways',
+  transition: 'transition',
+} as const;
+
+export type MarketStructureV2ResultBias = typeof MarketStructureV2ResultBias[keyof typeof MarketStructureV2ResultBias];
+
+
+export const MarketStructureV2ResultBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  sideways: 'sideways',
+} as const;
+
+/**
+ * Model multi-layer scoring buat baca struktur market (bullish/bearish/sideways/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.
+ */
+export interface MarketStructureV2Result {
+  classification: MarketStructureV2ResultClassification;
+  bias: MarketStructureV2ResultBias;
+  bullishTotal: number;
+  bearishTotal: number;
+  sidewaysTotal: number;
+  structureBullishScore?: number;
+  structureBearishScore?: number;
+  breakQualityLabel?: string;
+  breakQualityPoints?: number;
+  bullishRetraceScore?: number;
+  bearishReboundScore?: number;
+  rangePosition?: number;
+  candleCountUsed: number;
+  passes: number;
+  reasoning: string[];
+}
+
 export interface BreakoutTradingResult {
   status: BreakoutTradingResultStatus;
   symbol: string;
@@ -197,6 +259,10 @@ export interface BreakoutTradingResult {
   maxScore: number;
   brokenLevel?: number;
   levelHits?: number;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesNearEdge?: number;
+  candlesSinceBreakout?: number;
   entryPrice?: number;
   orderType?: BreakoutTradingResultOrderType;
   stopLoss?: number;
@@ -209,6 +275,8 @@ export interface BreakoutTradingResult {
   macdHistogramExpanding?: boolean;
   vwapBreakout?: boolean;
   momentumClassification?: BreakoutTradingResultMomentumClassification;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }
 
 export interface BreakoutTradingScanResponse {
@@ -226,6 +294,9 @@ export const SniperResultStatus = {
   skip_conditions: 'skip_conditions',
   not_extreme: 'not_extreme',
   error: 'error',
+  waiting: 'waiting',
+  approaching: 'approaching',
+  expired: 'expired',
 } as const;
 
 export type SniperResultMode = typeof SniperResultMode[keyof typeof SniperResultMode];
@@ -278,10 +349,14 @@ export interface SniperResult {
   currentPrice: number;
   timestamp: string;
   bias?: SniperResultBias;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
+  rr1?: number;
   h4?: TrendInfo;
   zoneType?: string;
   zoneRange?: ZoneRange;
@@ -317,6 +392,8 @@ export interface SniperResult {
   h4ConfluenceConfirmed?: boolean;
   h4ConfluenceStrength?: string;
   h4ConfluenceDesc?: string;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }
 
 export interface SniperScanResponse {
@@ -398,11 +475,79 @@ export interface ScalpingResult {
   spreadEstPct?: number;
   filterResults?: string[];
   bbSqueezing?: boolean;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }
 
 export interface ScalpingScanResponse {
   coins: ScalpingResult[];
   fetchedAt: number;
+}
+
+export type MomentumHunterResultStatus = typeof MomentumHunterResultStatus[keyof typeof MomentumHunterResultStatus];
+
+
+export const MomentumHunterResultStatus = {
+  siap_entry: 'siap_entry',
+  approaching: 'approaching',
+  no_setup: 'no_setup',
+  error: 'error',
+} as const;
+
+export type MomentumHunterResultBias = typeof MomentumHunterResultBias[keyof typeof MomentumHunterResultBias];
+
+
+export const MomentumHunterResultBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+} as const;
+
+export type MomentumHunterResultSetupType = typeof MomentumHunterResultSetupType[keyof typeof MomentumHunterResultSetupType];
+
+
+export const MomentumHunterResultSetupType = {
+  retest: 'retest',
+  breakout_antisipasi: 'breakout_antisipasi',
+  reversal_ekstrem: 'reversal_ekstrem',
+  sideways_rejection: 'sideways_rejection',
+} as const;
+
+export type MomentumHunterResultOrderType = typeof MomentumHunterResultOrderType[keyof typeof MomentumHunterResultOrderType];
+
+
+export const MomentumHunterResultOrderType = {
+  stop: 'stop',
+  limit: 'limit',
+} as const;
+
+export interface MomentumHunterResult {
+  status: MomentumHunterResultStatus;
+  symbol: string;
+  currentPrice: number;
+  timestamp: string;
+  bias?: MomentumHunterResultBias;
+  setupType?: MomentumHunterResultSetupType;
+  tfStruktur?: string;
+  tfEksekusi?: string;
+  orderType?: MomentumHunterResultOrderType;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit1?: number;
+  rr1?: number;
+  message?: string;
+  filterResults?: string[];
+  attemptsLog?: string[];
+  maxScore: number;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
+}
+
+export interface MomentumHunterScanResponse {
+  coins: MomentumHunterResult[];
+  fetchedAt?: number;
 }
 
 export type ExtremeScalpingResultStatus = typeof ExtremeScalpingResultStatus[keyof typeof ExtremeScalpingResultStatus];
@@ -412,6 +557,9 @@ export const ExtremeScalpingResultStatus = {
   siap_entry: 'siap_entry',
   no_setup: 'no_setup',
   error: 'error',
+  waiting: 'waiting',
+  approaching: 'approaching',
+  expired: 'expired',
 } as const;
 
 export type ExtremeScalpingResultMode = typeof ExtremeScalpingResultMode[keyof typeof ExtremeScalpingResultMode];
@@ -438,6 +586,14 @@ export const ExtremeScalpingResultBias = {
   bearish: 'bearish',
 } as const;
 
+export type ExtremeScalpingResultStrategy = typeof ExtremeScalpingResultStrategy[keyof typeof ExtremeScalpingResultStrategy];
+
+
+export const ExtremeScalpingResultStrategy = {
+  trend: 'trend',
+  range: 'range',
+} as const;
+
 export type ExtremeScalpingResultEntryType = typeof ExtremeScalpingResultEntryType[keyof typeof ExtremeScalpingResultEntryType];
 
 
@@ -460,6 +616,7 @@ export interface ExtremeScalpingResult {
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   bias?: ExtremeScalpingResultBias;
+  strategy?: ExtremeScalpingResultStrategy;
   currentPrice: number;
   timestamp: string;
   message?: string;
@@ -471,12 +628,19 @@ export interface ExtremeScalpingResult {
   ob15M?: ScalpingOB5M;
   fvg15M?: ExtremeScalpingResultFvg15M;
   liquidityPoolLevel?: number;
+  rangeLow?: number;
+  rangeHigh?: number;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesSinceBreakout?: number;
   rsi5M?: number;
   entryPrice?: number;
   stopLoss?: number;
   takeProfit1?: number;
   rr1?: number;
   filterResults?: string[];
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }
 
 export interface ExtremeScalpingScanResponse {
@@ -754,6 +918,7 @@ export interface TFDetail {
   zone?: ZoneInfo;
   rsiDivergence?: DivergenceResult;
   volumeDivergence?: DivergenceResult;
+  marketStructureV2?: MarketStructureV2Result;
 }
 
 export type MultiTFScanCoinD1Bias = typeof MultiTFScanCoinD1Bias[keyof typeof MultiTFScanCoinD1Bias];
@@ -802,6 +967,20 @@ export interface MultiTFDetailResult {
   message?: string;
   coinTFs?: TFDetail[];
   btcTFs?: TFDetail[];
+}
+
+export interface AllMenusResult {
+  symbol: string;
+  timestamp: string;
+  breakoutConfidence?: BreakoutTradingResult | null;
+  breakoutCrossover?: BreakoutTradingResult | null;
+  sniperStructural?: SniperResult | null;
+  sniperRsiConnors?: SniperResult | null;
+  scalpingStructural?: ScalpingResult | null;
+  scalpingM15?: ScalpingResult | null;
+  extremeQuant?: ExtremeScalpingResult | null;
+  extremeSniper?: ExtremeScalpingResult | null;
+  multiTf?: MultiTFDetailResult | null;
 }
 
 export type GetBreakoutEntryParams = {
@@ -880,6 +1059,20 @@ symbol: string;
 };
 
 export type GetMultiTfDetailParams = {
+/**
+ * Futures symbol e.g. BTCUSDT
+ */
+symbol: string;
+};
+
+export type GetAllMenusAnalysisParams = {
+/**
+ * Futures symbol e.g. BTCUSDT
+ */
+symbol: string;
+};
+
+export type GetMomentumHunterParams = {
 /**
  * Futures symbol e.g. BTCUSDT
  */

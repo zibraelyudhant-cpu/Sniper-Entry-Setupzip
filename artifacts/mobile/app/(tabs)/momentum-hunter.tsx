@@ -9,22 +9,19 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { useGetExtremeScalping, useGetExtremeScalpingScan, getGetExtremeScalpingQueryKey, getGetExtremeScalpingScanQueryKey, type ExtremeScalpingResult } from '@workspace/api-client-react';
+import { useGetMomentumHunter, useGetMomentumHunterScan, getGetMomentumHunterQueryKey, getGetMomentumHunterScanQueryKey, type MomentumHunterResult } from '@workspace/api-client-react';
 import { journalSave, type JournalEntry } from './journal-helpers';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
-import { ScoreBadge } from '@/components/animated/ScoreBadge';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
-import { MENU_COLORS } from '@/constants/theme';
-import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
-import { TFBreakdownTable } from '@/components/TFBreakdownTable';
+import { MENU_COLORS } from '@/constants/theme';
 
-const ACCENT = MENU_COLORS.extremeScalping;
+const ACCENT = MENU_COLORS.momentumHunter;
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -35,14 +32,30 @@ function formatPrice(price: number): string {
   return price.toFixed(6);
 }
 
+// setupType -> label + warna + icon, dipake scan card & detail view
+function setupTypeInfo(setupType?: string): { label: string; short: string; color: string; icon: keyof typeof Feather.glyphMap; desc: string } {
+  switch (setupType) {
+    case 'retest':
+      return { label: 'RETEST (Trend)', short: '↩ Retest', color: '#4ADE80', icon: 'repeat', desc: 'Breakout udah kejadian (candle close + volume confirm), harga balik retest ke zona — basis Skill 15M murni.' };
+    case 'reversal_ekstrem':
+      return { label: 'REVERSAL-EKSTREM', short: '⤴ Reversal', color: '#60A5FA', icon: 'refresh-ccw', desc: 'Harga di S&R TERKUAT (≥3x touch), ada rejection candle valid, didukung RSI ekstrem (20/80) atau divergence.' };
+    case 'breakout_antisipasi':
+      return { label: 'BREAKOUT-ANTISIPASI', short: '⚡ Antisipasi', color: '#FBBF24', icon: 'zap', desc: 'Breakout BELUM kejadian, harga mendekati edge zona dengan momentum akselerasi — entry pakai STOP order, nangkep breakout dari awal.' };
+    case 'sideways_rejection':
+      return { label: 'SIDEWAYS-REJECTION', short: '↔ Sideways', color: '#A78BFA', icon: 'shuffle', desc: 'Market genuinely ranging di semua TF trend — fallback single-TF, mean-reversion di boundary range.' };
+    default:
+      return { label: 'MOMENTUM HUNTER', short: '—', color: ACCENT, icon: 'compass', desc: '' };
+  }
+}
+
 // ─── Scan Coin Card ───────────────────────────────────────────────────────────
 
-function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ExtremeScalpingResult; onPress: () => void; colors: ReturnType<typeof useColors>; index?: number }) {
+function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: MomentumHunterResult; onPress: () => void; colors: ReturnType<typeof useColors>; index?: number }) {
   const base = coin.symbol.replace('USDT', '');
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
-  const confidence = (coin as any).confidence as number | undefined;
-  const mode = (coin as any).mode as string | undefined;
+  const info = setupTypeInfo(coin.setupType);
+  const tfLabel = coin.tfEksekusi ? `${coin.tfStruktur}→${coin.tfEksekusi}` : coin.tfStruktur;
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -57,24 +70,16 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ExtremeScalp
             <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
-            {mode && (
-              <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
-                <Text style={[scanStyles.biasBadgeText, { color: ACCENT }]}>{mode === 'sniper' ? '🎯 Sniper' : '⚡ Quant'}</Text>
-              </View>
-            )}
-            {(coin as any).strategy === 'range' && (
-              <View style={[scanStyles.biasBadge, { backgroundColor: '#60A5FA18', borderColor: '#60A5FA' }]}>
-                <Text style={[scanStyles.biasBadgeText, { color: '#60A5FA' }]}>🔁 Range</Text>
-              </View>
-            )}
+            <View style={[scanStyles.biasBadge, { backgroundColor: `${info.color}18`, borderColor: info.color }]}>
+              <Text style={[scanStyles.biasBadgeText, { color: info.color }]}>{info.short}</Text>
+            </View>
           </View>
           <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
-            RSI {(coin as any).rsi5M ? (coin as any).rsi5M.toFixed(0) : '—'} · {(coin as any).entryType === 'aggressive' ? 'Market' : 'Limit'} entry
+            TF {tfLabel} · {coin.orderType === 'stop' ? 'Stop' : 'Limit'} order
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <StatusBadge status={coin.status} />
-          {confidence !== undefined && <ScoreBadge score={confidence} max={100} />}
         </View>
         <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
       </View>
@@ -131,20 +136,22 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
   );
 }
 
-function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: ExtremeScalpingResult) => void }) {
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: MomentumHunterResult) => void }) {
   const insets = useSafeAreaInsets();
   // isFetching (bukan isLoading) — fix bug audit: isLoading React Query cuma
   // true pas fetch PERTAMA kali, jadi tombol SCAN NOW kliatan "gak ngerespon"
-  // pas refetch (isLoading tetep false walau lagi proses di background).
-  const { data, isLoading, isFetching, isError, refetch } = useGetExtremeScalpingScan({
-    query: { queryKey: getGetExtremeScalpingScanQueryKey(), staleTime: 3 * 60 * 1000 },
+  // pas refetch (isLoading tetep false walau lagi proses di background) —
+  // paling kerasa di sini karena Momentum Hunter scan-nya paling lama (4 TF
+  // pair × 3 tipe setup per koin).
+  const { data, isLoading, isFetching, isError, refetch } = useGetMomentumHunterScan({
+    query: { queryKey: getGetMomentumHunterScanQueryKey(), staleTime: 3 * 60 * 1000 },
   });
 
   if (isLoading) {
     return (
       <View style={scanStyles.center}>
-        <ScanLoading label="SCANNING EXTREME" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Quant (15M→M1) & Sniper (30M→M5)</Text>
+        <ScanLoading label="MEMBURU MOMENTUM" accentColor={ACCENT} />
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>4 pasangan TF × 3 tipe setup + fallback sideways</Text>
       </View>
     );
   }
@@ -167,9 +174,9 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   if (coins.length === 0) {
     return (
       <View style={scanStyles.center}>
-        <Feather name="crosshair" size={36} color={colors.mutedForeground} />
-        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Belum ada yang lolos semua syarat</Text>
-        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Sistem ini rule-engine — syarat wajib lolos berurutan (7 gerbang). Kosong itu wajar, bukan bug. Jaga kesehatan, jangan overtrading.</Text>
+        <Feather name="compass" size={36} color={colors.mutedForeground} />
+        <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Belum ada momentum yang ketemu</Text>
+        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Sistem ini coba 4 TF × 3 tipe setup + fallback sideways per koin — kosong itu wajar kalau lagi gak ada peluang jelas. Jaga kesehatan, jangan overtrading.</Text>
         <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
           {isFetching ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>}
         </Pressable>
@@ -187,7 +194,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
 
-      <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🎯 SEMUA SYARAT WAJIB LOLOS (sort by confidence, tertinggi duluan)</Text>
+      <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🔭 MOMENTUM KETEMU (siap entry duluan, baru mendekati)</Text>
       {coins.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
     </ScrollView>
   );
@@ -208,8 +215,6 @@ const scanStyles = StyleSheet.create({
   cardQuote: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   biasBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   biasBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.3 },
-  zoneBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  zoneBadgeText: { fontSize: 8, fontFamily: 'Inter_500Medium' },
   condRow: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 8, paddingHorizontal: 4 },
   condItem: { flex: 1, alignItems: 'center', gap: 3 },
   condLabel: { fontSize: 7, fontFamily: 'Inter_500Medium', letterSpacing: 0.3 },
@@ -219,28 +224,30 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'quant' | 'sniper'; pinnedData?: ExtremeScalpingResult | null; onSignalReady?: (d: any) => void; onSave?: () => void }) {
+function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; pinnedData?: MomentumHunterResult | null; onSignalReady?: (d: any) => void; onSave?: () => void }) {
   const insets = useSafeAreaInsets();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
-  // undefined = belum dipilih manual, biar classifier backend (ADX 5M) yang nentuin otomatis
-  const [mode, setMode] = useState<'quant' | 'sniper' | undefined>(initialMode);
-  // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
-  // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
-  // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
+  const [showAllAttempts, setShowAllAttempts] = useState(false);
+  // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan
+  // (gak auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user lagi
+  // transisi ke Binance buat eksekusi. liveMode=true = data fresh (search
+  // manual, atau user eksplisit minta refresh).
   const [liveMode, setLiveMode] = useState(!pinnedData);
 
   useEffect(() => {
-    if (initialSymbol) setQuerySymbol(initialSymbol);
-    if (initialMode) setMode(initialMode);
+    if (initialSymbol) {
+      setQuerySymbol(initialSymbol);
+      setInputSymbol(initialSymbol);
+    }
     setLiveMode(!pinnedData); // reset tiap kali coin baru dipilih dari Scan
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSymbol, initialMode, pinnedData]);
+  }, [initialSymbol, pinnedData]);
 
-  const { data: liveData, isLoading, isError, refetch } = useGetExtremeScalping(
-    { symbol: querySymbol, ...(mode ? { mode } : {}) },
-    { query: { queryKey: getGetExtremeScalpingQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
+  const { data: liveData, isLoading, isError, refetch } = useGetMomentumHunter(
+    { symbol: querySymbol },
+    { query: { queryKey: getGetMomentumHunterQueryKey({ symbol: querySymbol }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
   );
+
   const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
@@ -266,14 +273,14 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = data.mode === 'quant' ? 'Quant' : 'Sniper';
+    const setupLabel = setupTypeInfo(data.setupType).label;
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Extreme Scalping', sourceSkill: skillLabel,
+      sourceMenu: 'Momentum Hunter', sourceSkill: setupLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: data.mode === 'quant' ? '15M' : 'M30', tfEksekusi: data.mode === 'quant' ? '1M' : 'M5',
+      tfStruktur: data.tfStruktur ?? '15M', tfEksekusi: data.tfEksekusi,
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -282,32 +289,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
   }, [data]);
 
   const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
+  const info = setupTypeInfo(data?.setupType);
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Quant (15M->5M) vs Sniper (30M->15M/5M/1M) */}
-      <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
-        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['quant', 'sniper'] as const).map((m) => {
-            const active = (mode ?? data?.recommendedMode) === m;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => setMode(m)}
-                style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
-              >
-                <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'quant' ? 'Quant (15M→M1)' : 'Sniper (30M→M5)'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="crosshair" size={15} color={ACCENT} />
+          <Feather name="compass" size={15} color={ACCENT} />
           <TextInput
             style={[styles.inputText, { color: colors.foreground }]}
             placeholder="Masukkan pair (BTCUSDT)"
@@ -315,8 +303,9 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
             value={inputSymbol}
             onChangeText={setInputSymbol}
             autoCapitalize="characters"
-            returnKeyType="search"
+            autoCorrect={false}
             onSubmitEditing={handleAnalyze}
+            returnKeyType="search"
           />
           {inputSymbol.length > 0 && (
             <Pressable onPress={() => setInputSymbol('')}>
@@ -334,13 +323,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
 
       {!querySymbol ? (
         <View style={styles.emptyState}>
-          <Feather name="crosshair" size={40} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Extreme Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa Quant SMC — BOS, OB, FVG, Liquidity Sweep</Text>
+          <Feather name="compass" size={40} color={colors.mutedForeground} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Momentum Hunter</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair — sistem otomatis coba 4 pasangan TF (15M→1M, 5M→1M, H1→15M, H4→M30) × 3 tipe setup (retest, reversal-ekstrem, breakout-antisipasi), fallback sideways (15M/5M/H1) kalau semua TF trend gak ketemu apa-apa</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
-          <ScanLoading label="MENGANALISA" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
+          <ScanLoading label="MEMBURU MOMENTUM" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
         </View>
       ) : (liveMode && (isError || !data)) ? (
         <View style={styles.emptyState}>
@@ -357,7 +346,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
-          {/* Banner: data terkunci dari Scan, BUKAN live */}
+          {/* Banner: data terkunci dari Scan, BUKAN live — biar user gak salah kira ini fresh */}
           {!liveMode && pinnedData && (
             <AnimatedCard index={0}>
             <View style={{
@@ -377,7 +366,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
 
           {/* Header result */}
           <AnimatedCard index={1}>
-          <View style={[styles.section, { backgroundColor: 'rgba(251,146,60,0.06)', borderColor: 'rgba(251,146,60,0.25)' }]}>
+          <View style={[styles.section, { backgroundColor: `${ACCENT}0F`, borderColor: `${ACCENT}40` }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View>
                 <Text style={[styles.pairTitle, { color: colors.foreground }]}>
@@ -385,11 +374,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                 </Text>
                 <Text style={[styles.timestamp, { color: colors.mutedForeground }]}>{data.timestamp}</Text>
               </View>
-              <View style={{ gap: 6, alignItems: 'flex-end' }}>
-                <StatusBadge status={data.status} />
-                {(data as any).confidence !== undefined && <ScoreBadge score={(data as any).confidence} max={100} />}
-              </View>
+              <StatusBadge status={data.status} />
             </View>
+            {data.setupType && (
+              <View style={[scanStyles.biasBadge, { backgroundColor: `${info.color}18`, borderColor: info.color, alignSelf: 'flex-start', marginTop: 8 }]}>
+                <Text style={[scanStyles.biasBadgeText, { color: info.color, fontSize: 10 }]}>{info.label}</Text>
+              </View>
+            )}
             {data.message && (
               <View style={[styles.messageBox, { backgroundColor: `${ACCENT}10`, borderLeftColor: ACCENT }]}>
                 <Text style={[styles.messageText, { color: colors.mutedForeground }]}>{data.message}</Text>
@@ -398,74 +389,50 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
           </View>
           </AnimatedCard>
 
-          {/* Pre-filter & Bias */}
-          {data.bias && (
+          {/* Penjelasan tipe setup — biar user paham KENAPA ini yang dipilih */}
+          {data.setupType && info.desc && (
             <AnimatedCard index={2}>
-            <View style={[styles.section, { backgroundColor: 'rgba(167,139,250,0.06)', borderColor: 'rgba(167,139,250,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>PRE-FILTER & BIAS</Text>
+            <View style={[styles.section, { backgroundColor: `${info.color}0A`, borderColor: `${info.color}30` }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <Feather name={info.icon} size={16} color={info.color} />
+                <Text style={[styles.sectionTitle, { color: info.color, marginBottom: 0 }]}>KENAPA TIPE INI?</Text>
+              </View>
+              <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.foreground, lineHeight: 20 }}>{info.desc}</Text>
+              <View style={[styles.divider, { backgroundColor: colors.border, marginTop: 10 }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
-                <Text style={[styles.infoValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
-                  {data.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>TF yang ketemu momentum</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {data.tfEksekusi ? `${data.tfStruktur} → ${data.tfEksekusi}` : `${data.tfStruktur} (single-TF)`}
                 </Text>
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Volume 24h</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>{(data as any).volume24h ? `$${((data as any).volume24h / 1e6).toFixed(1)}jt` : '—'}</Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>ATR ({(data as any).mode === 'sniper' ? 'M30' : 'M15'})</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>{(data as any).atrPct ? `${(data as any).atrPct.toFixed(2)}%` : '—'}</Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>RSI(14) ({(data as any).mode === 'sniper' ? 'M5' : 'M1'})</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>{(data as any).rsi5M ? (data as any).rsi5M.toFixed(1) : '—'}</Text>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Order type</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {data.orderType === 'stop' ? '🔺 STOP (breakout belum kejadian)' : '🎯 LIMIT (zona/retest udah dikonfirmasi)'}
+                </Text>
               </View>
             </View>
             </AnimatedCard>
           )}
 
-          {/* Zona (breakout/rejection) — dipake dua strategy (trend & range) */}
-          {(data as any).zoneEdgeUpper !== undefined && (
+          {/* Zona */}
+          {data.zoneEdgeUpper !== undefined && (
             <AnimatedCard index={3}>
-            <View style={[styles.section, {
-              backgroundColor: (data as any).strategy === 'range' ? 'rgba(96,165,250,0.06)' : 'rgba(74,222,128,0.06)',
-              borderColor: (data as any).strategy === 'range' ? 'rgba(96,165,250,0.22)' : 'rgba(74,222,128,0.22)',
-            }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-                {(data as any).strategy === 'range' ? 'ZONA REJECTION (RANGE)' : 'ZONA BREAKOUT (TREND)'}
-              </Text>
+            <View style={[styles.section, { backgroundColor: 'rgba(74,222,128,0.06)', borderColor: 'rgba(74,222,128,0.22)' }]}>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ZONA</Text>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Edge Zona</Text>
-                <Text style={[styles.infoValue, { color: (data as any).strategy === 'range' ? '#60A5FA' : colors.bullish }]}>
-                  {formatPrice((data as any).zoneEdgeLower)} – {formatPrice((data as any).zoneEdgeUpper)}
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {formatPrice(data.zoneEdgeLower ?? 0)} – {formatPrice(data.zoneEdgeUpper ?? 0)}
                 </Text>
               </View>
-              {(data as any).candlesSinceBreakout !== undefined && (
+              {data.candlesSinceBreakout !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>
-                      {(data as any).strategy === 'range' ? 'Rejection Terjadi' : 'Breakout Terjadi'}
-                    </Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{(data as any).candlesSinceBreakout} candle lalu</Text>
-                  </View>
-                </>
-              )}
-              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-                {(data as any).strategy === 'range'
-                  ? 'ZigZag lagi ranging — entry ini mean-reversion (rejection+retest), BUKAN trend-following.'
-                  : 'Breakout+retest — basis Skill 15M.'}
-              </Text>
-              {(data as any).confidence !== undefined && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={[styles.infoRow, { backgroundColor: `${ACCENT}18`, marginHorizontal: -12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }]}>
-                    <Text style={[styles.infoLabel, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>Confidence (info)</Text>
-                    <Text style={[styles.infoValue, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>{(data as any).confidence}/100</Text>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Event terjadi</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesSinceBreakout} candle lalu</Text>
                   </View>
                 </>
               )}
@@ -503,7 +470,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {(data as any).entryType === 'aggressive' ? 'Market (agresif)' : 'Limit (konservatif)'} — {data.bias === 'bullish' ? 'BUY' : 'SELL'}
+                  {data.orderType === 'stop' ? 'STOP' : 'LIMIT'} — {data.bias === 'bullish' ? 'BUY' : 'SELL'}
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -519,11 +486,15 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
             </AnimatedCard>
           )}
 
+          <View style={{ marginHorizontal: 12 }}>
+            <MarketStructureV2Card data={data.marketStructureV2} />
+          </View>
+
           {/* Filter Results */}
           {data.filterResults && data.filterResults.length > 0 && (
             <AnimatedCard index={5}>
             <View style={[styles.section, { backgroundColor: 'rgba(34,211,238,0.05)', borderColor: 'rgba(34,211,238,0.2)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>HASIL FILTER (semua wajib lolos, Confidence: {(data as any).confidence ?? 0}/100)</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>DETAIL KONFIRMASI</Text>
               {data.filterResults.map((f, i) => {
                 const isPassed = f.startsWith('✅');
                 return (
@@ -536,13 +507,27 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
             </AnimatedCard>
           )}
 
-          <TFBreakdownTable items={data?.tfBreakdown} accentColor={ACCENT} />
-
-          <RecentPerformanceCard data={data?.recentPerformance} accentColor={ACCENT} />
-
-          <View style={{ marginHorizontal: 12 }}>
-            <MarketStructureV2Card data={data?.marketStructureV2} />
-          </View>
+          {/* Attempts Log — transparansi semua TF x tipe yang udah dicoba */}
+          {data.attemptsLog && data.attemptsLog.length > 0 && (
+            <AnimatedCard index={6}>
+            <View style={[styles.section, { backgroundColor: 'rgba(148,163,184,0.05)', borderColor: 'rgba(148,163,184,0.18)' }]}>
+              <Pressable onPress={() => setShowAllAttempts(v => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={[styles.sectionTitle, { color: colors.mutedForeground, marginBottom: 0 }]}>
+                  RIWAYAT PENCARIAN ({data.attemptsLog.length} percobaan)
+                </Text>
+                <Feather name={showAllAttempts ? 'chevron-up' : 'chevron-down'} size={16} color={colors.mutedForeground} />
+              </Pressable>
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, marginBottom: showAllAttempts ? 8 : 0, fontStyle: 'italic' }}>
+                Transparansi kenapa akhirnya milih setup ini — semua TF & tipe yang dicoba sebelumnya.
+              </Text>
+              {showAllAttempts && data.attemptsLog.map((a, i) => (
+                <Text key={i} style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, paddingVertical: 3, lineHeight: 16 }}>
+                  {i + 1}. {a}
+                </Text>
+              ))}
+            </View>
+            </AnimatedCard>
+          )}
 
           {/* Kalkulator PnL button */}
           {data.entryPrice && (
@@ -558,7 +543,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                     takeProfit1: String(data.takeProfit1 ?? 0),
                     symbol: data.symbol,
                     direction: data.bias ?? 'bullish',
-                    source: 'extreme_scalping',
+                    source: 'momentum_hunter',
                   },
                 });
               }}
@@ -582,65 +567,72 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
-
-
 // ─── Signal Log ───────────────────────────────────────────────────────────────
 
-type ExtremeScalpingLogStatus = 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';
+type MomentumHunterLogStatus = 'pending' | 'win_tp1' | 'lose' | 'expired';
 
-interface ExtremeScalpingLog {
+interface MomentumHunterLog {
   id: string;
   symbol: string;
   bias: 'bullish' | 'bearish';
+  setupType?: string;
+  tfStruktur?: string;
+  tfEksekusi?: string;
   entryPrice: number;
   stopLoss: number;
   takeProfit1: number;
-  takeProfit2?: number;
   currentPriceAtSignal: number;
   timestamp: string;
   savedAt: number;
-  score?: number;
-  grade?: string;
-  mode?: 'quant' | 'sniper';
-  status: ExtremeScalpingLogStatus;
+  status: MomentumHunterLogStatus;
   evaluatedAt?: string;
   exitPrice?: number;
   rr?: number;
 }
 
-const SCALPING_LOG_KEY = 'signal_logs_extreme_scalping';
+const LOG_KEY = 'signal_logs_momentum_hunter';
 
-async function scalpLoadLogs(): Promise<ExtremeScalpingLog[]> {
-  try { const r = await AsyncStorage.getItem(SCALPING_LOG_KEY); return r ? JSON.parse(r) : []; }
+async function mhLoadLogs(): Promise<MomentumHunterLog[]> {
+  try { const r = await AsyncStorage.getItem(LOG_KEY); return r ? JSON.parse(r) : []; }
   catch { return []; }
 }
-async function scalpSaveLog(log: ExtremeScalpingLog): Promise<ExtremeScalpingLog[]> {
-  const all = await scalpLoadLogs();
+async function mhSaveLog(log: MomentumHunterLog): Promise<MomentumHunterLog[]> {
+  const all = await mhLoadLogs();
   const updated = [log, ...all].slice(0, 100);
-  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
+  try { await AsyncStorage.setItem(LOG_KEY, JSON.stringify(updated)); } catch {}
   return updated;
 }
-async function scalpUpdateLog(id: string, patch: Partial<ExtremeScalpingLog>): Promise<ExtremeScalpingLog[]> {
-  const all = await scalpLoadLogs();
+async function mhUpdateLog(id: string, patch: Partial<MomentumHunterLog>): Promise<MomentumHunterLog[]> {
+  const all = await mhLoadLogs();
   const updated = all.map(l => l.id === id ? { ...l, ...patch } : l);
-  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
+  try { await AsyncStorage.setItem(LOG_KEY, JSON.stringify(updated)); } catch {}
   return updated;
 }
-async function scalpDeleteLog(id: string): Promise<ExtremeScalpingLog[]> {
-  const all = await scalpLoadLogs();
+async function mhDeleteLog(id: string): Promise<MomentumHunterLog[]> {
+  const all = await mhLoadLogs();
   const updated = all.filter(l => l.id !== id);
-  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
+  try { await AsyncStorage.setItem(LOG_KEY, JSON.stringify(updated)); } catch {}
   return updated;
 }
-async function scalpEvalLog(log: ExtremeScalpingLog): Promise<Partial<ExtremeScalpingLog>> {
+// Fix Temuan #4 (audit): map label TF (dari tfEksekusi, atau tfStruktur kalau
+// sideways single-TF gak punya tfEksekusi terpisah) ke interval Binance + limit
+// candle yang sesuai — biar evaluasi win/lose presisi sama granularitas eksekusi
+// ASLINYA, bukan candle 15M yang lebih kasar dari yang beneran dipake buat entry.
+function mhEvalIntervalFor(log: MomentumHunterLog): { interval: string; limit: number } {
+  const tf = log.tfEksekusi ?? log.tfStruktur ?? '15M';
+  switch (tf) {
+    case '1M': return { interval: '1m', limit: 1500 };
+    case '5M': return { interval: '5m', limit: 1000 };
+    case 'M30': return { interval: '30m', limit: 200 };
+    case 'H1': return { interval: '1h', limit: 200 };
+    default: return { interval: '15m', limit: 200 }; // '15M' atau fallback
+  }
+}
+
+async function mhEvalLog(log: MomentumHunterLog): Promise<Partial<MomentumHunterLog>> {
   try {
-    // Fix Temuan #4 (audit): TF evaluasi WAJIB sama kayak TF eksekusi asli.
-    // Quant eksekusi M1, Sniper eksekusi M5 — dulu dua-duanya fixed 15M
-    // (lebih kasar dari eksekusi asli, bisa bikin evaluasi kurang presisi).
-    const evalInterval = log.mode === 'quant' ? '1m' : log.mode === 'sniper' ? '5m' : '15m';
-    const evalLimit = evalInterval === '1m' ? 1500 : evalInterval === '5m' ? 1000 : 200;
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=${evalInterval}&startTime=${log.savedAt}&endTime=${Date.now()}&limit=${evalLimit}`;
+    const { interval, limit } = mhEvalIntervalFor(log);
+    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=${interval}&startTime=${log.savedAt}&endTime=${Date.now()}&limit=${limit}`;
     const res = await fetch(url);
     if (!res.ok) return { status: 'pending' };
     const klines: number[][] = await res.json();
@@ -650,154 +642,161 @@ async function scalpEvalLog(log: ExtremeScalpingLog): Promise<Partial<ExtremeSca
       const high = k[2] as number, low = k[3] as number;
       if (log.bias === 'bullish') {
         if (low <= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (log.takeProfit2 && high >= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.takeProfit2-log.entryPrice)/risk).toFixed(1), evaluatedAt: evalAt };
-        if (high >= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1-log.entryPrice)/risk).toFixed(1), evaluatedAt: evalAt };
+        if (high >= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt };
       } else {
         if (high >= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (log.takeProfit2 && low <= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.entryPrice-log.takeProfit2)/risk).toFixed(1), evaluatedAt: evalAt };
-        if (low <= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice-log.takeProfit1)/risk).toFixed(1), evaluatedAt: evalAt };
+        if (low <= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice - log.takeProfit1) / risk).toFixed(1), evaluatedAt: evalAt };
       }
     }
     return { status: 'pending' };
   } catch { return { status: 'pending' }; }
 }
 
-function ExtremeScalpingLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+function MomentumHunterLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const insets = useSafeAreaInsets();
-  const [logs, setLogs] = useState<ExtremeScalpingLog[]>([]);
+  const [logs, setLogs] = useState<MomentumHunterLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [evaluating, setEvaluating] = useState<string | null>(null);
 
-  useEffect(() => { scalpLoadLogs().then(l => { setLogs(l); setLoading(false); }); }, []);
-  const doEval = async (log: ExtremeScalpingLog) => { setEvaluating(log.id); const p = await scalpEvalLog(log); setLogs(await scalpUpdateLog(log.id, p)); setEvaluating(null); };
-  const doDelete = async (id: string) => setLogs(await scalpDeleteLog(id));
+  useEffect(() => { mhLoadLogs().then(l => { setLogs(l); setLoading(false); }); }, []);
+  const doEval = async (log: MomentumHunterLog) => { setEvaluating(log.id); const p = await mhEvalLog(log); setLogs(await mhUpdateLog(log.id, p)); setEvaluating(null); };
+  const doDelete = async (id: string) => setLogs(await mhDeleteLog(id));
 
   const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
 
-  const wins = logs.filter(l => l.status==='win_tp1'||l.status==='win_tp2').length;
-  const loses = logs.filter(l => l.status==='lose').length;
-  const wr = wins+loses>0 ? Math.round(wins/(wins+loses)*100) : 0;
-  const rrs = logs.filter(l => (l.rr??0)>0);
-  const avgRR = rrs.length ? (rrs.reduce((a,b)=>a+(b.rr??0),0)/rrs.length).toFixed(2) : '—';
+  const wins = logs.filter(l => l.status === 'win_tp1').length;
+  const loses = logs.filter(l => l.status === 'lose').length;
+  const wr = wins + loses > 0 ? Math.round(wins / (wins + loses) * 100) : 0;
+  const rrs = logs.filter(l => (l.rr ?? 0) > 0);
+  const avgRR = rrs.length ? (rrs.reduce((a, b) => a + (b.rr ?? 0), 0) / rrs.length).toFixed(2) : '—';
 
-  if (loading) return <View style={{flex:1,alignItems:'center',justifyContent:'center'}}><ActivityIndicator color={ACCENT}/></View>;
+  if (loading) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={ACCENT} /></View>;
 
   return (
-    <ScrollView contentContainerStyle={{paddingBottom:insets.bottom+80}} showsVerticalScrollIndicator={false}>
-      {logs.length>0&&<View style={{flexDirection:'row',margin:12,borderRadius:12,borderWidth:1,borderColor:colors.border,backgroundColor:colors.card,padding:14,justifyContent:'space-around'}}>
+    <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+      {logs.length > 0 && <View style={{ flexDirection: 'row', margin: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, justifyContent: 'space-around' }}>
         {[
-          {v:`${wins}`,c:'#4ADE80',bg:'rgba(74,222,128,0.12)',l:'WIN'},
-          {v:`${loses}`,c:'#F87171',bg:'rgba(248,113,113,0.1)',l:'LOSE'},
-          {v:`${logs.filter(x=>x.status==='pending').length}`,c:'#94A3B8',bg:'rgba(148,163,184,0.08)',l:'PENDING'},
-          {v:`${wr}%`,c:'#FBBF24',bg:'rgba(251,191,36,0.12)',l:'WIN RATE'},
-          {v:avgRR,c:ACCENT,bg:`${ACCENT}18`,l:'AVG R:R'},
-        ].map(item=>(
-          <View key={item.l} style={{alignItems:'center',gap:4,backgroundColor:item.bg,borderRadius:9,paddingVertical:8,paddingHorizontal:6,minWidth:52}}>
-            <Text style={{fontSize:16,fontFamily:'Inter_700Bold',color:item.c}}>{item.v}</Text>
-            <Text style={{fontSize:8,fontFamily:'Inter_500Medium',color:colors.mutedForeground,letterSpacing:0.3}}>{item.l}</Text>
+          { v: `${wins}`, c: '#4ADE80', bg: 'rgba(74,222,128,0.12)', l: 'WIN' },
+          { v: `${loses}`, c: '#F87171', bg: 'rgba(248,113,113,0.1)', l: 'LOSE' },
+          { v: `${logs.filter(x => x.status === 'pending').length}`, c: '#94A3B8', bg: 'rgba(148,163,184,0.08)', l: 'PENDING' },
+          { v: `${wr}%`, c: '#FBBF24', bg: 'rgba(251,191,36,0.12)', l: 'WIN RATE' },
+          { v: avgRR, c: ACCENT, bg: `${ACCENT}18`, l: 'AVG R:R' },
+        ].map(item => (
+          <View key={item.l} style={{ alignItems: 'center', gap: 4, backgroundColor: item.bg, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 6, minWidth: 52 }}>
+            <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: item.c }}>{item.v}</Text>
+            <Text style={{ fontSize: 8, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, letterSpacing: 0.3 }}>{item.l}</Text>
           </View>
         ))}
       </View>}
-      {logs.length>0 && (
-        <Text style={{fontSize:10,fontFamily:'Inter_400Regular',color:colors.mutedForeground,marginHorizontal:12,marginBottom:8,fontStyle:'italic',lineHeight:14}}>
-          ℹ️ Evaluasi win/lose sekarang otomatis pake TF sesuai eksekusi asli sinyal (Quant=M1, Sniper=M5) — udah jauh lebih presisi dari sebelumnya. Catatan: kalau SL & TP kesentuh dalam candle yang SAMA, sistem asumsikan SL duluan (konservatif).
+      {logs.length > 0 && (
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginHorizontal: 12, marginBottom: 8, fontStyle: 'italic', lineHeight: 14 }}>
+          ℹ️ Evaluasi win/lose sekarang otomatis pake TF sesuai eksekusi asli tiap sinyal (M1/M5/M15/M30, ikut hasil scan) — udah jauh lebih presisi dari sebelumnya. Catatan: kalau SL & TP kesentuh dalam candle yang SAMA, sistem asumsikan SL duluan (konservatif).
         </Text>
       )}
-      {logs.length===0 ? (
-        <View style={{flex:1,alignItems:'center',justifyContent:'center',padding:32,gap:10,minHeight:300}}>
-          <Feather name="bookmark" size={36} color={colors.mutedForeground}/>
-          <Text style={{fontSize:16,fontFamily:'Inter_600SemiBold',color:colors.foreground,textAlign:'center'}}>Belum ada sinyal tersimpan</Text>
-          <Text style={{fontSize:13,fontFamily:'Inter_400Regular',color:colors.mutedForeground,textAlign:'center',lineHeight:20}}>Simpan sinyal dari tab Analisa</Text>
+      {logs.length === 0 ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, minHeight: 300 }}>
+          <Feather name="bookmark" size={36} color={colors.mutedForeground} />
+          <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground, textAlign: 'center' }}>Belum ada sinyal tersimpan</Text>
+          <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 20 }}>Simpan sinyal dari tab Analisa</Text>
         </View>
       ) : (
-        <View style={{paddingHorizontal:12,paddingTop:10,gap:8}}>
-          {logs.map((log,index)=>(
+        <View style={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}>
+          {logs.map((log, index) => {
+            const info = setupTypeInfo(log.setupType);
+            return (
             <AnimatedCard key={log.id} index={index}>
-            <View style={{borderRadius:12,borderWidth:1,borderColor:colors.border,backgroundColor:colors.card,overflow:'hidden',borderLeftWidth:3,borderLeftColor:log.status==='win_tp1'||log.status==='win_tp2'?'#4ADE80':log.status==='lose'?'#F87171':'#6B7280'}}>
-              <View style={{flexDirection:'row',padding:12,alignItems:'flex-start'}}>
-                <View style={{flex:1}}>
-                  <Text style={{fontSize:16,fontFamily:'Inter_600SemiBold',color:colors.foreground}}>{log.symbol.replace('USDT','')}/USDT</Text>
-                  <Text style={{fontSize:11,fontFamily:'Inter_400Regular',color:colors.mutedForeground,marginTop:2}}>{log.timestamp}</Text>
+            <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden', borderLeftWidth: 3, borderLeftColor: log.status === 'win_tp1' ? '#4ADE80' : log.status === 'lose' ? '#F87171' : '#6B7280' }}>
+              <View style={{ flexDirection: 'row', padding: 12, alignItems: 'flex-start' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{log.timestamp}</Text>
+                  {log.setupType && (
+                    <View style={[scanStyles.biasBadge, { backgroundColor: `${info.color}18`, borderColor: info.color, alignSelf: 'flex-start', marginTop: 4 }]}>
+                      <Text style={[scanStyles.biasBadgeText, { color: info.color }]}>{info.short}</Text>
+                    </View>
+                  )}
                 </View>
-                <View style={{alignItems:'flex-end',gap:4}}>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
                   <LogResultBadge status={log.status} />
-                  <Text style={{fontSize:11,fontFamily:'Inter_600SemiBold',color:log.bias==='bullish'?'#22c55e':'#ef4444'}}>{log.bias==='bullish'?'▲ LONG':'▼ SHORT'}</Text>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: log.bias === 'bullish' ? '#22c55e' : '#ef4444' }}>{log.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}</Text>
                 </View>
               </View>
-              <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,paddingVertical:8,paddingHorizontal:12}}>
-                {([['Entry',log.entryPrice,colors.foreground],['SL',log.stopLoss,'#ef4444'],['TP1',log.takeProfit1,'#22c55e'],['TP2',log.takeProfit2,'#3b82f6']] as [string,number|undefined,string][]).map(([lbl,val,col])=>val?(
-                  <View key={lbl} style={{flex:1,alignItems:'center'}}>
-                    <Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>{lbl}</Text>
-                    <Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:col,marginTop:2}}>{fp(val)}</Text>
+              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 8, paddingHorizontal: 12 }}>
+                {([['Entry', log.entryPrice, colors.foreground], ['SL', log.stopLoss, '#ef4444'], ['TP', log.takeProfit1, '#22c55e']] as [string, number | undefined, string][]).map(([lbl, val, col]) => val ? (
+                  <View key={lbl} style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>{lbl}</Text>
+                    <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: col, marginTop: 2 }}>{fp(val)}</Text>
                   </View>
-                ):null)}
-                {log.rr!==undefined&&<View style={{flex:1,alignItems:'center'}}><Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>R:R</Text><Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:log.rr>0?'#22c55e':'#ef4444',marginTop:2}}>{log.rr>0?`1:${log.rr}`:'-1'}</Text></View>}
+                ) : null)}
+                {log.rr !== undefined && <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>R:R</Text><Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: log.rr > 0 ? '#22c55e' : '#ef4444', marginTop: 2 }}>{log.rr > 0 ? `1:${log.rr}` : '-1'}</Text></View>}
               </View>
-              {/* maxScore Extreme Scalping = 10 (5 filter asli + BTC correlation + liquidity sweep + zone freshness + VWAP + Volume Profile) — update manual kalau maxScore di backend berubah lagi */}
-              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Confidence: {log.score}/100{log.mode?` · ${log.mode==='sniper'?'🎯 Sniper':'⚡ Quant'}`:''}</Text>}
-              {log.evaluatedAt&&<Text style={{fontSize:10,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:6,fontFamily:'Inter_400Regular'}}>Dievaluasi: {log.evaluatedAt}</Text>}
-              <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,padding:8,gap:8,alignItems:'center'}}>
-                {log.status==='pending'&&(
-                  <Pressable onPress={()=>doEval(log)} disabled={evaluating===log.id}
-                    style={({pressed})=>[{flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:5,paddingVertical:7,borderRadius:8,borderWidth:1,borderColor:ACCENT,backgroundColor:ACCENT+'15',opacity:pressed||evaluating===log.id?0.7:1}]}>
-                    {evaluating===log.id?<ActivityIndicator size={12} color={ACCENT}/>:<Feather name="search" size={12} color={ACCENT}/>}
-                    <Text style={{fontSize:12,fontFamily:'Inter_600SemiBold',color:ACCENT}}>{evaluating===log.id?'Evaluasi...':'Evaluasi'}</Text>
+              {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 6, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
+              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>
+                {log.status === 'pending' && (
+                  <Pressable onPress={() => doEval(log)} disabled={evaluating === log.id}
+                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: ACCENT + '15', opacity: pressed || evaluating === log.id ? 0.7 : 1 }]}>
+                    {evaluating === log.id ? <ActivityIndicator size={12} color={ACCENT} /> : <Feather name="search" size={12} color={ACCENT} />}
+                    <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>{evaluating === log.id ? 'Evaluasi...' : 'Evaluasi'}</Text>
                   </Pressable>
                 )}
-                <Pressable onPress={()=>doDelete(log.id)} style={({pressed})=>[{padding:8,opacity:pressed?0.7:1}]}>
-                  <Feather name="trash-2" size={12} color="#ef4444"/>
+                <Pressable onPress={() => doDelete(log.id)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.7 : 1 }]}>
+                  <Feather name="trash-2" size={12} color="#ef4444" />
                 </Pressable>
               </View>
             </View>
             </AnimatedCard>
-          ))}
+            );
+          })}
         </View>
       )}
     </ScrollView>
   );
 }
 
-export default function ExtremeScalpingScreen() {
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+
+export default function MomentumHunterScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
   const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
-  const [pinnedCoin, setPinnedCoin] = useState<ExtremeScalpingResult | undefined>();
+  const [pinnedCoin, setPinnedCoin] = useState<MomentumHunterResult | undefined>();
   const [currentSignal, setCurrentSignal] = useState<any>(null);
 
   const handleSaveSignal = useCallback(async () => {
     if (!currentSignal || !currentSignal.entryPrice) return;
-    const log: ExtremeScalpingLog = {
+    const log: MomentumHunterLog = {
       id: `${Date.now()}_${currentSignal.symbol}`,
       symbol: currentSignal.symbol,
       bias: currentSignal.bias ?? 'bullish',
+      setupType: currentSignal.setupType,
+      tfStruktur: currentSignal.tfStruktur,
+      tfEksekusi: currentSignal.tfEksekusi,
       entryPrice: currentSignal.entryPrice,
       stopLoss: currentSignal.stopLoss ?? 0,
       takeProfit1: currentSignal.takeProfit1 ?? 0,
       currentPriceAtSignal: currentSignal.currentPrice,
       timestamp: currentSignal.timestamp,
       savedAt: Date.now(),
-      score: currentSignal.confidence,
-      mode: currentSignal.mode,
       status: 'pending',
     };
-    await scalpSaveLog(log);
+    await mhSaveLog(log);
     setActiveTab('log');
   }, [currentSignal]);
 
-  const handleSelectCoin = useCallback((coin: ExtremeScalpingResult) => {
+  const handleSelectCoin = useCallback((coin: MomentumHunterResult) => {
     setPinnedCoin(coin);
     setActiveTab('analisa');
   }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FuturisticBackground accentColor={ACCENT} secondaryColor="#FBBF24" />
+      <FuturisticBackground accentColor={ACCENT} secondaryColor="#60A5FA" />
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Extreme Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Quant (15M→M1) & Sniper (30M→M5), basis Skill 15M (breakout/rejection+retest)</Text>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Momentum Hunter</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>4 TF × 3 tipe setup, basis Skill 15M — retest, reversal-ekstrem, breakout-antisipasi</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -821,8 +820,8 @@ export default function ExtremeScalpingScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'quant' | 'sniper' | undefined} pinnedData={pinnedCoin} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
-        : <ExtremeScalpingLogTab colors={colors} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} pinnedData={pinnedCoin} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        : <MomentumHunterLogTab colors={colors} />
       }
     </View>
   );
@@ -867,8 +866,4 @@ const styles = StyleSheet.create({
   levelCardPrice: { fontSize: 28, fontFamily: 'Inter_700Bold', marginVertical: 4 },
   levelCardSub: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   filterItem: { fontSize: 12, fontFamily: 'Inter_400Regular', paddingVertical: 4, lineHeight: 20 },
-  statusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, flexShrink: 1 },
-  statusBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
-  scoreBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
-  scoreBadgeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
 });

@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useGetScalping, useGetScalpingScan, getGetScalpingQueryKey, getGetScalpingScanQueryKey, type ScalpingResult } from '@workspace/api-client-react';
+import { journalSave, type JournalEntry } from './journal-helpers';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
@@ -20,6 +21,7 @@ import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 
 const ACCENT = MENU_COLORS.scalping;
@@ -139,9 +141,12 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
   );
 }
 
-function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string, mode?: 'structural' | 'scalping15m') => void }) {
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: ScalpingResult) => void }) {
   const insets = useSafeAreaInsets();
-  const { data, isLoading, isError, refetch } = useGetScalpingScan({
+  // isFetching (bukan isLoading) — fix bug audit: isLoading React Query cuma
+  // true pas fetch PERTAMA kali, jadi tombol SCAN NOW kliatan "gak ngerespon"
+  // pas refetch (isLoading tetep false walau lagi proses di background).
+  const { data, isLoading, isFetching, isError, refetch } = useGetScalpingScan({
     query: { queryKey: getGetScalpingScanQueryKey(), staleTime: 3 * 60 * 1000 },
   });
 
@@ -149,7 +154,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→M30→M5) & Scalping 15M</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H1→M5) & Scalping 15M (M15→M1)</Text>
       </View>
     );
   }
@@ -159,8 +164,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       <View style={scanStyles.center}>
         <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
-          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+        <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
+          {isFetching ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>}
         </Pressable>
       </View>
     );
@@ -178,8 +183,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <Feather name="crosshair" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Tidak ada setup scalping</Text>
         <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Tidak ada koin yang lolos semua filter saat ini</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
-          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
+        <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
+          {isFetching ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>}
         </Pressable>
       </View>
     );
@@ -192,25 +197,25 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
-        <ScanNowButton onPress={() => refetch()} isLoading={isLoading} colors={colors} />
+        <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
 
       {inZone.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 BAGUS — Siap Entry Sekarang</Text>
-          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, (c as any).mode); }} />)}
+          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
       {approaching.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: ACCENT }]}>⚡ MENDEKATI — Siap Pasang Limit</Text>
-          {approaching.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, (c as any).mode); }} />)}
+          {approaching.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
       {waiting.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Harga belum mendekati zona</Text>
-          {waiting.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, (c as any).mode); }} />)}
+          {waiting.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
     </ScrollView>
@@ -243,22 +248,29 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'structural' | 'scalping15m'; onSignalReady?: (d: any) => void; onSave?: () => void }) {
+function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'structural' | 'scalping15m'; pinnedData?: ScalpingResult | null; onSignalReady?: (d: any) => void; onSave?: () => void }) {
   const insets = useSafeAreaInsets();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
   // undefined = belum dipilih manual, biar classifier backend (volume M15) yang nentuin otomatis
   const [mode, setMode] = useState<'structural' | 'scalping15m' | undefined>(initialMode);
+  // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
+  // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
+  // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
+  const [liveMode, setLiveMode] = useState(!pinnedData);
 
   useEffect(() => {
     if (initialSymbol) setQuerySymbol(initialSymbol);
     if (initialMode) setMode(initialMode);
-  }, [initialSymbol, initialMode]);
+    setLiveMode(!pinnedData); // reset tiap kali coin baru dipilih dari Scan
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSymbol, initialMode, pinnedData]);
 
-  const { data, isLoading, isError, refetch } = useGetScalping(
+  const { data: liveData, isLoading, isError, refetch } = useGetScalping(
     { symbol: querySymbol, ...(mode ? { mode } : {}) },
-    { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol, staleTime: 60_000 } }
+    { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
   );
+  const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
     if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'approaching' || data?.status === 'in_zone' ? data : null);
@@ -270,13 +282,39 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const normalized = sym.endsWith('USDT') ? sym : `${sym}USDT`;
     setQuerySymbol(normalized);
+    setLiveMode(true); // search manual = selalu minta data fresh
   }, [inputSymbol]);
+
+  const handleRefreshLive = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLiveMode(true);
+  }, []);
+
+  const [savingJournal, setSavingJournal] = useState(false);
+  const handleSaveJournal = useCallback(async () => {
+    if (!data || !data.entryPrice || !data.bias) return;
+    setSavingJournal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const skillLabel = data.mode === 'scalping15m' ? 'Skill 15M' : 'Structural';
+    const entry: JournalEntry = {
+      id: `${Date.now()}_${data.symbol}`,
+      symbol: data.symbol, bias: data.bias,
+      sourceMenu: 'Scalping', sourceSkill: skillLabel,
+      entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
+      currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
+      tfStruktur: data.mode === 'scalping15m' ? '15M' : 'H1', tfEksekusi: data.mode === 'scalping15m' ? '1M' : 'M5',
+      technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
+      timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
+    };
+    await journalSave(entry);
+    setSavingJournal(false);
+  }, [data]);
 
   const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Structural (H4->M30->M5 SMC) vs Scalping 15M (breakout+retest zona) */}
+      {/* Mode Switcher — Structural (H1->M5) vs Scalping 15M (M15->M1, breakout+retest zona) */}
       <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {(['structural', 'scalping15m'] as const).map((m) => {
@@ -332,13 +370,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa zona retest M30 → refine M5</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa breakout+retest — Structural (H1→M5) atau Scalping 15M (M15→M1)</Text>
         </View>
-      ) : isLoading ? (
+      ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
           <ScanLoading label="MENGANALISA" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
         </View>
-      ) : isError || !data ? (
+      ) : (liveMode && (isError || !data)) ? (
         <View style={styles.emptyState}>
           <Feather name="alert-circle" size={36} color={colors.bearish} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal menganalisa</Text>
@@ -346,10 +384,33 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
             <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
           </Pressable>
         </View>
+      ) : !data ? (
+        <View style={styles.emptyState}>
+          <Feather name="alert-circle" size={36} color={colors.bearish} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Data gak ketemu</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
+          {/* Banner: data terkunci dari Scan, BUKAN live */}
+          {!liveMode && pinnedData && (
+            <AnimatedCard index={0}>
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginTop: 12,
+              padding: 12, borderRadius: 10, backgroundColor: 'rgba(251,191,36,0.08)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
+            }}>
+              <Feather name="lock" size={16} color="#FBBF24" />
+              <Text style={{ flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>
+                Data dari hasil Scan tadi (terkunci) — kondisi market bisa udah geser. Sebelum eksekusi ke exchange, disaranin refresh dulu.
+              </Text>
+              <Pressable onPress={handleRefreshLive} style={({ pressed }) => [{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: '#FBBF24', opacity: pressed ? 0.8 : 1 }]}>
+                <Feather name="refresh-cw" size={14} color="#000" />
+              </Pressable>
+            </View>
+            </AnimatedCard>
+          )}
+
           {/* Header result */}
-          <AnimatedCard index={0}>
+          <AnimatedCard index={1}>
           <View style={[styles.section, { backgroundColor: 'rgba(251,146,60,0.06)', borderColor: 'rgba(251,146,60,0.25)' }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View>
@@ -371,11 +432,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
           </View>
           </AnimatedCard>
 
-          {/* Struktur 15M */}
-          {data.structure15M && (
-            <AnimatedCard index={1}>
+          {/* Zona breakout+retest — dipake dua-duanya (Structural & Scalping 15M) */}
+          {data.zoneEdgeUpper !== undefined && (
+            <AnimatedCard index={2}>
             <View style={[styles.section, { backgroundColor: 'rgba(167,139,250,0.06)', borderColor: 'rgba(167,139,250,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>STRUKTUR H4</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
+                {data.mode === 'scalping15m' ? 'ZONA BREAKOUT (M15)' : 'ZONA BREAKOUT (H1)'}
+              </Text>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
                 <Text style={[styles.infoValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
@@ -384,67 +447,38 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Struktur</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.structure15M}</Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Konfirmasi Reversal</Text>
-                <Text style={[styles.infoValue, { color: data.choch15M ? colors.bullish : colors.bearish }]}>
-                  {data.choch15M ? '✅ Terkonfirmasi' : '❌ Belum terbentuk'}
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Edge Zona</Text>
+                <Text style={[styles.infoValue, { color: colors.foreground }]}>
+                  {formatPrice(data.zoneEdgeLower ?? 0)} – {formatPrice(data.zoneEdgeUpper ?? 0)}
                 </Text>
               </View>
+              {data.candlesSinceBreakout !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Breakout Terjadi</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesSinceBreakout} candle lalu</Text>
+                  </View>
+                </>
+              )}
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>ATR M5</Text>
+                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>
+                  ATR ({data.mode === 'scalping15m' ? 'M15' : 'H1'})
+                </Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
                   {data.atr15MPct ? `${data.atr15MPct.toFixed(2)}%` : '—'}
                 </Text>
               </View>
-              {data.bbSqueezing && (
+              {data.score !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={[styles.infoRow, {
-                    backgroundColor: `${ACCENT}18`,
-                    marginHorizontal: -12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 8,
-                  }]}>
-                    <Text style={[styles.infoLabel, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>⚡ BB SQUEEZE M30</Text>
-                    <Text style={[styles.infoValue, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>
-                      AKTIF — Eksplosif
-                    </Text>
+                  <View style={[styles.infoRow, { backgroundColor: `${ACCENT}18`, marginHorizontal: -12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }]}>
+                    <Text style={[styles.infoLabel, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>Score (info)</Text>
+                    <Text style={[styles.infoValue, { color: ACCENT, fontFamily: 'Inter_700Bold' }]}>{data.score}/{data.maxScore}</Text>
                   </View>
                 </>
               )}
-            </View>
-            </AnimatedCard>
-          )}
-
-          {/* OB 5M */}
-          {data.ob5M && (
-            <AnimatedCard index={2}>
-            <View style={[styles.section, { backgroundColor: 'rgba(74,222,128,0.06)', borderColor: 'rgba(74,222,128,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ZONA ENTRY (M30 → M5)</Text>
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Range OB</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                  {formatPrice(data.ob5M.low)} – {formatPrice(data.ob5M.high)}
-                </Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Mid OB</Text>
-                <Text style={[styles.infoValue, { color: colors.foreground }]}>{formatPrice(data.ob5M.mid)}</Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Status</Text>
-                <Text style={[styles.infoValue, { color: data.ob5M.fresh ? colors.bullish : colors.bearish }]}>
-                  {data.ob5M.fresh ? '✅ Fresh' : '⚠️ Sudah disentuh'}
-                </Text>
-              </View>
             </View>
             </AnimatedCard>
           )}
@@ -455,6 +489,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
               <Feather name="bookmark" size={15} color={colors.primaryForeground} />
               <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
+            </Pressable>
+          )}
+          {(data.status === 'in_zone' || data.status === 'approaching') && (
+            <Pressable onPress={handleSaveJournal} disabled={savingJournal}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
+              <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
+              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
             </Pressable>
           )}
 
@@ -472,7 +513,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — tengah zona M5
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — edge zona breakout+retest
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -513,6 +554,10 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
           <TFBreakdownTable items={data?.tfBreakdown} accentColor={ACCENT} />
 
           <RecentPerformanceCard data={data?.recentPerformance} accentColor={ACCENT} />
+
+          <View style={{ marginHorizontal: 12 }}>
+            <MarketStructureV2Card data={data?.marketStructureV2} />
+          </View>
 
           {/* Kalkulator PnL button */}
           {data.entryPrice && (
@@ -605,7 +650,12 @@ async function scalpDeleteLog(id: string): Promise<ScalpingLog[]> {
 }
 async function scalpEvalLog(log: ScalpingLog): Promise<Partial<ScalpingLog>> {
   try {
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=15m&startTime=${log.savedAt}&endTime=${Date.now()}&limit=200`;
+    // Fix Temuan #4 (audit): TF evaluasi WAJIB sama kayak TF eksekusi asli.
+    // Structural eksekusi M5, Skill 15M eksekusi M1 — dulu dua-duanya fixed
+    // 15M (lebih kasar dari eksekusi asli, bisa bikin evaluasi kurang presisi).
+    const evalInterval = log.mode === 'structural' ? '5m' : log.mode === 'scalping15m' ? '1m' : '15m';
+    const evalLimit = evalInterval === '1m' ? 1500 : evalInterval === '5m' ? 1000 : 200;
+    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=${evalInterval}&startTime=${log.savedAt}&endTime=${Date.now()}&limit=${evalLimit}`;
     const res = await fetch(url);
     if (!res.ok) return { status: 'pending' };
     const klines: number[][] = await res.json();
@@ -729,8 +779,7 @@ export default function ScalpingScreen() {
   const insets = useSafeAreaInsets();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
   const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
-  const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
-  const [selectedMode, setSelectedMode] = useState<'structural' | 'scalping15m' | undefined>();
+  const [pinnedCoin, setPinnedCoin] = useState<ScalpingResult | undefined>();
   const [currentSignal, setCurrentSignal] = useState<any>(null);
 
   const handleSaveSignal = useCallback(async () => {
@@ -754,9 +803,8 @@ export default function ScalpingScreen() {
     setActiveTab('log');
   }, [currentSignal]);
 
-  const handleSelectCoin = useCallback((symbol: string, mode?: 'structural' | 'scalping15m') => {
-    setSelectedSymbol(symbol);
-    setSelectedMode(mode);
+  const handleSelectCoin = useCallback((coin: ScalpingResult) => {
+    setPinnedCoin(coin);
     setActiveTab('analisa');
   }, []);
 
@@ -767,7 +815,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→M30→M5) & Scalping 15M</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H1→M5) & Scalping 15M (M15→M1)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -791,7 +839,7 @@ export default function ScalpingScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} initialMode={selectedMode} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'structural' | 'scalping15m' | undefined} pinnedData={pinnedCoin} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
         : <ScalpingLogTab colors={colors} />
       }
     </View>

@@ -12,7 +12,9 @@ import type { BreakoutTradingResultMomentumClassification } from './breakoutTrad
 import type { BreakoutTradingResultOrderType } from './breakoutTradingResultOrderType';
 import type { BreakoutTradingResultRecommendedMode } from './breakoutTradingResultRecommendedMode';
 import type { BreakoutTradingResultStatus } from './breakoutTradingResultStatus';
+import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { RecentPerformance } from './recentPerformance';
+import type { TechnicalSnapshot } from './technicalSnapshot';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface BreakoutTradingResult {
@@ -32,6 +34,10 @@ export interface BreakoutTradingResult {
   maxScore: number;
   brokenLevel?: number;
   levelHits?: number;
+  zoneEdgeUpper?: number;
+  zoneEdgeLower?: number;
+  candlesNearEdge?: number;
+  candlesSinceBreakout?: number;
   entryPrice?: number;
   orderType?: BreakoutTradingResultOrderType;
   stopLoss?: number;
@@ -44,4 +50,6 @@ export interface BreakoutTradingResult {
   macdHistogramExpanding?: boolean;
   vwapBreakout?: boolean;
   momentumClassification?: BreakoutTradingResultMomentumClassification;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }

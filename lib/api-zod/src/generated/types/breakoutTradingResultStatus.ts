@@ -14,4 +14,7 @@ export const BreakoutTradingResultStatus = {
   siap_retest: 'siap_retest',
   no_setup: 'no_setup',
   error: 'error',
+  waiting: 'waiting',
+  approaching: 'approaching',
+  expired: 'expired',
 } as const;

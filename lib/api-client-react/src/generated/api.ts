@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AllMenusResult,
   BacktestRequest,
   BacktestResult,
   BreakoutTradingResult,
@@ -27,15 +28,19 @@ import type {
   ErrorResponse,
   ExtremeScalpingResult,
   ExtremeScalpingScanResponse,
+  GetAllMenusAnalysisParams,
   GetBacktestListingInfoParams,
   GetBreakoutEntryParams,
   GetExtremeScalpingParams,
+  GetMomentumHunterParams,
   GetMultiTfDetailParams,
   GetPatternsParams,
   GetScalpingParams,
   GetSmcAnalysisParams,
   HealthStatus,
   ListingInfo,
+  MomentumHunterResult,
+  MomentumHunterScanResponse,
   MultiTFDetailResult,
   MultiTFScanResponse,
   PatternsResponse,
@@ -1264,6 +1269,252 @@ export function useGetMultiTfDetail<TData = Awaited<ReturnType<typeof getMultiTf
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetMultiTfDetailQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAllMenusAnalysisUrl = (params: GetAllMenusAnalysisParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/all-menus-analysis?${stringifiedParams}` : `/api/all-menus-analysis`
+}
+
+/**
+ * Search-only, gak ada endpoint scan sendiri. 9 fungsi analisa dipanggil paralel; kalau 1 gagal, hasil menu itu null tapi yang lain tetap tampil.
+ * @summary Analisa 1 koin di SEMUA menu sekaligus (Breakout/Sniper/Scalping/Extreme x2 skill + Multi-TF)
+ */
+export const getAllMenusAnalysis = async (params: GetAllMenusAnalysisParams, options?: RequestInit): Promise<AllMenusResult> => {
+
+  return customFetch<AllMenusResult>(getGetAllMenusAnalysisUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAllMenusAnalysisQueryKey = (params?: GetAllMenusAnalysisParams,) => {
+    return [
+    `/api/all-menus-analysis`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAllMenusAnalysisQueryOptions = <TData = Awaited<ReturnType<typeof getAllMenusAnalysis>>, TError = ErrorType<ErrorResponse>>(params: GetAllMenusAnalysisParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAllMenusAnalysis>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAllMenusAnalysisQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAllMenusAnalysis>>> = ({ signal }) => getAllMenusAnalysis(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAllMenusAnalysis>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAllMenusAnalysisQueryResult = NonNullable<Awaited<ReturnType<typeof getAllMenusAnalysis>>>
+export type GetAllMenusAnalysisQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Analisa 1 koin di SEMUA menu sekaligus (Breakout/Sniper/Scalping/Extreme x2 skill + Multi-TF)
+ */
+
+export function useGetAllMenusAnalysis<TData = Awaited<ReturnType<typeof getAllMenusAnalysis>>, TError = ErrorType<ErrorResponse>>(
+ params: GetAllMenusAnalysisParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAllMenusAnalysis>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAllMenusAnalysisQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetMomentumHunterUrl = (params: GetMomentumHunterParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/momentum-hunter?${stringifiedParams}` : `/api/momentum-hunter`
+}
+
+/**
+ * @summary Analisa Momentum Hunter untuk 1 symbol — scan 4 pasangan TF x 3 tipe setup, fallback sideways
+ */
+export const getMomentumHunter = async (params: GetMomentumHunterParams, options?: RequestInit): Promise<MomentumHunterResult> => {
+
+  return customFetch<MomentumHunterResult>(getGetMomentumHunterUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMomentumHunterQueryKey = (params?: GetMomentumHunterParams,) => {
+    return [
+    `/api/momentum-hunter`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetMomentumHunterQueryOptions = <TData = Awaited<ReturnType<typeof getMomentumHunter>>, TError = ErrorType<ErrorResponse>>(params: GetMomentumHunterParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMomentumHunter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMomentumHunterQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMomentumHunter>>> = ({ signal }) => getMomentumHunter(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMomentumHunter>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMomentumHunterQueryResult = NonNullable<Awaited<ReturnType<typeof getMomentumHunter>>>
+export type GetMomentumHunterQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Analisa Momentum Hunter untuk 1 symbol — scan 4 pasangan TF x 3 tipe setup, fallback sideways
+ */
+
+export function useGetMomentumHunter<TData = Awaited<ReturnType<typeof getMomentumHunter>>, TError = ErrorType<ErrorResponse>>(
+ params: GetMomentumHunterParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMomentumHunter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMomentumHunterQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetMomentumHunterScanUrl = () => {
+
+
+
+
+  return `/api/momentum-hunter/scan`
+}
+
+/**
+ * @summary Scan universe top-50 buat Momentum Hunter
+ */
+export const getMomentumHunterScan = async ( options?: RequestInit): Promise<MomentumHunterScanResponse> => {
+
+  return customFetch<MomentumHunterScanResponse>(getGetMomentumHunterScanUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMomentumHunterScanQueryKey = () => {
+    return [
+    `/api/momentum-hunter/scan`
+    ] as const;
+    }
+
+
+export const getGetMomentumHunterScanQueryOptions = <TData = Awaited<ReturnType<typeof getMomentumHunterScan>>, TError = ErrorType<ErrorResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMomentumHunterScan>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMomentumHunterScanQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMomentumHunterScan>>> = ({ signal }) => getMomentumHunterScan({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMomentumHunterScan>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMomentumHunterScanQueryResult = NonNullable<Awaited<ReturnType<typeof getMomentumHunterScan>>>
+export type GetMomentumHunterScanQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Scan universe top-50 buat Momentum Hunter
+ */
+
+export function useGetMomentumHunterScan<TData = Awaited<ReturnType<typeof getMomentumHunterScan>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMomentumHunterScan>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMomentumHunterScanQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

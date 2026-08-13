@@ -5,12 +5,14 @@
  * API specification — Crypto Screener Futures (Menu 1-6)
  * OpenAPI spec version: 0.2.0
  */
+import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
 import type { ScalpingResultBias } from './scalpingResultBias';
 import type { ScalpingResultMode } from './scalpingResultMode';
 import type { ScalpingResultRecommendedMode } from './scalpingResultRecommendedMode';
 import type { ScalpingResultStatus } from './scalpingResultStatus';
+import type { TechnicalSnapshot } from './technicalSnapshot';
 import type { TFBreakdownItem } from './tFBreakdownItem';
 
 export interface ScalpingResult {
@@ -42,4 +44,6 @@ export interface ScalpingResult {
   spreadEstPct?: number;
   filterResults?: string[];
   bbSqueezing?: boolean;
+  technicalSnapshot?: TechnicalSnapshot;
+  marketStructureV2?: MarketStructureV2Result;
 }

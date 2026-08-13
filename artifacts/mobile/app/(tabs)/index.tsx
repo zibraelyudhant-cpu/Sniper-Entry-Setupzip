@@ -18,6 +18,8 @@ import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
+import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 import {
   STORAGE_KEY_BREAKOUT_ENTRY,
@@ -28,6 +30,7 @@ import {
   updateLog,
   type SignalLog,
 } from './signal-log-helpers';
+import { journalSave, type JournalEntry } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.breakout;
 // ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
@@ -79,17 +82,19 @@ interface BreakoutTradingResult {
   macdHistogramExpanding?: boolean;
   vwapBreakout?: boolean;
   momentumClassification?: 'very_fast' | 'fast' | 'normal' | 'slow';
+  technicalSnapshot?: JournalEntry['technicalSnapshot'];
+  marketStructureV2?: MarketStructureV2Result | null;
 }
 
 // ─── Fetch hooks (fetch langsung ke backend, relative path /api) ───────────────
 
-function useBreakoutEntry(symbol: string, mode?: 'confidence' | 'crossover') {
+function useBreakoutEntry(symbol: string, mode?: 'confidence' | 'crossover', enabled: boolean = true) {
   const [data, setData] = useState<BreakoutTradingResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
 
   const fetchData = useCallback(async () => {
-    if (!symbol) return;
+    if (!symbol || !enabled) return;
     setIsLoading(true);
     setIsError(false);
     try {
@@ -102,7 +107,7 @@ function useBreakoutEntry(symbol: string, mode?: 'confidence' | 'crossover') {
     } finally {
       setIsLoading(false);
     }
-  }, [symbol, mode]);
+  }, [symbol, mode, enabled]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -247,7 +252,7 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
   );
 }
 
-function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string, mode?: 'confidence' | 'crossover') => void }) {
+function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: BreakoutTradingResult) => void }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, refetch } = useBreakoutEntryScan();
 
@@ -303,13 +308,13 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       {inZone.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🎯 SIAP RETEST — Entry Sekarang</Text>
-          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, c.mode as 'confidence' | 'crossover' | undefined); }} />)}
+          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
       {ready.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: '#818CF8' }]}>⏳ SIAP BREAKOUT — Tunggu Retest</Text>
-          {ready.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol, c.mode as 'confidence' | 'crossover' | undefined); }} />)}
+          {ready.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
     </ScrollView>
@@ -340,10 +345,11 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave }: {
+function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady, onSave }: {
   colors: ReturnType<typeof useColors>;
   initialSymbol?: string;
   initialMode?: 'confidence' | 'crossover';
+  pinnedData?: BreakoutTradingResult | null;
   onSignalReady?: (d: BreakoutTradingResult | null) => void;
   onSave?: () => void;
 }) {
@@ -355,8 +361,18 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
   const [mode, setMode] = useState<'confidence' | 'crossover' | undefined>(
     initialMode ?? (params.mode === 'confidence' || params.mode === 'crossover' ? params.mode : undefined)
   );
+  // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
+  // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
+  // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
+  const [liveMode, setLiveMode] = useState(!pinnedData);
 
-  const { data, isLoading, isError, refetch } = useBreakoutEntry(querySymbol, mode);
+  useEffect(() => {
+    setLiveMode(!pinnedData); // reset tiap kali coin baru dipilih dari Scan
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedData]);
+
+  const { data: liveData, isLoading, isError, refetch } = useBreakoutEntry(querySymbol, mode, liveMode);
+  const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
     if (onSignalReady) onSignalReady(data?.status === 'siap_breakout' || data?.status === 'siap_retest' ? data : null);
@@ -369,7 +385,33 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const normalized = sym.endsWith('USDT') ? sym : `${sym}USDT`;
     setQuerySymbol(normalized);
+    setLiveMode(true); // search manual = selalu minta data fresh
   }, [inputSymbol]);
+
+  const handleRefreshLive = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLiveMode(true);
+  }, []);
+
+  const [savingJournal, setSavingJournal] = useState(false);
+  const handleSaveJournal = useCallback(async () => {
+    if (!data || !data.entryPrice || !data.bias) return;
+    setSavingJournal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const skillLabel = data.mode === 'confidence' ? 'Confidence Score' : 'Crossover';
+    const entry: JournalEntry = {
+      id: `${Date.now()}_${data.symbol}`,
+      symbol: data.symbol, bias: data.bias,
+      sourceMenu: 'Breakout Entry', sourceSkill: skillLabel,
+      entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
+      currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
+      tfStruktur: data.mode === 'confidence' ? '15M' : 'M30', tfEksekusi: data.mode === 'confidence' ? '1M' : 'M5',
+      technicalSnapshot: data.technicalSnapshot,
+      timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
+    };
+    await journalSave(entry);
+    setSavingJournal(false);
+  }, [data]);
 
   const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
 
@@ -433,11 +475,11 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Breakout Entry Scanner</Text>
           <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair buat analisa level S/R + confidence score</Text>
         </View>
-      ) : isLoading ? (
+      ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
           <ScanLoading label="MENGANALISA" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
         </View>
-      ) : isError || !data ? (
+      ) : (liveMode && (isError || !data)) ? (
         <View style={styles.emptyState}>
           <Feather name="alert-circle" size={36} color={colors.bearish} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal menganalisa</Text>
@@ -445,10 +487,33 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
             <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
           </Pressable>
         </View>
+      ) : !data ? (
+        <View style={styles.emptyState}>
+          <Feather name="alert-circle" size={36} color={colors.bearish} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Data gak ketemu</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
+          {/* Banner: data terkunci dari Scan, BUKAN live */}
+          {!liveMode && pinnedData && (
+            <AnimatedCard index={0}>
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginTop: 12,
+              padding: 12, borderRadius: 10, backgroundColor: 'rgba(251,191,36,0.08)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
+            }}>
+              <Feather name="lock" size={16} color="#FBBF24" />
+              <Text style={{ flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>
+                Data dari hasil Scan tadi (terkunci) — kondisi market bisa udah geser. Sebelum eksekusi ke exchange, disaranin refresh dulu.
+              </Text>
+              <Pressable onPress={handleRefreshLive} style={({ pressed }) => [{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: '#FBBF24', opacity: pressed ? 0.8 : 1 }]}>
+                <Feather name="refresh-cw" size={14} color="#000" />
+              </Pressable>
+            </View>
+            </AnimatedCard>
+          )}
+
           {/* Header result */}
-          <AnimatedCard index={0}>
+          <AnimatedCard index={1}>
           <View style={[styles.section, { backgroundColor: 'rgba(34,211,238,0.06)', borderColor: 'rgba(34,211,238,0.25)' }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View>
@@ -478,8 +543,20 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
             </Pressable>
           )}
+          {(data.status === 'siap_breakout' || data.status === 'siap_retest') && (
+            <Pressable onPress={handleSaveJournal} disabled={savingJournal}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
+              <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
+              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
+            </Pressable>
+          )}
 
-          {/* Order (STOP kalau siap_breakout, LIMIT kalau siap_retest) */}
+          <View style={{ marginHorizontal: 12 }}>
+            <MarketStructureV2Card data={data.marketStructureV2} />
+          </View>
+
+          {/* Order (LIMIT hampir selalu — basis breakout+retest. STOP cuma
+              buat Confidence Score yang genuinely anticipatory) */}
           {data.entryPrice !== undefined && (
             <AnimatedCard index={2}>
             <View style={[styles.section, { backgroundColor: 'rgba(74,222,128,0.06)', borderColor: 'rgba(74,222,128,0.22)' }]}>
@@ -534,7 +611,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.infoRow}>
                     <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Nongkrong Deket Edge</Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesNearEdge} candle M30</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesNearEdge} candle M15</Text>
                   </View>
                 </>
               )}
@@ -733,8 +810,7 @@ export default function BreakoutEntryScreen() {
   const insets = useSafeAreaInsets();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
   const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
-  const [selectedSymbol, setSelectedSymbol] = useState<string | undefined>();
-  const [selectedMode, setSelectedMode] = useState<'confidence' | 'crossover' | undefined>();
+  const [pinnedCoin, setPinnedCoin] = useState<BreakoutTradingResult | undefined>();
   const [currentSignal, setCurrentSignal] = useState<BreakoutTradingResult | null>(null);
 
   const handleSaveSignal = useCallback(async () => {
@@ -764,9 +840,8 @@ export default function BreakoutEntryScreen() {
     setActiveTab('log');
   }, [currentSignal]);
 
-  const handleSelectCoin = useCallback((symbol: string, mode?: 'confidence' | 'crossover') => {
-    setSelectedSymbol(symbol);
-    setSelectedMode(mode);
+  const handleSelectCoin = useCallback((coin: BreakoutTradingResult) => {
+    setPinnedCoin(coin);
     setActiveTab('analisa');
   }, []);
 
@@ -801,7 +876,7 @@ export default function BreakoutEntryScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={selectedSymbol} initialMode={selectedMode} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'confidence' | 'crossover' | undefined} pinnedData={pinnedCoin} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
         : <BreakoutLogTab colors={colors} />
       }
     </View>

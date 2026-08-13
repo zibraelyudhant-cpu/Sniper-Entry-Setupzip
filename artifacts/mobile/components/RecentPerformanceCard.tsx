@@ -50,6 +50,7 @@ export function RecentPerformanceCard({ data, accentColor }: {
       </View>
       <Text style={[styles.note, { color: colors.mutedForeground }]}>
         Simulasi cepat setup serupa buat koin ini — bukan jaminan hasil ke depan sama, tapi kasih gambaran pola historis singkat.
+        {'\n'}⚠️ Dihitung pakai engine backtest yang sama kayak tab Backtest (logic LAMA, belum sinkron sama analisa live sekarang).
       </Text>
     </View>
   );

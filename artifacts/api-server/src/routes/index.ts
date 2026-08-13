@@ -10,6 +10,7 @@ import economicCalendarRouter from "./economic-calendar";
 import extremeScalpingRouter from "./extreme-scalping";
 import multiTfScanRouter from "./multi-tf-scan";
 import allMenusAnalysisRouter from "./all-menus-analysis";
+import momentumHunterRouter from "./momentum-hunter";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(economicCalendarRouter);
 router.use(extremeScalpingRouter);
 router.use(multiTfScanRouter);
 router.use(allMenusAnalysisRouter);
+router.use(momentumHunterRouter);
 
 export default router;

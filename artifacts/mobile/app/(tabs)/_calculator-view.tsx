@@ -158,6 +158,7 @@ export default function CalculatorScreen({ embedded = false }: { embedded?: bool
   const [marginMode, setMarginMode] = useState<'cross' | 'isolated'>('isolated');
   const [lastEdited, setLastEdited] = useState<'modal' | 'contracts'>('modal');
   const [accountBalanceStr, setAccountBalanceStr] = useState('1000'); // buat risk-based sizing
+  const [maxLossStr, setMaxLossStr] = useState('1'); // target kerugian langsung dalam $ (bukan %)
 
   const [side, setSide] = useState<'long' | 'short'>(bias === 'bullish' ? 'long' : 'short');
 
@@ -174,6 +175,22 @@ export default function CalculatorScreen({ embedded = false }: { embedded?: bool
   const maxLeverage = getMaxLeverage(symbol);
   const leverage = Math.min(Math.max(parseFloat(leverageStr) || 1, 1), maxLeverage);
   const showLevWarning = leverage > 20;
+
+  // Target kerugian $ itu "sticky" (preferensi risk management user, gak ke-reset
+  // tiap ganti sinyal) — begitu entry/SL berubah (ganti koin dari menu lain),
+  // Ukuran Posisi & Margin otomatis re-kalkulasi ulang biar target $ tetep akurat.
+  useEffect(() => {
+    const maxLoss = parseFloat(maxLossStr);
+    const priceDistance = Math.abs(entryPrice - stopLoss);
+    if (!isNaN(maxLoss) && maxLoss > 0 && priceDistance > 0 && entryPrice > 0 && leverage > 0) {
+      const contracts = maxLoss / priceDistance;
+      const modal = (contracts * entryPrice) / leverage;
+      setContractsStr(contracts.toFixed(6));
+      setModalStr(modal.toFixed(2));
+      setLastEdited('contracts');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryPrice, stopLoss]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
   const handleModalChange = useCallback((val: string) => {
@@ -227,6 +244,29 @@ export default function CalculatorScreen({ embedded = false }: { embedded?: bool
     setModalStr(modal.toFixed(2));
     setLastEdited('modal');
   }, [hasPrices, leverage, accountBalanceStr, entryPrice, stopLoss]);
+
+  // ─── Target kerugian langsung dalam $ (request user) — beda dari risk preset
+  // di atas yang basisnya % saldo, ini langsung angka dolar absolut. Ukuran
+  // Posisi (contracts) dikunci dari SINI (maxLoss / jarak Entry-SL), jadi kalau
+  // leverage diubah setelahnya, cuma MARGIN yang berubah — jumlah koin & potensi
+  // kerugian $ TETEP SAMA (leverage gak pernah ngubah PnL, cuma ngubah margin
+  // yang dibutuhin buat buka posisi segitu).
+  const handleMaxLossChange = useCallback((val: string) => {
+    setMaxLossStr(val);
+    const maxLoss = parseFloat(val);
+    const priceDistance = Math.abs(entryPrice - stopLoss);
+    if (!isNaN(maxLoss) && maxLoss > 0 && priceDistance > 0 && entryPrice > 0 && leverage > 0) {
+      const contracts = maxLoss / priceDistance;
+      const modal = (contracts * entryPrice) / leverage;
+      setContractsStr(contracts.toFixed(6));
+      setModalStr(modal.toFixed(2));
+      setLastEdited('contracts'); // biar ganti leverage nanti re-kalkulasi MARGIN dari contracts yang udah fix (bukan modal lama)
+    }
+  }, [entryPrice, stopLoss, leverage]);
+
+  const maxLossNum = parseFloat(maxLossStr) || 0;
+  const accountBalanceNum = parseFloat(accountBalanceStr) || 0;
+  const tradingOpportunities = maxLossNum > 0 ? Math.floor(accountBalanceNum / maxLossNum) : 0;
 
 
   // ─── Calculations ────────────────────────────────────────────────────────────
@@ -419,6 +459,38 @@ export default function CalculatorScreen({ embedded = false }: { embedded?: bool
             <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 8 }}>
               Otomatis ngitung Modal & Ukuran Posisi di bawah biar kerugian saat SL kena = persentase risk dari saldo. Standar umum: 0.5-1% per trade.
             </Text>
+
+            <View style={[styles.orDivider, { borderColor: colors.border, marginTop: 12 }]}>
+              <View style={[styles.orLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.orText, { color: colors.mutedForeground }]}>atau target $ langsung</Text>
+              <View style={[styles.orLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            <View style={[styles.inputRow, { borderColor: colors.border }]}>
+              <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Target Kerugian (SL)</Text>
+              <View style={styles.inputRight}>
+                <TextInput
+                  style={[styles.inputField, { color: colors.foreground }]}
+                  keyboardType="decimal-pad"
+                  value={maxLossStr}
+                  onChangeText={handleMaxLossChange}
+                  placeholder="1"
+                  placeholderTextColor={colors.mutedForeground}
+                  selectTextOnFocus
+                />
+                <Text style={[styles.inputUnit, { color: colors.mutedForeground }]}>USDT</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 8 }}>
+              Ukuran Posisi & Margin di bawah otomatis nyesuain biar kerugian pas SL kena PERSIS segini — termasuk kalau lo ganti Leverage nanti (Margin ikut berubah, Ukuran Posisi & potensi kerugian $ TETEP, karena leverage gak pernah ngubah PnL).
+            </Text>
+            {maxLossNum > 0 && accountBalanceNum > 0 && (
+              <View style={{ marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: `${ACCENT}12`, borderWidth: 1, borderColor: `${ACCENT}40` }}>
+                <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>
+                  💡 Dari saldo {accountBalanceNum.toLocaleString('id-ID')} USDT, lo punya peluang ~{tradingOpportunities}x trading berturut-turut kalau tiap kali loss cuma {maxLossNum} USDT.
+                </Text>
+              </View>
+            )}
           </Section>
         )}
 
@@ -608,6 +680,9 @@ export default function CalculatorScreen({ embedded = false }: { embedded?: bool
                   {formatPrice(calc.liqPrice)}
                 </Text>
               </View>
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, marginBottom: 8, fontStyle: 'italic', lineHeight: 14 }}>
+                ⚠️ Estimasi (maintenance margin rate diasumsikan 0,5% flat). Binance pakai rate bertingkat sesuai notional & pair, bisa beda — cek angka pasti di app Binance sebelum eksekusi, terutama di leverage tinggi.
+              </Text>
 
               {/* PnL rows */}
               <View style={[styles.pnlCard, { borderColor: colors.border }]}>

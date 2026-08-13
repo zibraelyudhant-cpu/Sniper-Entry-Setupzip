@@ -18,6 +18,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useGetSmcAnalysis, useGetSniperScan, getGetSmcAnalysisQueryKey, getGetSniperScanQueryKey } from '@workspace/api-client-react';
 import type { SniperResult } from '@workspace/api-client-react';
+import { journalSave, type JournalEntry } from './journal-helpers';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
@@ -26,9 +27,15 @@ import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 
 const ACCENT = MENU_COLORS.sniper;
+
+// Module-level cache (BUKAN React state) — nitip data hasil Scan pas pindah ke
+// Analisa lewat router.push (URL params cuma bisa bawa string, gak bisa full
+// object). Di-set sesaat sebelum navigasi, di-consume sekali di AnalisaTab.
+let pinnedScanCache: { symbol: string; data: SniperResult } | null = null;
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -87,146 +94,11 @@ function Row({ label, value, valueColor, icon }: RowProps) {
 
 // ─── Status Screens ───────────────────────────────────────────────────────────
 
-function NoTrendScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <Section title="STATUS">
-      <View style={styles.statusBlock}>
-        <Feather name="alert-triangle" size={32} color={colors.warning} />
-        <Text style={[styles.statusTitle, { color: colors.warning }]}>Tidak Ada Trend Jelas</Text>
-        <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-        <View style={styles.trendRow}>
-          <TrendBadge label="H4" bias={data.h4?.bias ?? 'ranging'} strength={data.h4?.strength ?? 'neutral'} colors={colors} />
-        </View>
-      </View>
-    </Section>
-  );
-}
-
-function NoZoneScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <>
-      <TrendSection data={data} colors={colors} />
-      <Section title="STATUS">
-        <View style={styles.statusBlock}>
-          <Feather name="map-pin" size={32} color={colors.warning} />
-          <Text style={[styles.statusTitle, { color: colors.warning }]}>Tidak Ada Zona Valid di H1</Text>
-          <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-        </View>
-      </Section>
-    </>
-  );
-}
-
-function SkipScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <>
-      <TrendSection data={data} colors={colors} />
-      <Section title="SETUP DILEWATI">
-        <View style={styles.statusBlock}>
-          <Feather name="slash" size={32} color={colors.bearish} />
-          <Text style={[styles.statusTitle, { color: colors.bearish }]}>Kondisi Tidak Mendukung</Text>
-          {(data.skipReasons ?? []).map((r, i) => (
-            <View key={i} style={styles.skipReason}>
-              <Feather name="x-circle" size={13} color={colors.bearish} />
-              <Text style={[styles.skipReasonText, { color: colors.foreground }]}>{r}</Text>
-            </View>
-          ))}
-        </View>
-      </Section>
-      <MarketSection data={data} colors={colors} />
-    </>
-  );
-}
-
-function TrendBadge({
-  label, bias, strength, colors,
-}: {
-  label: string;
-  bias: string;
-  strength: string;
-  colors: ReturnType<typeof useColors>;
-}) {
-  const biasColor =
-    bias === 'bullish' ? colors.bullish : bias === 'bearish' ? colors.bearish : colors.mutedForeground;
-  return (
-    <View style={[styles.trendBadge, { borderColor: biasColor }]}>
-      <Text style={[styles.trendBadgeLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <Text style={[styles.trendBadgeBias, { color: biasColor }]}>{bias.toUpperCase()}</Text>
-      {strength !== 'neutral' && (
-        <Text style={[styles.trendBadgeStrength, { color: strength === 'strong' ? colors.gold : colors.mutedForeground }]}>
-          [{strength.toUpperCase()}]
-        </Text>
-      )}
-    </View>
-  );
-}
-
-function TrendSection({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <Section title="TREND" tint="#22D3EE" index={0}>
-      <View style={styles.trendRow}>
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                {data.h4 && <TrendBadge label="H4" bias={data.h4.bias} strength={data.h4.strength} colors={colors} />}
-              </View>
-      </View>
-    </Section>
-  );
-}
-
-function MarketSection({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  const rsiColor =
-    (data.rsi ?? 50) > 70 ? colors.bearish : (data.rsi ?? 50) < 30 ? colors.bullish : colors.foreground;
-  const frColor =
-    (data.fundingRate ?? 0) > 0.05 ? colors.bearish : (data.fundingRate ?? 0) < -0.05 ? colors.bullish : colors.foreground;
-  const oiColor =
-    (data.oiChange ?? 0) > 0 ? colors.bullish : colors.bearish;
-
-  const chochColor = data.chochDetected ? colors.bearish : colors.bullish;
-  const rsiDivH1Color = data.rsiDivergenceH1 ? colors.bullish : colors.mutedForeground;
-
-  return (
-    <Section title="KONDISI PASAR">
-      <Row
-        label="CHoCH H1"
-        value={data.chochDetected ? 'Terbentuk ⚠' : 'Belum terbentuk ✓'}
-        valueColor={chochColor}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="RSI Divergence H1"
-        value={data.rsiDivergenceH1 ? 'Terkonfirmasi ✓' : 'Belum terbentuk'}
-        valueColor={rsiDivH1Color}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="RSI H1"
-        value={`${(data.rsi ?? 0).toFixed(1)}${data.rsiDivergence ? ' ⚠ divergence' : ' ✓'}`}
-        valueColor={data.rsiDivergence ? colors.warning : rsiColor}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="OI Change"
-        value={`${(data.oiChange ?? 0) >= 0 ? '+' : ''}${(data.oiChange ?? 0).toFixed(2)}%`}
-        valueColor={oiColor}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="OI Akumulasi"
-        value={(data as any).oiAccumulation
-          ? '✅ Akumulasi terdeteksi'
-          : (data as any).oiAccumulationDesc ?? 'Memuat...'}
-        valueColor={(data as any).oiAccumulation ? colors.bullish : colors.mutedForeground}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row
-        label="Funding Rate"
-        value={`${(data.fundingRate ?? 0) >= 0 ? '+' : ''}${(data.fundingRate ?? 0).toFixed(3)}%`}
-        valueColor={frColor}
-      />
-    </Section>
-  );
-}
-
+/**
+ * ProbabilitySection — CATATAN: dead code (gak dipake di manapun), udah dead
+ * dari sebelum sesi ini, dibiarin sesuai kebiasaan (gak hapus kode tanpa izin
+ * eksplisit buat ITU).
+ */
 function ProbabilitySection({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   const prob = data.profitProbability ?? 0;
   const badgeColor = prob >= 75 ? colors.bullish : prob >= 50 ? colors.gold : colors.bearish;
@@ -365,18 +237,6 @@ function ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<
 }
 
 /** WaitingScreen — mode Sniper, belum ada breakout valid dalam retest window (24 candle H1). */
-function SniperWaitingScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <Section title="BELUM ADA BREAKOUT">
-      <View style={styles.statusBlock}>
-        <Feather name="clock" size={32} color={colors.mutedForeground} />
-        <Text style={[styles.statusTitle, { color: colors.mutedForeground }]}>Nunggu Breakout</Text>
-        <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-      </View>
-    </Section>
-  );
-}
-
 /** ApproachingScreen — mode Sniper, breakout udah kejadian, nunggu retest ke zona. */
 function SniperApproachingScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   const isBuy = data.bias === 'bullish';
@@ -412,19 +272,6 @@ function SniperApproachingScreen({ data, colors }: { data: SniperResult; colors:
   );
 }
 
-/** ExpiredScreen — mode Sniper, breakout udah lewat retest window atau pullback kelewat dalam. */
-function SniperExpiredScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <Section title="BREAKOUT KADALUARSA">
-      <View style={styles.statusBlock}>
-        <Feather name="x-circle" size={32} color={colors.mutedForeground} />
-        <Text style={[styles.statusTitle, { color: colors.mutedForeground }]}>Expired</Text>
-        <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-      </View>
-    </Section>
-  );
-}
-
 /**
  * RSI2ReadyScreen — tampilan khusus mode "RSI Connors" (Connors RSI-2). Beda total dari
  * ReadyScreen (structural SMC): gak ada zona OB/FVG, tapi ada RSI(2), posisi vs
@@ -438,12 +285,12 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
   return (
     <>
       <Section title="KONDISI RSI-2" tint="#F472B6" index={0}>
-        <Row label="Trend (vs MA150 H2)" value={data.ma150Relation === 'above' ? 'Di atas MA150 ✅' : 'Di bawah MA150 ✅'} valueColor={biasColor} />
+        <Row label="Trend (vs MA150 H1)" value={data.ma150Relation === 'above' ? 'Di atas MA150 ✅' : 'Di bawah MA150 ✅'} valueColor={biasColor} />
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
-        <Row label="ADX H4" value={`${(data.adxH4 ?? 0).toFixed(1)} (trend kuat)`} />
+        <Row label="ADX H1" value={`${(data.adxH4 ?? 0).toFixed(1)} (trend kuat)`} />
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
         <Row
-          label="RSI(2) H4"
+          label="RSI(2) H1"
           value={`${(data.rsi2Value ?? 0).toFixed(1)} ${isBuy ? '(oversold)' : '(overbought)'}`}
           valueColor={isBuy ? colors.bullish : colors.bearish}
         />
@@ -522,21 +369,6 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
         </Section>
       )}
     </>
-  );
-}
-
-function NotExtremeScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
-  return (
-    <Section title="RSI(2) BELUM EKSTREM">
-      <View style={styles.statusBlock}>
-        <Feather name="clock" size={32} color={colors.gold} />
-        <Text style={[styles.statusTitle, { color: colors.gold }]}>Belum Ada Pullback</Text>
-        <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-      </View>
-      <Row label="RSI(2) H4 sekarang" value={(data.rsi2Value ?? 0).toFixed(1)} />
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-      <Row label="ADX H4" value={(data.adxH4 ?? 0).toFixed(1)} />
-    </Section>
   );
 }
 
@@ -639,6 +471,9 @@ async function sniperDeleteLog(id: string): Promise<SignalLog[]> {
 }
 async function sniperEvaluateLog(log: SignalLog): Promise<Partial<SignalLog>> {
   try {
+    // Fix Temuan #4 (audit): TF evaluasi WAJIB sama kayak TF eksekusi asli. Di
+    // sini 15m MEMANG udah bener — Skill Sniper (H1→M15) DAN RSI-2 (H1→M15)
+    // dua-duanya eksekusi di M15, jadi gak perlu percabangan kayak menu lain.
     const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=15m&startTime=${log.savedAt}&endTime=${Date.now()}&limit=200`;
     const res = await fetch(url);
     if (!res.ok) return { status: 'pending' };
@@ -864,7 +699,14 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
           </View>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 6 }}>
-          <ProbBadge prob={prob} colors={colors} />
+          {coin.status === 'approaching'
+            ? (
+              <View style={[scanStyles.probBadge, { borderColor: colors.gold, backgroundColor: `${colors.gold}18` }]}>
+                <Text style={[scanStyles.probBadgeText, { color: colors.gold }]}>NUNGGU RETEST</Text>
+              </View>
+            )
+            : <ProbBadge prob={prob} colors={colors} />
+          }
           <Text style={[scanStyles.cardPrice, { color: colors.foreground }]}>{formatPrice(coin.currentPrice)}</Text>
         </View>
         <Feather name="chevron-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
@@ -875,7 +717,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
         {isRsi2 ? (
           <>
             <View style={scanStyles.condItem}>
-              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ADX H4</Text>
+              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ADX H1</Text>
               <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{(coin.adxH4 ?? 0).toFixed(0)}</Text>
             </View>
             <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
@@ -964,12 +806,16 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const insets = useSafeAreaInsets();
   const bottomPadding = insets.bottom + 80;
-  const { data, isLoading, isError, refetch } = useGetSniperScan({
+  // isFetching (bukan isLoading) — fix bug audit: isLoading React Query cuma
+  // true pas fetch PERTAMA kali, jadi tombol SCAN NOW kliatan "gak ngerespon"
+  // pas refetch (isLoading tetep false walau lagi proses di background).
+  const { data, isLoading, isFetching, isError, refetch } = useGetSniperScan({
     query: { queryKey: getGetSniperScanQueryKey(), staleTime: 5 * 60 * 1000 },
   });
 
   const handleCoinPress = useCallback((coin: SniperResult) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    pinnedScanCache = { symbol: coin.symbol, data: coin };
     router.push({
       pathname: '/(tabs)/sniper',
       params: { tab: 'analisa', symbol: coin.symbol, mode: coin.mode ?? 'sniper' },
@@ -980,7 +826,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SNIPER" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→H1→15M) & RSI Connors</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural & RSI-2 (H1→M15)</Text>
       </View>
     );
   }
@@ -990,8 +836,11 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={scanStyles.center}>
         <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
-          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+        <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
+          {isFetching
+            ? <ActivityIndicator size="small" color={colors.primaryForeground} />
+            : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+          }
         </Pressable>
       </View>
     );
@@ -1008,8 +857,11 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
         <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>
           Tidak ada koin dengan probabilitas ≥ 30% saat ini.
         </Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
-          <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
+        <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
+          {isFetching
+            ? <ActivityIndicator size="small" color={colors.primaryForeground} />
+            : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
+          }
         </Pressable>
       </View>
     );
@@ -1019,10 +871,20 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   // (profitProbability udah dihapus dari mode Sniper).
   const confidenceOf = (c: SniperResult) => ((c.score ?? 0) / (c.maxScore || 1)) * 100;
 
-  // Group by probability tier
-  const high = coins.filter(c => confidenceOf(c) >= 75);
-  const mid = coins.filter(c => confidenceOf(c) >= 50 && confidenceOf(c) < 75);
-  const low = coins.filter(c => confidenceOf(c) >= 30 && confidenceOf(c) < 50);
+  // Fix bug (ketemu user, "koin ada tapi keliatan kosong"): status 'approaching'
+  // (breakout udah kejadian, nunggu retest) SELALU score=0 — konfirmasi
+  // tambahan baru dihitung SETELAH harga masuk zona retest. Kalau dipaksa
+  // masuk sistem grup 3-tier (Tinggi/Sedang/Rendah, minimal 30%), dia gak
+  // pernah masuk grup manapun (0% < 30%) — ADA di data tapi RAIB di layar.
+  // Fix: approaching dipisah jadi grup sendiri, gak pake sistem skor persentase
+  // sama sekali (emang belum ada apa-apa buat dinilai di tahap ini).
+  const approaching = coins.filter(c => c.status === 'approaching');
+  const readyCoins = coins.filter(c => c.status === 'ready');
+
+  // Group by probability tier (khusus status 'ready', yang beneran punya skor)
+  const high = readyCoins.filter(c => confidenceOf(c) >= 75);
+  const mid = readyCoins.filter(c => confidenceOf(c) >= 50 && confidenceOf(c) < 75);
+  const low = readyCoins.filter(c => confidenceOf(c) >= 30 && confidenceOf(c) < 50);
 
   return (
     <ScrollView
@@ -1031,9 +893,17 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
-        <ScanNowButton onPress={() => refetch()} isLoading={isLoading} colors={colors} />
+        <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
 
+      {approaching.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🔵 SIAP BREAKOUT — NUNGGU RETEST</Text>
+          {[...approaching]
+            .sort((a, b) => (a.candlesSinceBreakout ?? 999) - (b.candlesSinceBreakout ?? 999))
+            .map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => handleCoinPress(c)} />)}
+        </>
+      )}
       {high.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🟢 PROBABILITAS TINGGI (≥75%)</Text>
@@ -1095,22 +965,52 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
   const [mode, setMode] = useState<'sniper' | 'rsi2' | undefined>(
     initialMode ?? (params.mode === 'sniper' || params.mode === 'rsi2' ? params.mode : undefined)
   );
+  // Ref buat nge-track symbol yang UDAH diproses — biar useEffect di bawah gak
+  // nimpa ulang pinnedData yang bener dari initializer pas run pertama (mount).
+  const lastProcessedSymbolRef = useRef<string | undefined>(initialSymbol ?? params.symbol);
 
-  // Update when navigated from screener
+  // Consume cache SEKALI pas mount awal
+  const [pinnedData, setPinnedData] = useState<SniperResult | null>(() => {
+    const sym = initialSymbol ?? params.symbol;
+    if (pinnedScanCache && pinnedScanCache.symbol === sym) {
+      const d = pinnedScanCache.data;
+      pinnedScanCache = null;
+      return d;
+    }
+    return null;
+  });
+  // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
+  // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
+  // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
+  const [liveMode, setLiveMode] = useState(!pinnedData);
+
+  // Update when navigated from screener — route sama (router.push ke '/sniper'
+  // lagi) gak selalu bikin komponen remount, jadi cache dicek ULANG tiap kali
+  // params.symbol beneran BERUBAH (bukan pas mount pertama — itu udah dihandle
+  // initializer di atas, guard pake ref biar gak diproses dobel).
   useEffect(() => {
-    if (params.symbol) {
-      setInputSymbol(params.symbol);
-      setQuerySymbol(params.symbol);
+    if (!params.symbol || params.symbol === lastProcessedSymbolRef.current) return;
+    lastProcessedSymbolRef.current = params.symbol;
+    setInputSymbol(params.symbol);
+    setQuerySymbol(params.symbol);
+    if (pinnedScanCache && pinnedScanCache.symbol === params.symbol) {
+      setPinnedData(pinnedScanCache.data);
+      setLiveMode(false);
+      pinnedScanCache = null;
+    } else {
+      setPinnedData(null);
+      setLiveMode(true); // gak ada cache cocok (misal reload manual) -> langsung live
     }
     if (params.mode === 'sniper' || params.mode === 'rsi2') {
       setMode(params.mode);
     }
   }, [params.symbol, params.mode]);
 
-  const { data, isLoading, isError, refetch } = useGetSmcAnalysis(
+  const { data: liveData, isLoading, isError, refetch } = useGetSmcAnalysis(
     { symbol: querySymbol, ...(mode ? { mode } : {}) },
-    { query: { queryKey: getGetSmcAnalysisQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol, staleTime: 120_000 } }
+    { query: { queryKey: getGetSmcAnalysisQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
   );
+  const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
     if (onSignalReady) onSignalReady(data?.status === 'ready' ? (data as SniperResult) : null);
@@ -1121,7 +1021,33 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
     if (!sym) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setQuerySymbol(sym);
+    setLiveMode(true); // search manual = selalu minta data fresh
   }, [inputSymbol]);
+
+  const handleRefreshLive = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLiveMode(true);
+  }, []);
+
+  const [savingJournal, setSavingJournal] = useState(false);
+  const handleSaveJournal = useCallback(async (d: SniperResult) => {
+    if (!d.entryPrice || !d.bias) return;
+    setSavingJournal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const skillLabel = d.mode === 'rsi2' ? 'RSI-2' : 'Sniper';
+    const entry: JournalEntry = {
+      id: `${Date.now()}_${d.symbol}`,
+      symbol: d.symbol, bias: d.bias,
+      sourceMenu: 'Sniper Entry', sourceSkill: skillLabel,
+      entryPrice: d.entryPrice, stopLoss: d.stopLoss ?? 0, takeProfit1: d.takeProfit1 ?? 0, takeProfit2: d.takeProfit2,
+      currentPriceAtSignal: d.currentPrice ?? 0, rr1: d.rr1,
+      tfStruktur: 'H1', tfEksekusi: 'M15',
+      technicalSnapshot: d.technicalSnapshot as JournalEntry['technicalSnapshot'],
+      timestamp: d.timestamp ?? '', savedAt: Date.now(), status: 'pending',
+    };
+    await journalSave(entry);
+    setSavingJournal(false);
+  }, []);
 
   const bottomPadding = 60 + (Platform.OS === 'web' ? 34 : insets.bottom);
 
@@ -1192,11 +1118,11 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
             Ketik pair di atas atau pilih dari Screener
           </Text>
         </View>
-      ) : isLoading ? (
+      ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
-          <ScanLoading label="H4 → H1 → 15M → 5M" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
+          <ScanLoading label="H1 → M15" accentColor={ACCENT} coins={[querySymbol || 'BTCUSDT']} />
         </View>
-      ) : isError ? (
+      ) : (liveMode && isError) ? (
         <View style={styles.emptyState}>
           <Feather name="alert-circle" size={40} color={colors.bearish} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal menganalisa</Text>
@@ -1215,6 +1141,22 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
           contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }}
           showsVerticalScrollIndicator={false}
         >
+          {/* Banner: data terkunci dari Scan, BUKAN live */}
+          {!liveMode && pinnedData && (
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12,
+              padding: 12, borderRadius: 10, backgroundColor: 'rgba(251,191,36,0.08)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
+            }}>
+              <Feather name="lock" size={16} color="#FBBF24" />
+              <Text style={{ flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>
+                Data dari hasil Scan tadi (terkunci) — kondisi market bisa udah geser. Sebelum eksekusi ke exchange, disaranin refresh dulu.
+              </Text>
+              <Pressable onPress={handleRefreshLive} style={({ pressed }) => [{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: '#FBBF24', opacity: pressed ? 0.8 : 1 }]}>
+                <Feather name="refresh-cw" size={14} color="#000" />
+              </Pressable>
+            </View>
+          )}
+
           {/* Symbol + timestamp header */}
           <View style={styles.resultHeader}>
             <Text style={[styles.resultSymbol, { color: colors.foreground }]}>
@@ -1225,24 +1167,26 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
             </Pressable>
           </View>
 
-          {data.status === 'no_trend' && data.mode !== 'rsi2' && <NoTrendScreen data={data} colors={colors} />}
-          {data.status === 'no_trend' && data.mode === 'rsi2' && (
-            <Section title="TREND BELUM CUKUP KUAT">
+          {/* Status "gak guna" (no_trend, no_zone, skip_conditions, not_extreme,
+              waiting, expired, error) — SEMUA disatuin jadi 1 pesan generik.
+              Cuma 2 status yang beneran actionable: approaching & ready. */}
+          {(data.status === 'no_trend' || data.status === 'no_zone' || data.status === 'skip_conditions'
+            || data.status === 'not_extreme' || data.status === 'waiting' || data.status === 'expired'
+            || data.status === 'error') && (
+            <Section title="STATUS">
               <View style={styles.statusBlock}>
-                <Feather name="alert-triangle" size={32} color={colors.gold} />
-                <Text style={[styles.statusTitle, { color: colors.gold }]}>ADX Terlalu Rendah</Text>
+                <Feather name={data.status === 'error' ? 'x-circle' : 'info'} size={32} color={data.status === 'error' ? colors.bearish : colors.mutedForeground} />
+                <Text style={[styles.statusTitle, { color: colors.foreground }]}>Belum ada sinyal</Text>
                 <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
               </View>
             </Section>
           )}
-          {data.status === 'no_zone' && <NoZoneScreen data={data} colors={colors} />}
-          {data.status === 'skip_conditions' && <SkipScreen data={data} colors={colors} />}
-          {data.status === 'not_extreme' && <NotExtremeScreen data={data} colors={colors} />}
-          {data.status === 'waiting' && <SniperWaitingScreen data={data} colors={colors} />}
-          {data.status === 'expired' && <SniperExpiredScreen data={data} colors={colors} />}
           {data.status === 'approaching' && (
             <>
               <SniperApproachingScreen data={data} colors={colors} />
+              <View style={{ marginHorizontal: 12 }}>
+                <MarketStructureV2Card data={data.marketStructureV2} />
+              </View>
               {onSave && (
                 <Pressable onPress={onSave}
                   style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
@@ -1250,6 +1194,11 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
                   <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
                 </Pressable>
               )}
+              <Pressable onPress={() => handleSaveJournal(data)} disabled={savingJournal}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
+                <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
+              </Pressable>
             </>
           )}
           {data.status === 'ready' && (
@@ -1259,6 +1208,9 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               ) : (
                 <ReadyScreen data={data} colors={colors} />
               )}
+              <View style={{ marginHorizontal: 12 }}>
+                <MarketStructureV2Card data={data.marketStructureV2} />
+              </View>
               {onSave && (
                 <Pressable onPress={onSave}
                   style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
@@ -1266,15 +1218,12 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
                   <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
                 </Pressable>
               )}
+              <Pressable onPress={() => handleSaveJournal(data)} disabled={savingJournal}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
+                <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
+              </Pressable>
             </>
-          )}
-          {data.status === 'error' && (
-            <Section title="ERROR">
-              <View style={styles.statusBlock}>
-                <Feather name="x-circle" size={32} color={colors.bearish} />
-                <Text style={[styles.statusMsg, { color: colors.mutedForeground }]}>{data.message}</Text>
-              </View>
-            </Section>
           )}
         </ScrollView>
       ) : null}
@@ -1337,7 +1286,7 @@ export default function SniperScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Entry</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H4→H1→15M) & RSI Connors</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural & RSI-2 (H1→M15)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

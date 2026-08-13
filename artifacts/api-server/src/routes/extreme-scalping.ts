@@ -53,14 +53,24 @@ router.get('/extreme-scalping/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          // Rule engine (semua syarat wajib) — cuma status 'siap_entry' yang ditampilin
-          if (val.status === 'siap_entry') results.push(val);
+          // Rule engine (semua syarat wajib) — siap_entry (fully confirmed) DAN
+          // approaching (breakout/rejection udah kejadian, proyeksi entry nunggu
+          // retest) sama-sama ditampilin, konsisten sama Menu 4 (breakout.ts).
+          if (val.status === 'siap_entry' || val.status === 'approaching') results.push(val);
         }
       }
     }
-    // Sort by confidence desc (informasional — SEMUA hasil di sini udah lolos
-    // rule engine wajib, confidence cuma nunjukin kekuatan konfluensi bonus)
-    results.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+    // Sort: siap_entry (fully confirmed) duluan, baru approaching (proyeksi).
+    // Di dalam grup siap_entry, sort by confidence desc (informasional — SEMUA
+    // hasil di sini udah lolos rule engine wajib, confidence cuma nunjukin
+    // kekuatan konfluensi bonus). Grup approaching gak punya confidence (belum
+    // fully confirmed), jadi diurutin belakangan aja.
+    const order: Record<string, number> = { siap_entry: 0, approaching: 1 };
+    results.sort((a, b) => {
+      const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
+      if (ao !== bo) return ao - bo;
+      return (b.confidence ?? 0) - (a.confidence ?? 0);
+    });
     res.json({ coins: results, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

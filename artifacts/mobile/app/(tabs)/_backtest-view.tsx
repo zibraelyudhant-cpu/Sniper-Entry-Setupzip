@@ -368,6 +368,21 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
 
+        {/* Disclaimer PERMANEN: engine backtest ini pakai logic LAMA, belum
+            disync sama rewrite-rewrite terbaru di menu live (basis Skill 15M,
+            RR terbaru, dll). Angka win rate di sini JANGAN dijadiin acuan
+            performa sinyal LIVE sekarang — beda logic. */}
+        <View style={{
+          flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16,
+          padding: 12, borderRadius: 10, backgroundColor: 'rgba(248,113,113,0.08)', borderWidth: 1, borderColor: 'rgba(248,113,113,0.3)',
+        }}>
+          <Feather name="alert-triangle" size={16} color="#F87171" style={{ marginTop: 1 }} />
+          <Text style={{ flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>
+            <Text style={{ fontFamily: 'Inter_700Bold', color: '#F87171' }}>PENTING: </Text>
+            Engine backtest ini masih pakai logic LAMA (belum di-update sama semua perubahan terbaru di menu live — threshold, RR, dan basis analisa struktur udah beda). Angka win rate/performa di halaman ini JANGAN dijadiin acuan performa sinyal live sekarang.
+          </Text>
+        </View>
+
         {/* Input Symbol */}
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="search" size={15} color={colors.mutedForeground} />

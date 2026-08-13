@@ -72,7 +72,15 @@ router.get('/sniper/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status !== 'ready') continue;
+          if (val.status !== 'ready' && val.status !== 'approaching') continue;
+          // Fix bug (ketemu user, "2 hari nol sinyal"): sebelumnya filter cuma
+          // 'ready' doang, status 'approaching' (breakout udah kejadian, nunggu
+          // retest) DIBUANG DIAM-DIAM — beda sendiri dari SEMUA menu lain
+          // (Menu 1/4/5 semua include status approaching-nya). 'ready' itu
+          // state PALING ujung/sempit (butuh breakout+retest+konfirmasi+BTC+V2
+          // SEKALIGUS lolos), jadi kalau cuma itu doang yang ditampilin, hasil
+          // scan jadi nyaris kosong terus — bukan V2 kelewat ketat, tapi
+          // approaching-nya emang gak pernah nyampe UI sama sekali.
           // Threshold: kedua mode sekarang pakai score/maxScore (profitProbability
           // udah dihapus dari mode Sniper — algoritma breakout+retest yang baru
           // udah punya hard filter sendiri: pullback volume wajib, min 1/2

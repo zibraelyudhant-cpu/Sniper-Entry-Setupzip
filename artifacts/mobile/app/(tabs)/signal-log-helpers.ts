@@ -57,9 +57,26 @@ export async function deleteLog(key: string, id: string): Promise<SignalLog[]> {
   return updated;
 }
 
+// Peta TF eksekusi -> interval Binance + limit candle (limit disesuain biar
+// cakupan waktu evaluasi tetep wajar meski TF-nya beda-beda).
+function evalIntervalFor(interval: '1m' | '5m' | '15m' | '30m'): { interval: string; limit: number } {
+  switch (interval) {
+    case '1m': return { interval: '1m', limit: 1500 };
+    case '5m': return { interval: '5m', limit: 1000 };
+    case '30m': return { interval: '30m', limit: 200 };
+    default: return { interval: '15m', limit: 200 };
+  }
+}
+
 export async function evaluateLog(log: SignalLog): Promise<Partial<SignalLog>> {
   try {
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=15m&startTime=${log.savedAt}&endTime=${Date.now()}&limit=200`;
+    // TF eksekusi beda per skill (request user, fix Temuan #4): Confidence
+    // Score eksekusi M1, Crossover eksekusi M5. Evaluasi WAJIB pake TF yang
+    // sama biar SL/TP kesentuh sesuai granularitas yang beneran dipake buat
+    // entry, bukan candle 15M yang lebih kasar dari eksekusi asli.
+    const evalTf = log.mode === 'confidence' ? '1m' : log.mode === 'crossover' ? '5m' : '15m';
+    const { interval, limit } = evalIntervalFor(evalTf);
+    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=${interval}&startTime=${log.savedAt}&endTime=${Date.now()}&limit=${limit}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Fetch failed");
     const klines: number[][] = await res.json();
