@@ -14,7 +14,7 @@ import { FuturisticBackground } from '@/components/animated/FuturisticBackground
 import { MENU_COLORS } from '@/constants/theme';
 import {
   type JournalEntry, type SourceMenu,
-  journalLoadAll, journalDelete, journalEvaluate, journalUpdate,
+  journalLoadAll, journalDelete, journalEvaluate, journalUpdate, journalUpdateMany,
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
   type JournalBreakdown,
 } from './journal-helpers';
@@ -255,6 +255,37 @@ export default function JournalScreen() {
 
   const filtered = useMemo(() => menuFilter === 'all' ? entries : entries.filter(e => e.sourceMenu === menuFilter), [entries, menuFilter]);
 
+  // "Evaluasi Semua" (request user, biar gak satu-satu). Batch 3 + delay
+  // 300ms antar batch — pola sama kayak Scan biar gak kena rate limit Binance
+  // (tiap evaluasi manggil klines API). Update storage 1x di akhir (bulk),
+  // bukan per-entri, biar gak bolak-balik baca-tulis AsyncStorage.
+  const [evaluatingAll, setEvaluatingAll] = useState(false);
+  const [evalProgress, setEvalProgress] = useState({ done: 0, total: 0 });
+  const handleEvaluateAll = useCallback(async () => {
+    const pending = filtered.filter(e => e.status === 'pending');
+    if (pending.length === 0) return;
+    setEvaluatingAll(true);
+    setEvalProgress({ done: 0, total: pending.length });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const patches: { id: string; patch: Partial<JournalEntry> }[] = [];
+    const batchSize = 3;
+    for (let i = 0; i < pending.length; i += batchSize) {
+      const batch = pending.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(async (entry) => {
+        const patch = await journalEvaluate(entry);
+        return { id: entry.id, patch };
+      }));
+      patches.push(...results);
+      setEvalProgress({ done: Math.min(i + batchSize, pending.length), total: pending.length });
+      if (i + batchSize < pending.length) await new Promise(r => setTimeout(r, 300));
+    }
+
+    const updated = await journalUpdateMany(patches);
+    setEntries(updated);
+    setEvaluatingAll(false);
+  }, [filtered]);
+
   const stats = useMemo(() => {
     const win = filtered.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2').length;
     const lose = filtered.filter(e => e.status === 'lose').length;
@@ -314,8 +345,24 @@ export default function JournalScreen() {
             ))}
           </View>
 
-          {/* Filter chip per menu */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
+          {stats.pending > 0 && (
+            <Pressable onPress={handleEvaluateAll} disabled={evaluatingAll}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, borderWidth: 1, borderColor: ACCENT, backgroundColor: `${ACCENT}12`, paddingVertical: 11, marginBottom: 10, opacity: pressed || evaluatingAll ? 0.7 : 1 }]}>
+              {evaluatingAll
+                ? <ActivityIndicator size="small" color={ACCENT} />
+                : <Feather name="check-circle" size={14} color={ACCENT} />
+              }
+              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>
+                {evaluatingAll ? `Evaluasi... (${evalProgress.done}/${evalProgress.total})` : `Evaluasi Semua (${stats.pending} pending)`}
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Filter chip per menu — nestedScrollEnabled WAJIB (fix bug ketemu
+              user: ScrollView horizontal ini nested di dalam ScrollView
+              vertical parent, tanpa ini gesture geser sampingnya suka
+              "ketelen" sama scroll vertical, terutama di Android) */}
+          <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
             <Pressable onPress={() => setMenuFilter('all')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: menuFilter === 'all' ? ACCENT : colors.card, borderWidth: 1, borderColor: menuFilter === 'all' ? ACCENT : colors.border }}>
               <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: menuFilter === 'all' ? '#1A0B1F' : colors.mutedForeground }}>Semua ({entries.length})</Text>
             </Pressable>

@@ -94,6 +94,19 @@ export async function journalUpdate(id: string, patch: Partial<JournalEntry>): P
   return updated;
 }
 
+/**
+ * Update banyak entri sekaligus, 1x write ke storage doang (bukan
+ * journalUpdate dipanggil berkali-kali yang tiap panggilan baca+tulis ULANG
+ * seluruh array). Dipake buat "Evaluasi Semua" (request user, biar gak satu-satu).
+ */
+export async function journalUpdateMany(patches: { id: string; patch: Partial<JournalEntry> }[]): Promise<JournalEntry[]> {
+  const all = await journalLoadAll();
+  const patchMap = new Map(patches.map(p => [p.id, p.patch]));
+  const updated = all.map(e => patchMap.has(e.id) ? { ...e, ...patchMap.get(e.id) } : e);
+  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  return updated;
+}
+
 export async function journalDelete(id: string): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
   const updated = all.filter(e => e.id !== id);

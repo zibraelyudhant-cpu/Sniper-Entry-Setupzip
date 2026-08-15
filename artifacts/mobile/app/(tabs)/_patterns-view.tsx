@@ -811,7 +811,7 @@ export default function PatternsView({
         >
           <Legend colors={colors} />
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+          <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={true}>
             <View>
               {/* Column headers */}
               <View style={[styles.columnHeaders, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>

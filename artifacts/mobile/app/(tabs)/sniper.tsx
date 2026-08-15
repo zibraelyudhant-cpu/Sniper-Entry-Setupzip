@@ -1245,11 +1245,17 @@ export default function SniperScreen() {
   // perubahan params setelahnya. Kalau user udah di halaman Sniper (komponen udah
   // ke-mount) terus tap koin di Scan, router.push cuma re-render params baru
   // TANPA re-mount komponen — activeTab jadi gak pernah switch ke 'analisa'.
-  // useEffect ini re-sync activeTab tiap kali params.tab berubah.
+  // useEffect ini re-sync activeTab tiap kali params.tab ATAU params.symbol
+  // berubah — fix bug ketemu user: dependency SEBELUMNYA cuma [params.tab],
+  // jadi kalau user UDAH pernah ke Analisa (params.tab udah 'analisa'), balik
+  // manual ke Scan, terus tap koin LAIN, params.tab TETEP 'analisa' (gak
+  // "berubah" dari sebelumnya) — effect gak ke-trigger, activeTab gak pernah
+  // pindah, keliatan kaya "koin gak bisa diklik" padahal cuma tab-nya yang
+  // gak switch.
   useEffect(() => {
     if (params.tab === 'analisa') setActiveTab('analisa');
     else if (params.tab === 'log') setActiveTab('log');
-  }, [params.tab]);
+  }, [params.tab, params.symbol]);
   const [currentSignal, setCurrentSignal] = useState<SniperResult | null>(null);
 
   const handleSaveSignal = useCallback(async () => {
