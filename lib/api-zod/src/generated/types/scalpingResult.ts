@@ -9,6 +9,7 @@ import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
 import type { ScalpingResultBias } from './scalpingResultBias';
+import type { ScalpingResultBtcBias } from './scalpingResultBtcBias';
 import type { ScalpingResultMode } from './scalpingResultMode';
 import type { ScalpingResultRecommendedMode } from './scalpingResultRecommendedMode';
 import type { ScalpingResultStatus } from './scalpingResultStatus';
@@ -46,4 +47,6 @@ export interface ScalpingResult {
   bbSqueezing?: boolean;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: ScalpingResultBtcBias;
 }

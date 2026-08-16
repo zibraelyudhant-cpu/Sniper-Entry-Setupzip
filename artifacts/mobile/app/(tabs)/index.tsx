@@ -21,15 +21,7 @@ import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
-import {
-  STORAGE_KEY_BREAKOUT_ENTRY,
-  addLog,
-  deleteLog,
-  evaluateLog,
-  loadLogs,
-  updateLog,
-  type SignalLog,
-} from './signal-log-helpers';
+import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { journalSave, type JournalEntry } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.breakout;
@@ -84,6 +76,8 @@ interface BreakoutTradingResult {
   momentumClassification?: 'very_fast' | 'fast' | 'normal' | 'slow';
   technicalSnapshot?: JournalEntry['technicalSnapshot'];
   marketStructureV2?: MarketStructureV2Result | null;
+  btcAligned?: boolean;
+  btcBias?: 'bullish' | 'bearish' | 'ranging';
 }
 
 // ─── Fetch hooks (fetch langsung ke backend, relative path /api) ───────────────
@@ -345,13 +339,12 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady, onSave }: {
+function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady }: {
   colors: ReturnType<typeof useColors>;
   initialSymbol?: string;
   initialMode?: 'confidence' | 'crossover';
   pinnedData?: BreakoutTradingResult | null;
   onSignalReady?: (d: BreakoutTradingResult | null) => void;
-  onSave?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ symbol?: string; mode?: string }>();
@@ -405,8 +398,10 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
       sourceMenu: 'Breakout Entry', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: data.mode === 'confidence' ? '15M' : 'M30', tfEksekusi: data.mode === 'confidence' ? '1M' : 'M5',
+      tfStruktur: data.mode === 'confidence' ? 'D1+H4' : 'M30', tfEksekusi: data.mode === 'confidence' ? 'M15' : 'M5',
       technicalSnapshot: data.technicalSnapshot,
+      orderType: data.orderType,
+      btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
@@ -535,19 +530,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
           </View>
           </AnimatedCard>
 
-          {/* Simpan Sinyal */}
-          {(data.status === 'siap_breakout' || data.status === 'siap_retest') && onSave && (
-            <Pressable onPress={onSave}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
-              <Feather name="bookmark" size={15} color={colors.primaryForeground} />
-              <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
-            </Pressable>
-          )}
+          {/* Simpan ke Journal — SATU-SATUNYA cara nyimpen sinyal sekarang
+              (request user: Log per-menu diganti Ringkasan dari Journal) */}
           {(data.status === 'siap_breakout' || data.status === 'siap_retest') && (
             <Pressable onPress={handleSaveJournal} disabled={savingJournal}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
-              <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
-              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed || savingJournal ? 0.8 : 1 }]}>
+              <Feather name="book-open" size={15} color={colors.primaryForeground} />
+              <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal'}</Text>
             </Pressable>
           )}
 
@@ -689,156 +678,14 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
   );
 }
 
-// ─── Log Tab (pakai shared signal-log-helpers) ─────────────────────────────────
-
-function BreakoutLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
-  const insets = useSafeAreaInsets();
-  const [logs, setLogs] = useState<SignalLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [evaluating, setEvaluating] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadLogs(STORAGE_KEY_BREAKOUT_ENTRY).then(l => { setLogs(l); setLoading(false); });
-  }, []);
-
-  const doEval = async (log: SignalLog) => {
-    setEvaluating(log.id);
-    const patch = await evaluateLog(log);
-    setLogs(await updateLog(STORAGE_KEY_BREAKOUT_ENTRY, log.id, patch));
-    setEvaluating(null);
-  };
-  const doDelete = async (id: string) => setLogs(await deleteLog(STORAGE_KEY_BREAKOUT_ENTRY, id));
-
-  const sc = (s: SignalLog['status']) => s === 'win_tp1' || s === 'win_tp2' ? '#22c55e' : s === 'lose' ? '#ef4444' : '#888';
-  const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
-
-  const wins = logs.filter(l => l.status === 'win_tp1' || l.status === 'win_tp2').length;
-  const loses = logs.filter(l => l.status === 'lose').length;
-  const wr = wins + loses > 0 ? Math.round(wins / (wins + loses) * 100) : 0;
-  const rrs = logs.filter(l => (l.rr ?? 0) > 0);
-  const avgRR = rrs.length ? (rrs.reduce((a, b) => a + (b.rr ?? 0), 0) / rrs.length).toFixed(2) : '—';
-
-  if (loading) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={ACCENT} /></View>;
-
-  return (
-    <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
-      {logs.length > 0 && (
-        <View style={{ flexDirection: 'row', margin: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, justifyContent: 'space-around' }}>
-          {[
-            { v: `${wins}`, c: '#4ADE80', bg: 'rgba(74,222,128,0.12)', l: 'WIN' },
-            { v: `${loses}`, c: '#F87171', bg: 'rgba(248,113,113,0.1)', l: 'LOSE' },
-            { v: `${logs.filter(x => x.status === 'pending').length}`, c: '#94A3B8', bg: 'rgba(148,163,184,0.08)', l: 'PENDING' },
-            { v: `${wr}%`, c: '#FBBF24', bg: 'rgba(251,191,36,0.12)', l: 'WIN RATE' },
-            { v: avgRR, c: ACCENT, bg: `${ACCENT}18`, l: 'AVG R:R' },
-          ].map((item, i) => (
-            <View key={item.l} style={{ alignItems: 'center', gap: 4, backgroundColor: item.bg, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 6, minWidth: 52 }}>
-              <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: item.c }}>{item.v}</Text>
-              <Text style={{ fontSize: 8, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, letterSpacing: 0.3 }}>{item.l}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-      {logs.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, minHeight: 300 }}>
-          <Feather name="bookmark" size={36} color={colors.mutedForeground} />
-          <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground, textAlign: 'center' }}>Belum ada sinyal tersimpan</Text>
-          <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 20 }}>Simpan sinyal dari tab Analisa</Text>
-        </View>
-      ) : (
-        <View style={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}>
-          {logs.map((log, index) => (
-            <AnimatedCard key={log.id} index={index}>
-            <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden', borderLeftWidth: 3, borderLeftColor: sc(log.status) }}>
-              <View style={{ flexDirection: 'row', padding: 12, alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
-                    {log.mode && (
-                      <View style={{
-                        paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-                        backgroundColor: log.mode === 'crossover' ? '#F9731618' : `${ACCENT}18`,
-                      }}>
-                        <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: log.mode === 'crossover' ? '#F97316' : ACCENT }}>
-                          {log.mode === 'crossover' ? 'Crossover' : 'Confidence'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{log.timestamp}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <LogResultBadge status={log.status} />
-                  <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: log.bias === 'bullish' ? '#22c55e' : '#ef4444' }}>{log.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}</Text>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 8, paddingHorizontal: 12 }}>
-                {([['Entry', log.entryPrice, colors.foreground], ['SL', log.stopLoss, '#ef4444'], ['TP1', log.takeProfit1, '#22c55e'], ['TP2', log.takeProfit2, '#3b82f6']] as [string, number | undefined, string][]).map(([lbl, val, col]) => val ? (
-                  <View key={lbl} style={{ flex: 1, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>{lbl}</Text>
-                    <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: col, marginTop: 2 }}>{fp(val)}</Text>
-                  </View>
-                ) : null)}
-                {log.rr !== undefined && <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>R:R</Text><Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: log.rr > 0 ? '#22c55e' : '#ef4444', marginTop: 2 }}>{log.rr > 0 ? `1:${log.rr}` : '-1'}</Text></View>}
-              </View>
-              {log.probabilityOrScore !== undefined && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 4, fontFamily: 'Inter_400Regular' }}>Score: {log.probabilityOrScore}/5</Text>}
-              {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 6, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
-              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>
-                {log.status === 'pending' && (
-                  <Pressable onPress={() => doEval(log)} disabled={evaluating === log.id}
-                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: ACCENT + '15', opacity: pressed || evaluating === log.id ? 0.7 : 1 }]}>
-                    {evaluating === log.id ? <ActivityIndicator size={12} color={ACCENT} /> : <Feather name="search" size={12} color={ACCENT} />}
-                    <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>{evaluating === log.id ? 'Evaluasi...' : 'Evaluasi'}</Text>
-                  </Pressable>
-                )}
-                <Pressable onPress={() => doDelete(log.id)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.7 : 1 }]}>
-                  <Feather name="trash-2" size={12} color="#ef4444" />
-                </Pressable>
-              </View>
-            </View>
-            </AnimatedCard>
-          ))}
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function BreakoutEntryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'ringkasan'>('scan');
   const [pinnedCoin, setPinnedCoin] = useState<BreakoutTradingResult | undefined>();
-  const [currentSignal, setCurrentSignal] = useState<BreakoutTradingResult | null>(null);
-
-  const handleSaveSignal = useCallback(async () => {
-    if (!currentSignal || currentSignal.entryPrice === undefined) return;
-    const isCrossover = currentSignal.mode === 'crossover';
-    const log: SignalLog = {
-      id: `${Date.now()}_${currentSignal.symbol}`,
-      menu: 'breakout_entry',
-      mode: currentSignal.mode,
-      symbol: currentSignal.symbol,
-      bias: currentSignal.bias ?? 'bullish',
-      entryPrice: currentSignal.entryPrice,
-      stopLoss: currentSignal.stopLoss ?? 0,
-      takeProfit1: currentSignal.takeProfit1 ?? 0,
-      takeProfit2: currentSignal.takeProfit2,
-      currentPriceAtSignal: currentSignal.currentPrice,
-      timestamp: currentSignal.timestamp,
-      savedAt: Date.now(),
-      // Mode crossover (v3) udah gak punya confidence score numerik lagi (basis
-      // rule-engine Skill 15M) — pakai candlesSinceBreakout sebagai proxy info.
-      // Mode confidence tetep pakai confidenceScore (0-100) langsung.
-      probabilityOrScore: isCrossover ? undefined : currentSignal.confidenceScore,
-      zoneType: currentSignal.status,
-      status: 'pending',
-    };
-    await addLog(STORAGE_KEY_BREAKOUT_ENTRY, log);
-    setActiveTab('log');
-  }, [currentSignal]);
 
   const handleSelectCoin = useCallback((coin: BreakoutTradingResult) => {
     setPinnedCoin(coin);
@@ -865,10 +712,10 @@ export default function BreakoutEntryScreen() {
           tabs={[
             { key: 'scan', label: 'SCAN' },
             { key: 'analisa', label: 'ANALISA' },
-            { key: 'log', label: 'LOG' },
+            { key: 'ringkasan', label: 'RINGKASAN' },
           ]}
           active={activeTab}
-          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'log')}
+          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'ringkasan')}
           accentColor={ACCENT}
         />
       </View>
@@ -876,8 +723,8 @@ export default function BreakoutEntryScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'confidence' | 'crossover' | undefined} pinnedData={pinnedCoin} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
-        : <BreakoutLogTab colors={colors} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'confidence' | 'crossover' | undefined} pinnedData={pinnedCoin} />
+        : <MenuJournalSummary sourceMenu="Breakout Entry" accentColor={ACCENT} />
       }
     </View>
   );

@@ -16,7 +16,8 @@ import {
   type JournalEntry, type SourceMenu,
   journalLoadAll, journalDelete, journalEvaluate, journalUpdate, journalUpdateMany,
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
-  type JournalBreakdown,
+  buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles,
+  type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile,
 } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.journal;
@@ -164,6 +165,10 @@ function JournalEntryCard({
                 <IndicatorRow label="ATR" value={`${entry.technicalSnapshot.struktur.atr.toFixed(6)} (${entry.technicalSnapshot.struktur.atrPct.toFixed(2)}%)`} colors={colors} />
                 <IndicatorRow label="ADX(14)" value={entry.technicalSnapshot.struktur.adx.toFixed(1)} colors={colors} />
                 <IndicatorRow label="Stochastic %K/%D" value={`${entry.technicalSnapshot.struktur.stochK.toFixed(1)} / ${entry.technicalSnapshot.struktur.stochD.toFixed(1)}`} colors={colors} />
+                <IndicatorRow label="MACD Histogram" value={entry.technicalSnapshot.struktur.macd.toFixed(4)} colors={colors} />
+                <IndicatorRow label="MFI(14)" value={entry.technicalSnapshot.struktur.mfi.toFixed(1)} colors={colors} />
+                <IndicatorRow label="CCI(20)" value={entry.technicalSnapshot.struktur.cci.toFixed(1)} colors={colors} />
+                <IndicatorRow label="ROC(12)" value={`${entry.technicalSnapshot.struktur.roc.toFixed(2)}%`} colors={colors} />
 
                 {entry.tfEksekusi && (
                   <>
@@ -174,6 +179,10 @@ function JournalEntryCard({
                     <IndicatorRow label="ATR" value={`${entry.technicalSnapshot.eksekusi.atr.toFixed(6)} (${entry.technicalSnapshot.eksekusi.atrPct.toFixed(2)}%)`} colors={colors} />
                     <IndicatorRow label="ADX(14)" value={entry.technicalSnapshot.eksekusi.adx.toFixed(1)} colors={colors} />
                     <IndicatorRow label="Stochastic %K/%D" value={`${entry.technicalSnapshot.eksekusi.stochK.toFixed(1)} / ${entry.technicalSnapshot.eksekusi.stochD.toFixed(1)}`} colors={colors} />
+                    <IndicatorRow label="MACD Histogram" value={entry.technicalSnapshot.eksekusi.macd.toFixed(4)} colors={colors} />
+                    <IndicatorRow label="MFI(14)" value={entry.technicalSnapshot.eksekusi.mfi.toFixed(1)} colors={colors} />
+                    <IndicatorRow label="CCI(20)" value={entry.technicalSnapshot.eksekusi.cci.toFixed(1)} colors={colors} />
+                    <IndicatorRow label="ROC(12)" value={`${entry.technicalSnapshot.eksekusi.roc.toFixed(2)}%`} colors={colors} />
                   </>
                 )}
                 <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 6, fontStyle: 'italic' }}>
@@ -211,7 +220,7 @@ export default function JournalScreen() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [activeTab, setActiveTab] = useState<'daftar' | 'analisa'>('daftar');
+  const [activeTab, setActiveTab] = useState<'daftar' | 'analisa' | 'ringkasan'>('daftar');
   const [menuFilter, setMenuFilter] = useState<SourceMenu | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
@@ -308,9 +317,9 @@ export default function JournalScreen() {
         <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Rekap lengkap semua sinyal — entry/SL/TP, TF, indikator, evaluasi win-lose</Text>
         <View style={{ marginTop: 12 }}>
           <AnimatedTabSwitcher
-            tabs={[{ key: 'daftar', label: 'DAFTAR' }, { key: 'analisa', label: 'ANALISA' }]}
+            tabs={[{ key: 'daftar', label: 'DAFTAR' }, { key: 'analisa', label: 'ANALISA' }, { key: 'ringkasan', label: 'RINGKASAN' }]}
             active={activeTab}
-            onChange={(k) => setActiveTab(k as 'daftar' | 'analisa')}
+            onChange={(k) => setActiveTab(k as 'daftar' | 'analisa' | 'ringkasan')}
             accentColor={ACCENT}
           />
         </View>
@@ -384,7 +393,7 @@ export default function JournalScreen() {
             />
           ))}
         </ScrollView>
-      ) : (
+      ) : activeTab === 'analisa' ? (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
           <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 14, lineHeight: 17 }}>
             Breakdown win rate per kondisi — cari pola: sinyal dari mana / TF apa / kondisi indikator apa yang paling sering menang buat lo.
@@ -396,8 +405,168 @@ export default function JournalScreen() {
           <BreakdownSection title="PER KEKUATAN TREND (ADX STRUKTUR)" data={breakdownByAdxRange(entries)} colors={colors} />
           <BreakdownSection title="PER KONDISI RSI EKSEKUSI" data={breakdownByRsiRange(entries)} colors={colors} />
         </ScrollView>
+      ) : (
+        <RingkasanTab entries={entries} colors={colors} />
       )}
     </View>
+  );
+}
+
+// ─── Tab Ringkasan — kesimpulan siap-baca + perbandingan indikator WIN vs LOSE ──
+
+function VerdictBadge({ verdict, colors }: { verdict: SimpleVerdict['verdict']; colors: ReturnType<typeof useColors> }) {
+  const meta = {
+    bagus: { label: 'BAGUS', color: colors.bullish },
+    cukup: { label: 'CUKUP', color: colors.gold },
+    perlu_evaluasi: { label: 'PERLU EVALUASI', color: colors.bearish },
+    data_kurang: { label: 'DATA KURANG', color: colors.mutedForeground },
+  }[verdict];
+  return (
+    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${meta.color}18`, borderWidth: 1, borderColor: meta.color }}>
+      <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: meta.color }}>{meta.label}</Text>
+    </View>
+  );
+}
+
+function VerdictRow({ item, colors }: { item: SimpleVerdict; colors: ReturnType<typeof useColors> }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
+      <View style={{ flex: 1, marginRight: 8 }}>
+        <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.foreground }} numberOfLines={1}>{item.label}</Text>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 1 }}>
+          {item.winRate}% win rate · {item.decided} sinyal selesai (dari {item.total} total)
+        </Text>
+      </View>
+      <VerdictBadge verdict={item.verdict} colors={colors} />
+    </View>
+  );
+}
+
+function IndicatorCompareRow({ item, colors }: { item: IndicatorComparison; colors: ReturnType<typeof useColors> }) {
+  const winHigher = item.winAvg > item.loseAvg;
+  return (
+    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 10, marginBottom: 8 }}>
+      <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: colors.foreground, marginBottom: 6 }}>{item.label}</Text>
+      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 6 }}>
+        <View style={{ flex: 1, alignItems: 'center', backgroundColor: `${colors.bullish}12`, borderRadius: 8, paddingVertical: 6 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.bullish }}>PAS WIN</Text>
+          <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: colors.bullish, marginTop: 2 }}>{item.winAvg}{item.unit}</Text>
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', backgroundColor: `${colors.bearish}12`, borderRadius: 8, paddingVertical: 6 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.bearish }}>PAS LOSE</Text>
+          <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: colors.bearish, marginTop: 2 }}>{item.loseAvg}{item.unit}</Text>
+        </View>
+      </View>
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15 }}>{item.insight}</Text>
+    </View>
+  );
+}
+
+function LoseProfileCard({ profile, colors }: { profile: LoseConditionProfile; colors: ReturnType<typeof useColors> }) {
+  const isMixedTf = profile.tfLabel.includes('campur');
+  return (
+    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.bearish, backgroundColor: `${colors.bearish}0D`, padding: 12, marginBottom: 10 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+        <View style={{ flex: 1, marginRight: 8 }}>
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: colors.foreground }} numberOfLines={1}>{profile.groupLabel}</Text>
+          <Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, marginTop: 1 }}>TF: {profile.tfLabel}</Text>
+        </View>
+        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: `${colors.bearish}20` }}>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.bearish }}>{profile.totalLose} LOSE</Text>
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+        <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.border }}>
+          <Text style={{ fontSize: 9, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>BUY {profile.buyPct}% · SELL {profile.sellPct}%</Text>
+        </View>
+        {profile.btcSampleSize >= 3 && (
+          <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.border }}>
+            <Text style={{ fontSize: 9, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>BTC Searah {profile.btcAlignedPct}% · Gak Searah {profile.btcNotAlignedPct}%</Text>
+          </View>
+        )}
+      </View>
+      <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>{profile.narrative}</Text>
+      {isMixedTf && (
+        <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 6, fontStyle: 'italic' }}>
+          * TF di atas TF mayoritas doang (grup ini gabungan beberapa skill dengan TF beda-beda) — buat TF pasti per-sinyal, cek breakdown PER SKILL.
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function RingkasanTab({ entries, colors }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors> }) {
+  const insets = useSafeAreaInsets();
+  const summary = useMemo(() => buildJournalSummary(entries), [entries]);
+  const indicatorResult = useMemo(() => compareIndicatorsWinLose(entries), [entries]);
+  const loseProfilesByMenu = useMemo(() => buildLoseConditionProfiles(entries, 'menu'), [entries]);
+  const loseProfilesBySkill = useMemo(() => buildLoseConditionProfiles(entries, 'skill'), [entries]);
+
+  if (entries.length === 0) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center' }}>Belum ada data buat diringkas.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+      {/* Kesimpulan siap-baca — paling atas, paling gampang dicerna cepat */}
+      <View style={{ borderRadius: 12, borderWidth: 1, borderColor: ACCENT, backgroundColor: `${ACCENT}0D`, padding: 12, marginBottom: 16 }}>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.5, marginBottom: 8 }}>KESIMPULAN</Text>
+        {summary.conclusions.map((c, i) => (
+          <Text key={i} style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: colors.foreground, lineHeight: 19, marginBottom: i < summary.conclusions.length - 1 ? 8 : 0 }}>{c}</Text>
+        ))}
+      </View>
+
+      {summary.perMenu.length > 0 && (
+        <View style={{ marginBottom: 16 }}>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>PER MENU</Text>
+          {summary.perMenu.sort((a, b) => b.winRate - a.winRate).map((v, i) => <VerdictRow key={v.label + i} item={v} colors={colors} />)}
+        </View>
+      )}
+
+      {summary.perSkill.length > 0 && (
+        <View style={{ marginBottom: 16 }}>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>PER SKILL</Text>
+          {summary.perSkill.sort((a, b) => b.winRate - a.winRate).map((v, i) => <VerdictRow key={v.label + i} item={v} colors={colors} />)}
+        </View>
+      )}
+
+      {(loseProfilesByMenu.length > 0 || loseProfilesBySkill.length > 0) && (
+        <View style={{ marginBottom: 16 }}>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>🔍 PROFIL KONDISI LOSE (per menu & skill)</Text>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, lineHeight: 15 }}>
+            Kombinasi arah (buy/sell), BTC Correlation, dan indikator yang paling sering BARENGAN muncul pas LOSE — minimal 3 sinyal LOSE per grup biar gak asal simpul.
+          </Text>
+          {loseProfilesByMenu.map((p, i) => <LoseProfileCard key={'menu-' + p.groupLabel + i} profile={p} colors={colors} />)}
+          {loseProfilesBySkill.map((p, i) => <LoseProfileCard key={'skill-' + p.groupLabel + i} profile={p} colors={colors} />)}
+          {loseProfilesByMenu.length === 0 && loseProfilesBySkill.length === 0 && (
+            <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Belum ada menu/skill dengan minimal 3 sinyal LOSE.</Text>
+          )}
+        </View>
+      )}
+
+      <View style={{ marginBottom: 8 }}>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>INDIKATOR — PAS WIN VS PAS LOSE</Text>
+        {indicatorResult.comparisons.length === 0 ? (
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>
+            Butuh minimal 3 sinyal WIN dan 3 sinyal LOSE (yang punya data indikator) buat mulai bandingin — sekarang baru {indicatorResult.sampleWin} win dan {indicatorResult.sampleLose} lose.
+          </Text>
+        ) : (
+          <>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 4 }}>
+              Dari {indicatorResult.sampleWin} sinyal WIN dan {indicatorResult.sampleLose} sinyal LOSE yang punya data indikator.
+            </Text>
+            <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, fontStyle: 'italic', lineHeight: 13 }}>
+              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Sniper H1→M15 vs Confidence Score M15→M1). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
+            </Text>
+            {indicatorResult.comparisons.map((c, i) => <IndicatorCompareRow key={c.label + i} item={c} colors={colors} />)}
+          </>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 

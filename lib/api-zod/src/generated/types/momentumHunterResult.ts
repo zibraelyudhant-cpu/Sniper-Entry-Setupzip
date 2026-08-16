@@ -7,6 +7,7 @@
  */
 import type { MarketStructureV2Result } from './marketStructureV2Result';
 import type { MomentumHunterResultBias } from './momentumHunterResultBias';
+import type { MomentumHunterResultBtcBias } from './momentumHunterResultBtcBias';
 import type { MomentumHunterResultOrderType } from './momentumHunterResultOrderType';
 import type { MomentumHunterResultSetupType } from './momentumHunterResultSetupType';
 import type { MomentumHunterResultStatus } from './momentumHunterResultStatus';
@@ -35,4 +36,6 @@ export interface MomentumHunterResult {
   maxScore: number;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: MomentumHunterResultBtcBias;
 }

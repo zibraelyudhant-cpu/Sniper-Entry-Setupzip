@@ -183,6 +183,15 @@ export const BreakoutTradingResultMomentumClassification = {
   slow: 'slow',
 } as const;
 
+export type BreakoutTradingResultBtcBias = typeof BreakoutTradingResultBtcBias[keyof typeof BreakoutTradingResultBtcBias];
+
+
+export const BreakoutTradingResultBtcBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  ranging: 'ranging',
+} as const;
+
 export interface TFIndicatorSnapshot {
   rsi: number;
   atr: number;
@@ -190,10 +199,14 @@ export interface TFIndicatorSnapshot {
   adx: number;
   stochK: number;
   stochD: number;
+  macd: number;
+  mfi: number;
+  cci: number;
+  roc: number;
 }
 
 /**
- * RSI/ATR/ADX/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard/soft filter di logic entry manapun.
+ * RSI/ATR/ADX/Stochastic/MACD/MFI/CCI/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard/soft filter di logic entry manapun.
  */
 export interface TechnicalSnapshot {
   struktur: TFIndicatorSnapshot;
@@ -277,6 +290,8 @@ export interface BreakoutTradingResult {
   momentumClassification?: BreakoutTradingResultMomentumClassification;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: BreakoutTradingResultBtcBias;
 }
 
 export interface BreakoutTradingScanResponse {
@@ -329,6 +344,15 @@ export type SniperResultBias = typeof SniperResultBias[keyof typeof SniperResult
 export const SniperResultBias = {
   bullish: 'bullish',
   bearish: 'bearish',
+} as const;
+
+export type SniperResultBtcBias = typeof SniperResultBtcBias[keyof typeof SniperResultBtcBias];
+
+
+export const SniperResultBtcBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  ranging: 'ranging',
 } as const;
 
 export interface SniperResult {
@@ -394,6 +418,8 @@ export interface SniperResult {
   h4ConfluenceDesc?: string;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: SniperResultBtcBias;
 }
 
 export interface SniperScanResponse {
@@ -446,6 +472,15 @@ export const ScalpingResultBias = {
   bearish: 'bearish',
 } as const;
 
+export type ScalpingResultBtcBias = typeof ScalpingResultBtcBias[keyof typeof ScalpingResultBtcBias];
+
+
+export const ScalpingResultBtcBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  ranging: 'ranging',
+} as const;
+
 export interface ScalpingResult {
   status: ScalpingResultStatus;
   symbol: string;
@@ -477,6 +512,8 @@ export interface ScalpingResult {
   bbSqueezing?: boolean;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: ScalpingResultBtcBias;
 }
 
 export interface ScalpingScanResponse {
@@ -520,6 +557,15 @@ export const MomentumHunterResultOrderType = {
   limit: 'limit',
 } as const;
 
+export type MomentumHunterResultBtcBias = typeof MomentumHunterResultBtcBias[keyof typeof MomentumHunterResultBtcBias];
+
+
+export const MomentumHunterResultBtcBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  ranging: 'ranging',
+} as const;
+
 export interface MomentumHunterResult {
   status: MomentumHunterResultStatus;
   symbol: string;
@@ -543,6 +589,8 @@ export interface MomentumHunterResult {
   maxScore: number;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: MomentumHunterResultBtcBias;
 }
 
 export interface MomentumHunterScanResponse {
@@ -608,6 +656,15 @@ export type ExtremeScalpingResultFvg15M = {
   mid?: number;
 };
 
+export type ExtremeScalpingResultBtcBias = typeof ExtremeScalpingResultBtcBias[keyof typeof ExtremeScalpingResultBtcBias];
+
+
+export const ExtremeScalpingResultBtcBias = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  ranging: 'ranging',
+} as const;
+
 export interface ExtremeScalpingResult {
   status: ExtremeScalpingResultStatus;
   symbol: string;
@@ -641,6 +698,8 @@ export interface ExtremeScalpingResult {
   filterResults?: string[];
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: ExtremeScalpingResultBtcBias;
 }
 
 export interface ExtremeScalpingScanResponse {

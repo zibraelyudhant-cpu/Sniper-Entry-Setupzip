@@ -21,6 +21,7 @@ import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 
@@ -248,7 +249,7 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'structural' | 'scalping15m'; pinnedData?: ScalpingResult | null; onSignalReady?: (d: any) => void; onSave?: () => void }) {
+function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'structural' | 'scalping15m'; pinnedData?: ScalpingResult | null }) {
   const insets = useSafeAreaInsets();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
@@ -271,10 +272,6 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
     { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
   );
   const data = liveMode ? liveData : pinnedData;
-
-  useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'waiting' || data?.status === 'approaching' || data?.status === 'in_zone' ? data : null);
-  }, [data]);
 
   const handleAnalyze = useCallback(() => {
     const sym = inputSymbol.trim().toUpperCase();
@@ -304,6 +301,8 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: data.mode === 'scalping15m' ? '15M' : 'H1', tfEksekusi: data.mode === 'scalping15m' ? '1M' : 'M5',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
+      orderType: 'limit', // Structural & Skill 15M dua-duanya basis breakout+retest, selalu LIMIT
+      btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
@@ -483,19 +482,12 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
             </AnimatedCard>
           )}
 
-          {/* Simpan Sinyal */}
-          {(data.status === 'waiting' || data.status === 'approaching' || data.status === 'in_zone') && onSave && (
-            <Pressable onPress={onSave}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
-              <Feather name="bookmark" size={15} color={colors.primaryForeground} />
-              <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
-            </Pressable>
-          )}
+          {/* Simpan ke Journal — SATU-SATUNYA cara nyimpen sinyal sekarang */}
           {(data.status === 'in_zone' || data.status === 'approaching') && (
             <Pressable onPress={handleSaveJournal} disabled={savingJournal}
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
-              <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
-              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed || savingJournal ? 0.8 : 1 }]}>
+              <Feather name="book-open" size={15} color={colors.primaryForeground} />
+              <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal'}</Text>
             </Pressable>
           )}
 
@@ -601,207 +593,12 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 
-// ─── Signal Log ───────────────────────────────────────────────────────────────
-
-type ScalpingLogStatus = 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';
-
-interface ScalpingLog {
-  id: string;
-  symbol: string;
-  mode?: 'structural' | 'scalping15m';
-  bias: 'bullish' | 'bearish';
-  entryPrice: number;
-  stopLoss: number;
-  takeProfit1: number;
-  takeProfit2?: number;
-  currentPriceAtSignal: number;
-  timestamp: string;
-  savedAt: number;
-  score?: number;
-  status: ScalpingLogStatus;
-  evaluatedAt?: string;
-  exitPrice?: number;
-  rr?: number;
-}
-
-const SCALPING_LOG_KEY = 'signal_logs_scalping';
-
-async function scalpLoadLogs(): Promise<ScalpingLog[]> {
-  try { const r = await AsyncStorage.getItem(SCALPING_LOG_KEY); return r ? JSON.parse(r) : []; }
-  catch { return []; }
-}
-async function scalpSaveLog(log: ScalpingLog): Promise<ScalpingLog[]> {
-  const all = await scalpLoadLogs();
-  const updated = [log, ...all].slice(0, 100);
-  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
-  return updated;
-}
-async function scalpUpdateLog(id: string, patch: Partial<ScalpingLog>): Promise<ScalpingLog[]> {
-  const all = await scalpLoadLogs();
-  const updated = all.map(l => l.id === id ? { ...l, ...patch } : l);
-  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
-  return updated;
-}
-async function scalpDeleteLog(id: string): Promise<ScalpingLog[]> {
-  const all = await scalpLoadLogs();
-  const updated = all.filter(l => l.id !== id);
-  try { await AsyncStorage.setItem(SCALPING_LOG_KEY, JSON.stringify(updated)); } catch {}
-  return updated;
-}
-async function scalpEvalLog(log: ScalpingLog): Promise<Partial<ScalpingLog>> {
-  try {
-    // Fix Temuan #4 (audit): TF evaluasi WAJIB sama kayak TF eksekusi asli.
-    // Structural eksekusi M5, Skill 15M eksekusi M1 — dulu dua-duanya fixed
-    // 15M (lebih kasar dari eksekusi asli, bisa bikin evaluasi kurang presisi).
-    const evalInterval = log.mode === 'structural' ? '5m' : log.mode === 'scalping15m' ? '1m' : '15m';
-    const evalLimit = evalInterval === '1m' ? 1500 : evalInterval === '5m' ? 1000 : 200;
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=${evalInterval}&startTime=${log.savedAt}&endTime=${Date.now()}&limit=${evalLimit}`;
-    const res = await fetch(url);
-    if (!res.ok) return { status: 'pending' };
-    const klines: number[][] = await res.json();
-    const risk = Math.abs(log.entryPrice - log.stopLoss);
-    const evalAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
-    for (const k of klines) {
-      const high = k[2] as number, low = k[3] as number;
-      if (log.bias === 'bullish') {
-        if (low <= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (log.takeProfit2 && high >= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.takeProfit2-log.entryPrice)/risk).toFixed(1), evaluatedAt: evalAt };
-        if (high >= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1-log.entryPrice)/risk).toFixed(1), evaluatedAt: evalAt };
-      } else {
-        if (high >= log.stopLoss) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt };
-        if (log.takeProfit2 && low <= log.takeProfit2) return { status: 'win_tp2', exitPrice: log.takeProfit2, rr: +((log.entryPrice-log.takeProfit2)/risk).toFixed(1), evaluatedAt: evalAt };
-        if (low <= log.takeProfit1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice-log.takeProfit1)/risk).toFixed(1), evaluatedAt: evalAt };
-      }
-    }
-    return { status: 'pending' };
-  } catch { return { status: 'pending' }; }
-}
-
-function ScalpingLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
-  const insets = useSafeAreaInsets();
-  const [logs, setLogs] = useState<ScalpingLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [evaluating, setEvaluating] = useState<string | null>(null);
-
-  useEffect(() => { scalpLoadLogs().then(l => { setLogs(l); setLoading(false); }); }, []);
-  const doEval = async (log: ScalpingLog) => { setEvaluating(log.id); const p = await scalpEvalLog(log); setLogs(await scalpUpdateLog(log.id, p)); setEvaluating(null); };
-  const doDelete = async (id: string) => setLogs(await scalpDeleteLog(id));
-
-  const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
-
-  const wins = logs.filter(l => l.status==='win_tp1'||l.status==='win_tp2').length;
-  const loses = logs.filter(l => l.status==='lose').length;
-  const wr = wins+loses>0 ? Math.round(wins/(wins+loses)*100) : 0;
-  const rrs = logs.filter(l => (l.rr??0)>0);
-  const avgRR = rrs.length ? (rrs.reduce((a,b)=>a+(b.rr??0),0)/rrs.length).toFixed(2) : '—';
-
-  if (loading) return <View style={{flex:1,alignItems:'center',justifyContent:'center'}}><ActivityIndicator color={ACCENT}/></View>;
-
-  return (
-    <ScrollView contentContainerStyle={{paddingBottom:insets.bottom+80}} showsVerticalScrollIndicator={false}>
-      {logs.length>0&&<View style={{flexDirection:'row',margin:12,borderRadius:12,borderWidth:1,borderColor:colors.border,backgroundColor:colors.card,padding:14,justifyContent:'space-around'}}>
-        {[
-          {v:`${wins}`,c:'#4ADE80',bg:'rgba(74,222,128,0.12)',l:'WIN'},
-          {v:`${loses}`,c:'#F87171',bg:'rgba(248,113,113,0.1)',l:'LOSE'},
-          {v:`${logs.filter(x=>x.status==='pending').length}`,c:'#94A3B8',bg:'rgba(148,163,184,0.08)',l:'PENDING'},
-          {v:`${wr}%`,c:'#FBBF24',bg:'rgba(251,191,36,0.12)',l:'WIN RATE'},
-          {v:avgRR,c:ACCENT,bg:`${ACCENT}18`,l:'AVG R:R'},
-        ].map(item=>(
-          <View key={item.l} style={{alignItems:'center',gap:4,backgroundColor:item.bg,borderRadius:9,paddingVertical:8,paddingHorizontal:6,minWidth:52}}>
-            <Text style={{fontSize:16,fontFamily:'Inter_700Bold',color:item.c}}>{item.v}</Text>
-            <Text style={{fontSize:8,fontFamily:'Inter_500Medium',color:colors.mutedForeground,letterSpacing:0.3}}>{item.l}</Text>
-          </View>
-        ))}
-      </View>}
-      {logs.length===0 ? (
-        <View style={{flex:1,alignItems:'center',justifyContent:'center',padding:32,gap:10,minHeight:300}}>
-          <Feather name="bookmark" size={36} color={colors.mutedForeground}/>
-          <Text style={{fontSize:16,fontFamily:'Inter_600SemiBold',color:colors.foreground,textAlign:'center'}}>Belum ada sinyal tersimpan</Text>
-          <Text style={{fontSize:13,fontFamily:'Inter_400Regular',color:colors.mutedForeground,textAlign:'center',lineHeight:20}}>Simpan sinyal dari tab Analisa</Text>
-        </View>
-      ) : (
-        <View style={{paddingHorizontal:12,paddingTop:10,gap:8}}>
-          {logs.map((log,index)=>(
-            <AnimatedCard key={log.id} index={index}>
-            <View style={{borderRadius:12,borderWidth:1,borderColor:colors.border,backgroundColor:colors.card,overflow:'hidden',borderLeftWidth:3,borderLeftColor:log.status==='win_tp1'||log.status==='win_tp2'?'#4ADE80':log.status==='lose'?'#F87171':'#6B7280'}}>
-              <View style={{flexDirection:'row',padding:12,alignItems:'flex-start'}}>
-                <View style={{flex:1}}>
-                  <View style={{flexDirection:'row',alignItems:'center',gap:6}}>
-                    <Text style={{fontSize:16,fontFamily:'Inter_600SemiBold',color:colors.foreground}}>{log.symbol.replace('USDT','')}/USDT</Text>
-                    {log.mode && (
-                      <View style={{paddingHorizontal:6,paddingVertical:2,borderRadius:6,backgroundColor:log.mode==='scalping15m'?'#14B8A618':`${ACCENT}18`}}>
-                        <Text style={{fontSize:9,fontFamily:'Inter_700Bold',color:log.mode==='scalping15m'?'#14B8A6':ACCENT}}>{log.mode==='scalping15m'?'15M':'Structural'}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={{fontSize:11,fontFamily:'Inter_400Regular',color:colors.mutedForeground,marginTop:2}}>{log.timestamp}</Text>
-                </View>
-                <View style={{alignItems:'flex-end',gap:4}}>
-                  <LogResultBadge status={log.status} />
-                  <Text style={{fontSize:11,fontFamily:'Inter_600SemiBold',color:log.bias==='bullish'?'#22c55e':'#ef4444'}}>{log.bias==='bullish'?'▲ LONG':'▼ SHORT'}</Text>
-                </View>
-              </View>
-              <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,paddingVertical:8,paddingHorizontal:12}}>
-                {([['Entry',log.entryPrice,colors.foreground],['SL',log.stopLoss,'#ef4444'],['TP1',log.takeProfit1,'#22c55e'],['TP2',log.takeProfit2,'#3b82f6']] as [string,number|undefined,string][]).map(([lbl,val,col])=>val?(
-                  <View key={lbl} style={{flex:1,alignItems:'center'}}>
-                    <Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>{lbl}</Text>
-                    <Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:col,marginTop:2}}>{fp(val)}</Text>
-                  </View>
-                ):null)}
-                {log.rr!==undefined&&<View style={{flex:1,alignItems:'center'}}><Text style={{fontSize:9,fontFamily:'Inter_500Medium',color:colors.mutedForeground}}>R:R</Text><Text style={{fontSize:10,fontFamily:'Inter_600SemiBold',color:log.rr>0?'#22c55e':'#ef4444',marginTop:2}}>{log.rr>0?`1:${log.rr}`:'-1'}</Text></View>}
-              </View>
-              {/* maxScore skill Structural = 12 (7 filter asli + SMA200 soft + RSI2 soft + BTC correlation + zone freshness + VWAP + Volume Profile), skill Scalping 15M = 4 (pullback volume wajib + rejection volume + momentum align + BTC correlation) — update manual kalau maxScore di backend berubah lagi */}
-              {log.score!==undefined&&<Text style={{fontSize:11,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:4,fontFamily:'Inter_400Regular'}}>Score: {log.score}/{log.mode==='scalping15m'?4:12}</Text>}
-              {log.evaluatedAt&&<Text style={{fontSize:10,color:colors.mutedForeground,paddingHorizontal:12,paddingBottom:6,fontFamily:'Inter_400Regular'}}>Dievaluasi: {log.evaluatedAt}</Text>}
-              <View style={{flexDirection:'row',borderTopWidth:StyleSheet.hairlineWidth,borderTopColor:colors.border,padding:8,gap:8,alignItems:'center'}}>
-                {log.status==='pending'&&(
-                  <Pressable onPress={()=>doEval(log)} disabled={evaluating===log.id}
-                    style={({pressed})=>[{flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:5,paddingVertical:7,borderRadius:8,borderWidth:1,borderColor:ACCENT,backgroundColor:ACCENT+'15',opacity:pressed||evaluating===log.id?0.7:1}]}>
-                    {evaluating===log.id?<ActivityIndicator size={12} color={ACCENT}/>:<Feather name="search" size={12} color={ACCENT}/>}
-                    <Text style={{fontSize:12,fontFamily:'Inter_600SemiBold',color:ACCENT}}>{evaluating===log.id?'Evaluasi...':'Evaluasi'}</Text>
-                  </Pressable>
-                )}
-                <Pressable onPress={()=>doDelete(log.id)} style={({pressed})=>[{padding:8,opacity:pressed?0.7:1}]}>
-                  <Feather name="trash-2" size={12} color="#ef4444"/>
-                </Pressable>
-              </View>
-            </View>
-            </AnimatedCard>
-          ))}
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
 export default function ScalpingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'ringkasan'>('scan');
   const [pinnedCoin, setPinnedCoin] = useState<ScalpingResult | undefined>();
-  const [currentSignal, setCurrentSignal] = useState<any>(null);
-
-  const handleSaveSignal = useCallback(async () => {
-    if (!currentSignal || !currentSignal.entryPrice) return;
-    const log: ScalpingLog = {
-      id: `${Date.now()}_${currentSignal.symbol}`,
-      symbol: currentSignal.symbol,
-      mode: currentSignal.mode,
-      bias: currentSignal.bias ?? 'bullish',
-      entryPrice: currentSignal.entryPrice,
-      stopLoss: currentSignal.stopLoss ?? 0,
-      takeProfit1: currentSignal.takeProfit1 ?? 0,
-      takeProfit2: currentSignal.takeProfit2,
-      currentPriceAtSignal: currentSignal.currentPrice,
-      timestamp: currentSignal.timestamp,
-      savedAt: Date.now(),
-      score: currentSignal.score,
-      status: 'pending',
-    };
-    await scalpSaveLog(log);
-    setActiveTab('log');
-  }, [currentSignal]);
 
   const handleSelectCoin = useCallback((coin: ScalpingResult) => {
     setPinnedCoin(coin);
@@ -828,10 +625,10 @@ export default function ScalpingScreen() {
           tabs={[
             { key: 'scan', label: 'SCAN' },
             { key: 'analisa', label: 'ANALISA' },
-            { key: 'log', label: 'LOG' },
+            { key: 'ringkasan', label: 'RINGKASAN' },
           ]}
           active={activeTab}
-          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'log')}
+          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'ringkasan')}
           accentColor={ACCENT}
         />
       </View>
@@ -839,8 +636,8 @@ export default function ScalpingScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'structural' | 'scalping15m' | undefined} pinnedData={pinnedCoin} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
-        : <ScalpingLogTab colors={colors} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'structural' | 'scalping15m' | undefined} pinnedData={pinnedCoin} />
+        : <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />
       }
     </View>
   );

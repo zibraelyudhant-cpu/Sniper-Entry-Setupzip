@@ -244,7 +244,6 @@ function ClassicTabLayout() {
       <Tabs.Screen name="_insight-view" options={{ href: null }} />
       <Tabs.Screen name="_backtest-view" options={{ href: null }} />
       <Tabs.Screen name="monitoring-helpers" options={{ href: null }} />
-      <Tabs.Screen name="signal-log-helpers" options={{ href: null }} />
     </Tabs>
   );
 }

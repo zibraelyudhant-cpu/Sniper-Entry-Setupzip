@@ -13,4 +13,8 @@ export interface TFIndicatorSnapshot {
   adx: number;
   stochK: number;
   stochD: number;
+  macd: number;
+  mfi: number;
+  cci: number;
+  roc: number;
 }

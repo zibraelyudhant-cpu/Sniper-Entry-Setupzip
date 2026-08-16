@@ -27,6 +27,7 @@ import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
+import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 
@@ -419,221 +420,6 @@ function TimingItem({ label, value, colors }: TimingItemProps) {
 }
 
 
-// ─── Signal Log ───────────────────────────────────────────────────────────────
-
-type SignalLogStatus = 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';
-
-interface SignalLog {
-  id: string;
-  menu: 'sniper' | 'scalping';
-  mode?: 'sniper' | 'rsi2'; // skill yang hasilin sinyal ini — cuma relevan buat menu 'sniper'
-  symbol: string;
-  bias: 'bullish' | 'bearish';
-  entryPrice: number;
-  stopLoss: number;
-  takeProfit1: number;
-  takeProfit2?: number;
-  currentPriceAtSignal: number;
-  timestamp: string;
-  savedAt: number;
-  probabilityOrScore?: number;
-  zoneType?: string;
-  status: SignalLogStatus;
-  evaluatedAt?: string;
-  exitPrice?: number;
-  rr?: number;
-  explanation?: string; // penjelasan kenapa win/lose
-}
-
-const SNIPER_LOG_KEY = 'signal_logs_sniper';
-
-async function sniperLoadLogs(): Promise<SignalLog[]> {
-  try { const r = await AsyncStorage.getItem(SNIPER_LOG_KEY); return r ? JSON.parse(r) : []; }
-  catch { return []; }
-}
-async function sniperSaveLog(log: SignalLog): Promise<SignalLog[]> {
-  const all = await sniperLoadLogs();
-  const updated = [log, ...all].slice(0, 100);
-  try { await AsyncStorage.setItem(SNIPER_LOG_KEY, JSON.stringify(updated)); } catch {}
-  return updated;
-}
-async function sniperUpdateLog(id: string, patch: Partial<SignalLog>): Promise<SignalLog[]> {
-  const all = await sniperLoadLogs();
-  const updated = all.map(l => l.id === id ? { ...l, ...patch } : l);
-  try { await AsyncStorage.setItem(SNIPER_LOG_KEY, JSON.stringify(updated)); } catch {}
-  return updated;
-}
-async function sniperDeleteLog(id: string): Promise<SignalLog[]> {
-  const all = await sniperLoadLogs();
-  const updated = all.filter(l => l.id !== id);
-  try { await AsyncStorage.setItem(SNIPER_LOG_KEY, JSON.stringify(updated)); } catch {}
-  return updated;
-}
-async function sniperEvaluateLog(log: SignalLog): Promise<Partial<SignalLog>> {
-  try {
-    // Fix Temuan #4 (audit): TF evaluasi WAJIB sama kayak TF eksekusi asli. Di
-    // sini 15m MEMANG udah bener — Skill Sniper (H1→M15) DAN RSI-2 (H1→M15)
-    // dua-duanya eksekusi di M15, jadi gak perlu percabangan kayak menu lain.
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${log.symbol}&interval=15m&startTime=${log.savedAt}&endTime=${Date.now()}&limit=200`;
-    const res = await fetch(url);
-    if (!res.ok) return { status: 'pending' };
-    const klines: number[][] = await res.json();
-    const risk = Math.abs(log.entryPrice - log.stopLoss);
-    const evalAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
-    for (const k of klines) {
-      const high = k[2] as number, low = k[3] as number;
-      const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
-      if (log.bias === 'bullish') {
-        const hitSL = low <= log.stopLoss;
-        const hitTP2 = log.takeProfit2 != null && high >= log.takeProfit2;
-        const hitTP1 = high >= log.takeProfit1;
-        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
-          explanation: `❌ LOSE — Harga turun ke SL ${fp(log.stopLoss)}. Low candle ${fp(low)} menyentuh stop loss. Entry ${fp(log.entryPrice)} tidak terkonfirmasi, harga melanjutkan turun.` };
-        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.takeProfit2! - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt,
-          explanation: `✅ WIN TP2 — Harga naik ke TP2 ${fp(log.takeProfit2!)}. Trend kuat berlanjut melewati TP1 hingga target penuh. R:R ${+((log.takeProfit2! - log.entryPrice) / risk).toFixed(1)}.` };
-        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.takeProfit1 - log.entryPrice) / risk).toFixed(1), evaluatedAt: evalAt,
-          explanation: `✅ WIN TP1 — Harga naik ke TP1 ${fp(log.takeProfit1)}. Pullback selesai dan trend bullish berlanjut. R:R ${+((log.takeProfit1 - log.entryPrice) / risk).toFixed(1)}.` };
-        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
-          explanation: `❌ LOSE — SL ${fp(log.stopLoss)} kena di candle yang sama dengan TP. Harga volatile, entry prematur atau zona tidak kuat.` };
-      } else {
-        const hitSL = high >= log.stopLoss;
-        const hitTP2 = log.takeProfit2 != null && low <= log.takeProfit2;
-        const hitTP1 = low <= log.takeProfit1;
-        if (hitSL && !hitTP1) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
-          explanation: `❌ LOSE — Harga naik ke SL ${fp(log.stopLoss)}. High candle ${fp(high)} menyentuh stop loss. Harga tidak melanjutkan penurunan.` };
-        if (hitTP2) return { status: 'win_tp2', exitPrice: log.takeProfit2!, rr: +((log.entryPrice - log.takeProfit2!) / risk).toFixed(1), evaluatedAt: evalAt,
-          explanation: `✅ WIN TP2 — Harga turun ke TP2 ${fp(log.takeProfit2!)}. Trend bearish kuat berlanjut hingga target penuh. R:R ${+((log.entryPrice - log.takeProfit2!) / risk).toFixed(1)}.` };
-        if (hitTP1) return { status: 'win_tp1', exitPrice: log.takeProfit1, rr: +((log.entryPrice - log.takeProfit1) / risk).toFixed(1), evaluatedAt: evalAt,
-          explanation: `✅ WIN TP1 — Harga turun ke TP1 ${fp(log.takeProfit1)}. Bounce selesai dan trend bearish berlanjut. R:R ${+((log.entryPrice - log.takeProfit1) / risk).toFixed(1)}.` };
-        if (hitSL) return { status: 'lose', exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalAt,
-          explanation: `❌ LOSE — SL ${fp(log.stopLoss)} kena bersamaan dengan TP. Volatilitas tinggi, zona tidak cukup kuat menahan harga.` };
-      }
-    }
-    return { status: 'pending' };
-  } catch { return { status: 'pending' }; }
-}
-
-function SniperLogTab({ colors }: { colors: ReturnType<typeof useColors> }) {
-  const insets = useSafeAreaInsets();
-  const [logs, setLogs] = useState<SignalLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [evaluating, setEvaluating] = useState<string | null>(null);
-
-  useEffect(() => { sniperLoadLogs().then(l => { setLogs(l); setLoading(false); }); }, []);
-
-  const doEval = async (log: SignalLog) => {
-    setEvaluating(log.id);
-    const patch = await sniperEvaluateLog(log);
-    const updated = await sniperUpdateLog(log.id, patch);
-    setLogs(updated); setEvaluating(null);
-  };
-
-  const doDelete = async (id: string) => { setLogs(await sniperDeleteLog(id)); };
-
-  const wins = logs.filter(l => l.status === 'win_tp1' || l.status === 'win_tp2').length;
-  const loses = logs.filter(l => l.status === 'lose').length;
-  const wr = wins + loses > 0 ? Math.round(wins / (wins + loses) * 100) : 0;
-  const rrs = logs.filter(l => (l.rr ?? 0) > 0);
-  const avgRR = rrs.length ? (rrs.reduce((a, b) => a + (b.rr ?? 0), 0) / rrs.length).toFixed(2) : '—';
-
-  const fp = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6);
-
-  if (loading) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={ACCENT} /></View>;
-
-  return (
-    <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
-      {logs.length > 0 && (
-        <View style={{ flexDirection: 'row', margin: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, justifyContent: 'space-around' }}>
-          {[
-            { v: `${wins}`, c: '#4ADE80', bg: 'rgba(74,222,128,0.12)', l: 'WIN' },
-            { v: `${loses}`, c: '#F87171', bg: 'rgba(248,113,113,0.1)', l: 'LOSE' },
-            { v: `${logs.filter(x => x.status === 'pending').length}`, c: '#94A3B8', bg: 'rgba(148,163,184,0.08)', l: 'PENDING' },
-            { v: `${wr}%`, c: '#FBBF24', bg: 'rgba(251,191,36,0.12)', l: 'WIN RATE' },
-            { v: avgRR, c: ACCENT, bg: `${ACCENT}18`, l: 'AVG R:R' },
-          ].map(item => (
-            <View key={item.l} style={{ alignItems: 'center', gap: 4, backgroundColor: item.bg, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 6, minWidth: 52 }}>
-              <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: item.c }}>{item.v}</Text>
-              <Text style={{ fontSize: 8, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, letterSpacing: 0.3 }}>{item.l}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-      {logs.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, minHeight: 300 }}>
-          <Feather name="bookmark" size={36} color={colors.mutedForeground} />
-          <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground, textAlign: 'center' }}>Belum ada sinyal tersimpan</Text>
-          <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 20 }}>Simpan sinyal dari tab Analisa saat status Ready</Text>
-        </View>
-      ) : (
-        <View style={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}>
-          {logs.map((log, index) => (
-            <AnimatedCard key={log.id} index={index}>
-            <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: 'hidden', borderLeftWidth: 3, borderLeftColor: log.status === 'win_tp1' || log.status === 'win_tp2' ? '#4ADE80' : log.status === 'lose' ? '#F87171' : '#6B7280' }}>
-              <View style={{ flexDirection: 'row', padding: 12, alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>{log.symbol.replace('USDT', '')}/USDT</Text>
-                    {log.mode && (
-                      <View style={{
-                        paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-                        backgroundColor: log.mode === 'rsi2' ? '#F472B618' : `${ACCENT}18`,
-                      }}>
-                        <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: log.mode === 'rsi2' ? '#F472B6' : ACCENT }}>
-                          {log.mode === 'rsi2' ? 'RSI Connors' : 'Sniper'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{log.timestamp}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <LogResultBadge status={log.status} />
-                  <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: log.bias === 'bullish' ? '#22c55e' : '#ef4444' }}>{log.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}</Text>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 8, paddingHorizontal: 12 }}>
-                {([['Entry', log.entryPrice, colors.foreground], ['SL', log.stopLoss, '#ef4444'], ['TP1', log.takeProfit1, '#22c55e'], ['TP2', log.takeProfit2, '#3b82f6']] as [string, number|undefined, string][]).map(([lbl, val, col]) => val ? (
-                  <View key={lbl} style={{ flex: 1, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>{lbl}</Text>
-                    <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: col, marginTop: 2 }}>{fp(val)}</Text>
-                  </View>
-                ) : null)}
-                {log.rr !== undefined && (
-                  <View style={{ flex: 1, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 9, fontFamily: 'Inter_500Medium', color: colors.mutedForeground }}>R:R</Text>
-                    <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: log.rr > 0 ? '#22c55e' : '#ef4444', marginTop: 2 }}>{log.rr > 0 ? `1:${log.rr}` : '-1'}</Text>
-                  </View>
-                )}
-              </View>
-              {log.currentPriceAtSignal > 0 && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 2, fontFamily: 'Inter_400Regular' }}>Harga saat sinyal: {log.currentPriceAtSignal >= 1000 ? log.currentPriceAtSignal.toFixed(2) : log.currentPriceAtSignal >= 1 ? log.currentPriceAtSignal.toFixed(4) : log.currentPriceAtSignal.toFixed(6)}</Text>}
-              {log.probabilityOrScore !== undefined && <Text style={{ fontSize: 11, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 4, fontFamily: 'Inter_400Regular' }}>Probabilitas saat sinyal: {log.probabilityOrScore}%</Text>}
-              {log.evaluatedAt && <Text style={{ fontSize: 10, color: colors.mutedForeground, paddingHorizontal: 12, paddingBottom: 2, fontFamily: 'Inter_400Regular' }}>Dievaluasi: {log.evaluatedAt}</Text>}
-              {log.explanation && (
-                <View style={{ marginHorizontal: 12, marginBottom: 8, padding: 10, borderRadius: 8, backgroundColor: (log.status === 'win_tp1' || log.status === 'win_tp2') ? '#16A34A15' : log.status === 'lose' ? '#DC262615' : `${colors.card}`, borderLeftWidth: 3, borderLeftColor: (log.status === 'win_tp1' || log.status === 'win_tp2') ? '#22c55e' : log.status === 'lose' ? '#ef4444' : colors.mutedForeground }}>
-                  <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>{log.explanation}</Text>
-                </View>
-              )}
-              <View style={{ flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, padding: 8, gap: 8, alignItems: 'center' }}>
-                {log.status === 'pending' && (
-                  <Pressable onPress={() => doEval(log)} disabled={evaluating === log.id}
-                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: ACCENT + '15', opacity: pressed || evaluating === log.id ? 0.7 : 1 }]}>
-                    {evaluating === log.id ? <ActivityIndicator size={12} color={ACCENT} /> : <Feather name="search" size={12} color={ACCENT} />}
-                    <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>{evaluating === log.id ? 'Evaluasi...' : 'Evaluasi'}</Text>
-                  </Pressable>
-                )}
-                <Pressable onPress={() => doDelete(log.id)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.7 : 1 }]}>
-                  <Feather name="trash-2" size={12} color="#ef4444" />
-                </Pressable>
-              </View>
-            </View>
-            </AnimatedCard>
-          ))}
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 
@@ -955,7 +741,7 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'sniper' | 'rsi2'; onSignalReady?: (d: SniperResult | null) => void; onSave?: () => void }) {
+function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'sniper' | 'rsi2' }) {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ symbol?: string; mode?: string }>();
 
@@ -1012,10 +798,6 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
   );
   const data = liveMode ? liveData : pinnedData;
 
-  useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'ready' ? (data as SniperResult) : null);
-  }, [data]);
-
   const handleAnalyze = useCallback(() => {
     const sym = inputSymbol.trim().toUpperCase();
     if (!sym) return;
@@ -1043,6 +825,8 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
       currentPriceAtSignal: d.currentPrice ?? 0, rr1: d.rr1,
       tfStruktur: 'H1', tfEksekusi: 'M15',
       technicalSnapshot: d.technicalSnapshot as JournalEntry['technicalSnapshot'],
+      orderType: 'limit', // Sniper & RSI-2 dua-duanya basis breakout+retest, selalu LIMIT
+      btcAligned: d.btcAligned, btcBias: d.btcBias,
       timestamp: d.timestamp ?? '', savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
@@ -1187,17 +971,10 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               <View style={{ marginHorizontal: 12 }}>
                 <MarketStructureV2Card data={data.marketStructureV2} />
               </View>
-              {onSave && (
-                <Pressable onPress={onSave}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
-                  <Feather name="bookmark" size={15} color={colors.primaryForeground} />
-                  <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
-                </Pressable>
-              )}
               <Pressable onPress={() => handleSaveJournal(data)} disabled={savingJournal}
-                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
-                <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
-                <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: MENU_COLORS.journal }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal (detail lengkap)'}</Text>
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed || savingJournal ? 0.8 : 1 }]}>
+                <Feather name="book-open" size={15} color={colors.primaryForeground} />
+                <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal'}</Text>
               </Pressable>
             </>
           )}
@@ -1211,13 +988,11 @@ function AnalisaTab({ colors, initialSymbol, initialMode, onSignalReady, onSave 
               <View style={{ marginHorizontal: 12 }}>
                 <MarketStructureV2Card data={data.marketStructureV2} />
               </View>
-              {onSave && (
-                <Pressable onPress={onSave}
-                  style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed ? 0.8 : 1 }]}>
-                  <Feather name="bookmark" size={15} color={colors.primaryForeground} />
-                  <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>Simpan Sinyal ke Log</Text>
-                </Pressable>
-              )}
+              <Pressable onPress={() => handleSaveJournal(data)} disabled={savingJournal}
+                style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 0, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed || savingJournal ? 0.8 : 1 }]}>
+                <Feather name="book-open" size={15} color={colors.primaryForeground} />
+                <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.primaryForeground }}>{savingJournal ? 'Menyimpan...' : 'Simpan ke Journal'}</Text>
+              </Pressable>
               <Pressable onPress={() => handleSaveJournal(data)} disabled={savingJournal}
                 style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginTop: 4, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, opacity: pressed || savingJournal ? 0.7 : 1 }]}>
                 <Feather name="book-open" size={14} color={MENU_COLORS.journal} />
@@ -1238,8 +1013,8 @@ export default function SniperScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ tab?: string; symbol?: string; mode?: string }>();
   const topPadding = insets.top + (Platform.OS === 'web' ? 67 : 0);
-  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'log'>(
-    params.tab === 'analisa' ? 'analisa' : params.tab === 'log' ? 'log' : 'scan'
+  const [activeTab, setActiveTab] = useState<'scan' | 'analisa' | 'ringkasan'>(
+    params.tab === 'analisa' ? 'analisa' : params.tab === 'ringkasan' ? 'ringkasan' : 'scan'
   );
   // FIX: useState initializer di atas cuma jalan SEKALI pas mount, gak react ke
   // perubahan params setelahnya. Kalau user udah di halaman Sniper (komponen udah
@@ -1254,35 +1029,8 @@ export default function SniperScreen() {
   // gak switch.
   useEffect(() => {
     if (params.tab === 'analisa') setActiveTab('analisa');
-    else if (params.tab === 'log') setActiveTab('log');
+    else if (params.tab === 'ringkasan') setActiveTab('ringkasan');
   }, [params.tab, params.symbol]);
-  const [currentSignal, setCurrentSignal] = useState<SniperResult | null>(null);
-
-  const handleSaveSignal = useCallback(async () => {
-    if (!currentSignal || !currentSignal.entryPrice) return;
-    const isRsi2 = currentSignal.mode === 'rsi2';
-    const log: SignalLog = {
-      id: `${Date.now()}_${currentSignal.symbol}`,
-      menu: 'sniper',
-      mode: currentSignal.mode ?? 'sniper',
-      symbol: currentSignal.symbol,
-      bias: currentSignal.bias ?? 'bullish',
-      entryPrice: currentSignal.entryPrice,
-      stopLoss: currentSignal.stopLoss ?? 0,
-      takeProfit1: currentSignal.takeProfit1 ?? 0,
-      takeProfit2: currentSignal.takeProfit2,
-      currentPriceAtSignal: currentSignal.currentPrice,
-      timestamp: currentSignal.timestamp,
-      savedAt: Date.now(),
-      // Normalisasi: kedua mode sekarang pakai score/maxScore (profitProbability
-      // udah dihapus dari mode Sniper juga), biar Log tetep konsisten nampilin 1 angka confidence
-      probabilityOrScore: ((currentSignal.score ?? 0) / (currentSignal.maxScore || 1)) * 100,
-      zoneType: currentSignal.zoneType,
-      status: 'pending',
-    };
-    await sniperSaveLog(log);
-    setActiveTab('log');
-  }, [currentSignal]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -1306,10 +1054,10 @@ export default function SniperScreen() {
           tabs={[
             { key: 'scan', label: 'SCAN' },
             { key: 'analisa', label: 'ANALISA' },
-            { key: 'log', label: 'LOG' },
+            { key: 'ringkasan', label: 'RINGKASAN' },
           ]}
           active={activeTab}
-          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'log')}
+          onChange={(k) => setActiveTab(k as 'scan' | 'analisa' | 'ringkasan')}
           accentColor={ACCENT}
         />
       </View>
@@ -1317,8 +1065,8 @@ export default function SniperScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={params.symbol ?? undefined} initialMode={params.mode === 'sniper' || params.mode === 'rsi2' ? params.mode : undefined} onSignalReady={setCurrentSignal} onSave={handleSaveSignal} />
-        : <SniperLogTab colors={colors} />
+        ? <AnalisaTab colors={colors} initialSymbol={params.symbol ?? undefined} initialMode={params.mode === 'sniper' || params.mode === 'rsi2' ? params.mode : undefined} />
+        : <MenuJournalSummary sourceMenu="Sniper Entry" accentColor={ACCENT} />
       }
     </View>
   );

@@ -8,7 +8,7 @@
 import type { TFIndicatorSnapshot } from './tFIndicatorSnapshot';
 
 /**
- * RSI/ATR/ADX/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard/soft filter di logic entry manapun.
+ * RSI/ATR/ADX/Stochastic/MACD/MFI/CCI/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard/soft filter di logic entry manapun.
  */
 export interface TechnicalSnapshot {
   struktur: TFIndicatorSnapshot;

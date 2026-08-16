@@ -93,7 +93,11 @@ export const GetBreakoutEntryResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -101,9 +105,13 @@ export const GetBreakoutEntryResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -120,7 +128,9 @@ export const GetBreakoutEntryResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })
 
 
@@ -179,7 +189,11 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -187,9 +201,13 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -206,7 +224,9 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })),
   "fetchedAt": zod.number()
 })
@@ -306,7 +326,11 @@ export const GetSmcAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -314,9 +338,13 @@ export const GetSmcAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -333,7 +361,9 @@ export const GetSmcAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })
 
 
@@ -426,7 +456,11 @@ export const GetSniperScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -434,9 +468,13 @@ export const GetSniperScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -453,7 +491,9 @@ export const GetSniperScanResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })),
   "fetchedAt": zod.number()
 })
@@ -520,7 +560,11 @@ export const GetScalpingResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -528,9 +572,13 @@ export const GetScalpingResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -547,7 +595,9 @@ export const GetScalpingResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })
 
 
@@ -607,7 +657,11 @@ export const GetScalpingScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -615,9 +669,13 @@ export const GetScalpingScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -634,7 +692,9 @@ export const GetScalpingScanResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })),
   "fetchedAt": zod.number()
 })
@@ -705,7 +765,11 @@ export const GetExtremeScalpingResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -713,9 +777,13 @@ export const GetExtremeScalpingResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -732,7 +800,9 @@ export const GetExtremeScalpingResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })
 
 
@@ -798,7 +868,11 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -806,9 +880,13 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -825,7 +903,9 @@ export const GetExtremeScalpingScanResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })),
   "fetchedAt": zod.number()
 })
@@ -1795,7 +1875,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -1803,9 +1887,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -1822,7 +1910,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "breakoutCrossover": zod.object({
   "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
@@ -1875,7 +1965,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -1883,9 +1977,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -1902,7 +2000,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "sniperStructural": zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
@@ -1989,7 +2089,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -1997,9 +2101,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2016,7 +2124,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "sniperRsiConnors": zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
@@ -2103,7 +2213,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2111,9 +2225,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2130,7 +2248,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "scalpingStructural": zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
@@ -2184,7 +2304,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2192,9 +2316,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2211,7 +2339,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "scalpingM15": zod.object({
   "status": zod.enum(['waiting', 'approaching', 'in_zone', 'expired', 'no_setup', 'no_structure', 'skip', 'error']),
@@ -2265,7 +2395,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2273,9 +2407,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2292,7 +2430,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "extremeQuant": zod.object({
   "status": zod.enum(['siap_entry', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
@@ -2352,7 +2492,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2360,9 +2504,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2379,7 +2527,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "extremeSniper": zod.object({
   "status": zod.enum(['siap_entry', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
@@ -2439,7 +2589,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2447,9 +2601,13 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2466,7 +2624,9 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
   "multiTf": zod.object({
   "status": zod.enum(['ok', 'error']),
@@ -2588,7 +2748,11 @@ export const GetMomentumHunterResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2596,9 +2760,13 @@ export const GetMomentumHunterResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2615,7 +2783,9 @@ export const GetMomentumHunterResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })
 
 
@@ -2651,7 +2821,11 @@ export const GetMomentumHunterScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 }),
   "eksekusi": zod.object({
   "rsi": zod.number(),
@@ -2659,9 +2833,13 @@ export const GetMomentumHunterScanResponse = zod.object({
   "atrPct": zod.number(),
   "adx": zod.number(),
   "stochK": zod.number(),
-  "stochD": zod.number()
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
 })
-}).optional().describe('RSI\/ATR\/ADX\/Stochastic di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
   "marketStructureV2": zod.object({
   "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
   "bias": zod.enum(['bullish', 'bearish', 'sideways']),
@@ -2678,7 +2856,9 @@ export const GetMomentumHunterScanResponse = zod.object({
   "candleCountUsed": zod.number(),
   "passes": zod.number(),
   "reasoning": zod.array(zod.string())
-}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 })),
   "fetchedAt": zod.number().optional()
 })

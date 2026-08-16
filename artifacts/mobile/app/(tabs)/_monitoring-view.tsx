@@ -72,7 +72,7 @@ function MonitoringCard({
           <Text style={[s.symbol, { color: colors.foreground }]}>{log.symbol}</Text>
           <View style={[s.menuBadge, { borderColor: colors.border }]}>
             <Text style={[s.menuBadgeText, { color: colors.mutedForeground }]}>
-              {log.menu === "sniper" ? "SNIPER" : log.menu === "scalping" ? "SCALPING" : "BREAKOUT"}
+              {log.sourceMenu.toUpperCase()}
             </Text>
           </View>
           <Text style={[{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: biasColor }]}>
@@ -391,7 +391,7 @@ export default function MonitoringView() {
           <Feather name="inbox" size={40} color={colors.mutedForeground} />
           <Text style={[s.emptyTitle, { color: colors.foreground }]}>Belum ada posisi aktif</Text>
           <Text style={[s.emptySub, { color: colors.mutedForeground }]}>
-            Sinyal dari Menu 1 (Breakout Entry), Menu 2 (Sniper) & Menu 4 (Scalping) yang harga entry-nya sudah kehit akan otomatis muncul di sini untuk dipantau.
+            Sinyal dari semua menu (Breakout Entry, Sniper Entry, Scalping, Extreme Scalping, Momentum Hunter) yang harga entry-nya sudah kehit akan otomatis muncul di sini untuk dipantau.
           </Text>
           <Pressable
             onPress={onRefresh}

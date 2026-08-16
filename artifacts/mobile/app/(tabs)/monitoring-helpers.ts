@@ -1,17 +1,18 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StyleSheet } from "react-native";
-import type { SignalLog } from "./signal-log-helpers";
-import { STORAGE_KEY_SNIPER, STORAGE_KEY_SCALPING, STORAGE_KEY_BREAKOUT_ENTRY } from "./signal-log-helpers";
+import type { JournalEntry } from "./journal-helpers";
+import { journalLoadAll, journalUpdate } from "./journal-helpers";
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═════════════════════════════════════════════════════════════════════════════
 
-// Extended log dengan field khusus monitoring (optional, gak break interface lama)
-export interface MonitoringSignalLog extends SignalLog {
-  entryHitAt?: number;      // timestamp saat entry pertama kali kehit
-  oiAtEntryHit?: number;    // Open Interest baseline saat entry kehit
-}
+// Fix (request user, "investigasi lebih dalam dan sesuaikan biar baca dari
+// Journal juga"): dulu monitoring ini baca dari 3 storage Log terpisah
+// (Sniper/Scalping/Breakout Entry doang — Extreme Scalping & Momentum Hunter
+// GAK PERNAH kecover dari awal). Sekarang satu-satunya sumber data JOURNAL,
+// otomatis cover SEMUA 5 menu sekaligus karena JournalEntry.sourceMenu
+// (bukan cuma 3 field 'menu' union yang lama).
+export type MonitoringSignalLog = JournalEntry;
 
 export type HealthStatus = "aman" | "warning" | "close";
 
@@ -105,14 +106,32 @@ async function fetchTakerRatio(symbol: string): Promise<number | null> {
 /**
  * Cek apakah harga pernah touch entryPrice sejak savedAt.
  * Return timestamp candle saat entry kehit, null kalau belum.
+ *
+ * Fix (bug ketemu pas investigasi, konsisten sama checkResolve): sebelumnya
+ * cuma 1x fetch limit=200 candle 15m (~50 jam cakupan dari savedAt). Karena
+ * fungsi ini dipanggil BERULANG (tiap scan) TAPI window fetch-nya SELALU
+ * sama (fixed dari savedAt), kalau entry belum kesentuh dalam 50 jam
+ * pertama, fungsi ini GAK PERNAH BISA detect entry hit yang kejadian
+ * belakangan — window-nya gak pernah maju sama sekali. Sekarang pagination.
  */
-export async function checkEntryHit(log: SignalLog): Promise<number | null> {
-  const klines = await fetchKlines(log.symbol, "15m", 200, log.savedAt);
-  if (klines.length === 0) return null;
-  for (const k of klines) {
-    if (k.low <= log.entryPrice && log.entryPrice <= k.high) {
-      return k.openTime;
+export async function checkEntryHit(log: JournalEntry): Promise<number | null> {
+  const now = Date.now();
+  let cursor = log.savedAt;
+  const maxIterations = 20;
+
+  for (let iter = 0; iter < maxIterations && cursor < now; iter++) {
+    const klines = await fetchKlines(log.symbol, "15m", 1500, cursor);
+    if (klines.length === 0) break;
+
+    for (const k of klines) {
+      if (k.low <= log.entryPrice && log.entryPrice <= k.high) {
+        return k.openTime;
+      }
     }
+
+    if (klines.length < 1500) break;
+    cursor = klines[klines.length - 1]!.openTime + 15 * 60 * 1000;
+    if (iter < maxIterations - 1 && cursor < now) await new Promise((r) => setTimeout(r, 150));
   }
   return null;
 }
@@ -120,55 +139,72 @@ export async function checkEntryHit(log: SignalLog): Promise<number | null> {
 /**
  * Cek apakah log udah kena SL/TP1/TP2 setelah entry kehit.
  * Return status akhir + exitPrice + rr, atau null kalau masih monitoring.
+ *
+ * Fix (konsisten sama journalEvaluate — "jangan sampe bilang win padahal
+ * lose"): sebelumnya cuma 1x fetch limit=500 candle 15m (~5.2 hari cakupan
+ * dari entryHitAt). Kalau posisi dipantau lebih lama dari itu tanpa resolve,
+ * fetch gak akan pernah nyampe candle terbaru. Sekarang pagination — fetch
+ * berulang majuin cursor sampe beneran nyampe sekarang atau ketemu SL/TP.
  */
-export async function checkResolve(log: MonitoringSignalLog): Promise<Partial<SignalLog> | null> {
+export async function checkResolve(log: MonitoringSignalLog): Promise<Partial<JournalEntry> | null> {
   if (!log.entryHitAt) return null;
-  const klines = await fetchKlines(log.symbol, "15m", 500, log.entryHitAt);
-  if (klines.length === 0) return null;
   const risk = Math.abs(log.entryPrice - log.stopLoss);
   const evalTime = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) + " WIB";
-  for (const k of klines) {
-    if (log.bias === "bullish") {
-      if (k.low <= log.stopLoss) {
-        return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime };
-      }
-      if (log.takeProfit2 && k.high >= log.takeProfit2) {
-        return {
-          status: "win_tp2",
-          exitPrice: log.takeProfit2,
-          rr: Math.round(((log.takeProfit2 - log.entryPrice) / risk) * 10) / 10,
-          evaluatedAt: evalTime,
-        };
-      }
-      if (k.high >= log.takeProfit1) {
-        return {
-          status: "win_tp1",
-          exitPrice: log.takeProfit1,
-          rr: Math.round(((log.takeProfit1 - log.entryPrice) / risk) * 10) / 10,
-          evaluatedAt: evalTime,
-        };
-      }
-    } else {
-      if (k.high >= log.stopLoss) {
-        return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime };
-      }
-      if (log.takeProfit2 && k.low <= log.takeProfit2) {
-        return {
-          status: "win_tp2",
-          exitPrice: log.takeProfit2,
-          rr: Math.round(((log.entryPrice - log.takeProfit2) / risk) * 10) / 10,
-          evaluatedAt: evalTime,
-        };
-      }
-      if (k.low <= log.takeProfit1) {
-        return {
-          status: "win_tp1",
-          exitPrice: log.takeProfit1,
-          rr: Math.round(((log.entryPrice - log.takeProfit1) / risk) * 10) / 10,
-          evaluatedAt: evalTime,
-        };
+  const now = Date.now();
+  let cursor = log.entryHitAt;
+  const maxIterations = 20; // ≈20 hari cakupan (1500 candle 15m/batch), cukup buat posisi monitoring manapun
+
+  for (let iter = 0; iter < maxIterations && cursor < now; iter++) {
+    const klines = await fetchKlines(log.symbol, "15m", 1500, cursor);
+    if (klines.length === 0) break;
+
+    for (const k of klines) {
+      if (log.bias === "bullish") {
+        if (k.low <= log.stopLoss) {
+          return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime };
+        }
+        if (log.takeProfit2 && k.high >= log.takeProfit2) {
+          return {
+            status: "win_tp2",
+            exitPrice: log.takeProfit2,
+            rr: Math.round(((log.takeProfit2 - log.entryPrice) / risk) * 10) / 10,
+            evaluatedAt: evalTime,
+          };
+        }
+        if (k.high >= log.takeProfit1) {
+          return {
+            status: "win_tp1",
+            exitPrice: log.takeProfit1,
+            rr: Math.round(((log.takeProfit1 - log.entryPrice) / risk) * 10) / 10,
+            evaluatedAt: evalTime,
+          };
+        }
+      } else {
+        if (k.high >= log.stopLoss) {
+          return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime };
+        }
+        if (log.takeProfit2 && k.low <= log.takeProfit2) {
+          return {
+            status: "win_tp2",
+            exitPrice: log.takeProfit2,
+            rr: Math.round(((log.entryPrice - log.takeProfit2) / risk) * 10) / 10,
+            evaluatedAt: evalTime,
+          };
+        }
+        if (k.low <= log.takeProfit1) {
+          return {
+            status: "win_tp1",
+            exitPrice: log.takeProfit1,
+            rr: Math.round(((log.entryPrice - log.takeProfit1) / risk) * 10) / 10,
+            evaluatedAt: evalTime,
+          };
+        }
       }
     }
+
+    if (klines.length < 1500) break; // batch gak penuh = udah nyampe ujung data yang tersedia
+    cursor = klines[klines.length - 1]!.openTime + 15 * 60 * 1000; // +1 candle 15m biar gak fetch ulang candle yang sama
+    if (iter < maxIterations - 1 && cursor < now) await new Promise((r) => setTimeout(r, 150));
   }
   return null;
 }
@@ -381,85 +417,49 @@ export async function evaluateHealth(log: MonitoringSignalLog): Promise<Monitori
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// LOG STORAGE HELPERS (untuk update entryHitAt & oiAtEntryHit)
+// JOURNAL STORAGE HELPERS (untuk update entryHitAt & oiAtEntryHit)
 // ═════════════════════════════════════════════════════════════════════════════
 
-async function loadRawLogs(key: string): Promise<MonitoringSignalLog[]> {
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as MonitoringSignalLog[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveRawLogs(key: string, logs: MonitoringSignalLog[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(logs));
-  } catch {}
-}
-
 /**
- * Update log by id (untuk update entryHitAt, oiAtEntryHit, atau status resolve).
+ * Update entri Journal by id (entryHitAt, oiAtEntryHit, atau status resolve).
+ * Fix (request user): dulu ada param `menu` buat milih 1 dari 3 storage key
+ * Log lama — sekarang cuma 1 storage (Journal), gak perlu lagi.
  */
-export async function updateMonitoringLog(
-  menu: "sniper" | "scalping" | "breakout_entry",
-  id: string,
-  patch: Partial<MonitoringSignalLog>
-): Promise<void> {
-  const key = menu === "sniper" ? STORAGE_KEY_SNIPER : menu === "scalping" ? STORAGE_KEY_SCALPING : STORAGE_KEY_BREAKOUT_ENTRY;
-  const logs = await loadRawLogs(key);
-  const updated = logs.map((l) => (l.id === id ? { ...l, ...patch } : l));
-  await saveRawLogs(key, updated);
+export async function updateMonitoringLog(id: string, patch: Partial<JournalEntry>): Promise<void> {
+  await journalUpdate(id, patch);
 }
 
 /**
- * Load semua monitoring log dari sniper + scalping + breakout entry.
- * Return log yang: status pending DAN entryHitAt sudah ada (udah kehit entry).
- * Auto-tag `menu` field karena breakout.tsx (scalping) gak set field itu.
+ * Load semua entri Journal yang: status pending DAN entryHitAt sudah ada
+ * (udah kehit entry) — dari SEMUA 5 menu sekaligus (sourceMenu udah built-in
+ * di JournalEntry, gak perlu auto-tag manual lagi kayak versi Log lama).
  */
 export async function loadActiveMonitoringLogs(): Promise<MonitoringSignalLog[]> {
-  const [sniper, scalping, breakoutEntry] = await Promise.all([
-    loadRawLogs(STORAGE_KEY_SNIPER),
-    loadRawLogs(STORAGE_KEY_SCALPING),
-    loadRawLogs(STORAGE_KEY_BREAKOUT_ENTRY),
-  ]);
-  const taggedSniper = sniper.map((l) => ({ ...l, menu: "sniper" as const }));
-  const taggedScalping = scalping.map((l) => ({ ...l, menu: "scalping" as const }));
-  const taggedBreakoutEntry = breakoutEntry.map((l) => ({ ...l, menu: "breakout_entry" as const }));
-  const all = [...taggedSniper, ...taggedScalping, ...taggedBreakoutEntry];
+  const all = await journalLoadAll();
   return all.filter((l) => l.status === "pending" && l.entryHitAt);
 }
 
 /**
- * Load semua log pending yang BELUM ada entryHitAt — buat di-check apakah udah kehit.
+ * Load semua entri Journal pending yang BELUM ada entryHitAt — buat di-check
+ * apakah udah kehit.
  */
 export async function loadPendingUncheckedLogs(): Promise<MonitoringSignalLog[]> {
-  const [sniper, scalping, breakoutEntry] = await Promise.all([
-    loadRawLogs(STORAGE_KEY_SNIPER),
-    loadRawLogs(STORAGE_KEY_SCALPING),
-    loadRawLogs(STORAGE_KEY_BREAKOUT_ENTRY),
-  ]);
-  const taggedSniper = sniper.map((l) => ({ ...l, menu: "sniper" as const }));
-  const taggedScalping = scalping.map((l) => ({ ...l, menu: "scalping" as const }));
-  const taggedBreakoutEntry = breakoutEntry.map((l) => ({ ...l, menu: "breakout_entry" as const }));
-  const all = [...taggedSniper, ...taggedScalping, ...taggedBreakoutEntry];
+  const all = await journalLoadAll();
   return all.filter((l) => l.status === "pending" && !l.entryHitAt);
 }
 
 /**
- * Batch scan: cek semua log pending untuk detect entry hit.
+ * Batch scan: cek semua entri pending untuk detect entry hit.
  * Kalau kehit, update entryHitAt + oiAtEntryHit.
  */
 export async function scanEntryHits(): Promise<number> {
   const unchecked = await loadPendingUncheckedLogs();
   let newHits = 0;
   for (const log of unchecked) {
-    const menu = log.menu;
     const hitTime = await checkEntryHit(log);
     if (hitTime) {
       const oi = await fetchOpenInterest(log.symbol);
-      await updateMonitoringLog(menu, log.id, {
+      await updateMonitoringLog(log.id, {
         entryHitAt: hitTime,
         oiAtEntryHit: oi ?? undefined,
       });
@@ -472,7 +472,7 @@ export async function scanEntryHits(): Promise<number> {
 }
 
 /**
- * Batch check resolve untuk semua log monitoring (yang entry udah kehit).
+ * Batch check resolve untuk semua entri monitoring (yang entry udah kehit).
  * Kalau kena SL/TP1/TP2, update status.
  */
 export async function scanResolves(): Promise<number> {
@@ -481,7 +481,7 @@ export async function scanResolves(): Promise<number> {
   for (const log of active) {
     const result = await checkResolve(log);
     if (result) {
-      await updateMonitoringLog(log.menu, log.id, result);
+      await updateMonitoringLog(log.id, result);
       resolved++;
     }
     await new Promise((r) => setTimeout(r, 200));

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { BreakoutTradingResultBias } from './breakoutTradingResultBias';
+import type { BreakoutTradingResultBtcBias } from './breakoutTradingResultBtcBias';
 import type { BreakoutTradingResultConfidenceTier } from './breakoutTradingResultConfidenceTier';
 import type { BreakoutTradingResultMode } from './breakoutTradingResultMode';
 import type { BreakoutTradingResultMomentumClassification } from './breakoutTradingResultMomentumClassification';
@@ -52,4 +53,6 @@ export interface BreakoutTradingResult {
   momentumClassification?: BreakoutTradingResultMomentumClassification;
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: BreakoutTradingResultBtcBias;
 }

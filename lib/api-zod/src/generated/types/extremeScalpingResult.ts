@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { ExtremeScalpingResultBias } from './extremeScalpingResultBias';
+import type { ExtremeScalpingResultBtcBias } from './extremeScalpingResultBtcBias';
 import type { ExtremeScalpingResultEntryType } from './extremeScalpingResultEntryType';
 import type { ExtremeScalpingResultFvg15M } from './extremeScalpingResultFvg15M';
 import type { ExtremeScalpingResultMode } from './extremeScalpingResultMode';
@@ -51,4 +52,6 @@ export interface ExtremeScalpingResult {
   filterResults?: string[];
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
+  btcAligned?: boolean;
+  btcBias?: ExtremeScalpingResultBtcBias;
 }
