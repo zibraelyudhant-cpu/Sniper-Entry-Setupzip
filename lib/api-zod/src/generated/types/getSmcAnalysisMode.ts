@@ -11,5 +11,5 @@ export type GetSmcAnalysisMode = typeof GetSmcAnalysisMode[keyof typeof GetSmcAn
 
 export const GetSmcAnalysisMode = {
   sniper: 'sniper',
-  rsi2: 'rsi2',
+  cvd_oi_confluence: 'cvd_oi_confluence',
 } as const;

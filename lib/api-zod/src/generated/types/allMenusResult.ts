@@ -14,10 +14,10 @@ import type { SniperResult } from './sniperResult';
 export interface AllMenusResult {
   symbol: string;
   timestamp: string;
-  breakoutConfidence?: BreakoutTradingResult | null;
-  breakoutCrossover?: BreakoutTradingResult | null;
+  breakoutOiSurge?: BreakoutTradingResult | null;
+  breakoutFundingContrarian?: BreakoutTradingResult | null;
   sniperStructural?: SniperResult | null;
-  sniperRsiConnors?: SniperResult | null;
+  sniperCvdOiConfluence?: SniperResult | null;
   scalpingStructural?: ScalpingResult | null;
   scalpingM15?: ScalpingResult | null;
   extremeQuant?: ExtremeScalpingResult | null;

@@ -39,14 +39,14 @@ export const GetScreenerResponse = zod.object({
  */
 export const GetBreakoutEntryQueryParams = zod.object({
   "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT'),
-  "mode": zod.enum(['confidence', 'crossover']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis')
+  "mode": zod.enum(['oi_surge', 'funding_contrarian']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier yang nentuin otomatis')
 })
 
 export const GetBreakoutEntryResponse = zod.object({
   "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
-  "mode": zod.enum(['confidence', 'crossover']).optional(),
-  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
+  "mode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
+  "recommendedMode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -141,8 +141,8 @@ export const GetBreakoutEntryScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
-  "mode": zod.enum(['confidence', 'crossover']).optional(),
-  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
+  "mode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
+  "recommendedMode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -238,13 +238,13 @@ export const GetBreakoutEntryScanResponse = zod.object({
  */
 export const GetSmcAnalysisQueryParams = zod.object({
   "symbol": zod.coerce.string().describe('Futures symbol e.g. BTCUSDT'),
-  "mode": zod.enum(['sniper', 'rsi2']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier (ADX+RSI2) yang nentuin otomatis')
+  "mode": zod.enum(['sniper', 'cvd_oi_confluence']).optional().describe('Skill yang dipakai — kalau gak dikasih, classifier (ADX+RSI2) yang nentuin otomatis')
 })
 
 export const GetSmcAnalysisResponse = zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
-  "mode": zod.enum(['sniper', 'rsi2']).optional(),
-  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "mode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
   "rsi2Value": zod.number().optional(),
   "ma150Relation": zod.enum(['above', 'below']).optional(),
   "adxH4": zod.number().optional(),
@@ -373,8 +373,8 @@ export const GetSmcAnalysisResponse = zod.object({
 export const GetSniperScanResponse = zod.object({
   "coins": zod.array(zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
-  "mode": zod.enum(['sniper', 'rsi2']).optional(),
-  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "mode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
   "rsi2Value": zod.number().optional(),
   "ma150Relation": zod.enum(['above', 'below']).optional(),
   "adxH4": zod.number().optional(),
@@ -1824,11 +1824,11 @@ export const GetAllMenusAnalysisQueryParams = zod.object({
 export const GetAllMenusAnalysisResponse = zod.object({
   "symbol": zod.string(),
   "timestamp": zod.string(),
-  "breakoutConfidence": zod.object({
+  "breakoutOiSurge": zod.object({
   "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
-  "mode": zod.enum(['confidence', 'crossover']).optional(),
-  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
+  "mode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
+  "recommendedMode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -1914,11 +1914,11 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "btcAligned": zod.boolean().optional(),
   "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
-  "breakoutCrossover": zod.object({
+  "breakoutFundingContrarian": zod.object({
   "status": zod.enum(['siap_breakout', 'siap_retest', 'no_setup', 'error', 'waiting', 'approaching', 'expired']),
   "symbol": zod.string(),
-  "mode": zod.enum(['confidence', 'crossover']).optional(),
-  "recommendedMode": zod.enum(['confidence', 'crossover']).optional(),
+  "mode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
+  "recommendedMode": zod.enum(['oi_surge', 'funding_contrarian']).optional(),
   "recentPerformance": zod.object({
   "totalTrades": zod.number(),
   "wins": zod.number(),
@@ -2006,8 +2006,8 @@ export const GetAllMenusAnalysisResponse = zod.object({
 }).nullish(),
   "sniperStructural": zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
-  "mode": zod.enum(['sniper', 'rsi2']).optional(),
-  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "mode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
   "rsi2Value": zod.number().optional(),
   "ma150Relation": zod.enum(['above', 'below']).optional(),
   "adxH4": zod.number().optional(),
@@ -2128,10 +2128,10 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "btcAligned": zod.boolean().optional(),
   "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish(),
-  "sniperRsiConnors": zod.object({
+  "sniperCvdOiConfluence": zod.object({
   "status": zod.enum(['ready', 'no_trend', 'no_zone', 'skip_conditions', 'not_extreme', 'error', 'waiting', 'approaching', 'expired']),
-  "mode": zod.enum(['sniper', 'rsi2']).optional(),
-  "recommendedMode": zod.enum(['sniper', 'rsi2']).optional(),
+  "mode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
+  "recommendedMode": zod.enum(['sniper', 'cvd_oi_confluence']).optional(),
   "rsi2Value": zod.number().optional(),
   "ma150Relation": zod.enum(['above', 'below']).optional(),
   "adxH4": zod.number().optional(),

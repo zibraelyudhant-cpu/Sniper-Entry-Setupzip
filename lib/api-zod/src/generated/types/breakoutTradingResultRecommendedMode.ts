@@ -10,6 +10,6 @@ export type BreakoutTradingResultRecommendedMode = typeof BreakoutTradingResultR
 
 
 export const BreakoutTradingResultRecommendedMode = {
-  confidence: 'confidence',
-  crossover: 'crossover',
+  oi_surge: 'oi_surge',
+  funding_contrarian: 'funding_contrarian',
 } as const;

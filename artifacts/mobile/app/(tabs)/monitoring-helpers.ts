@@ -113,6 +113,12 @@ async function fetchTakerRatio(symbol: string): Promise<number | null> {
  * sama (fixed dari savedAt), kalau entry belum kesentuh dalam 50 jam
  * pertama, fungsi ini GAK PERNAH BISA detect entry hit yang kejadian
  * belakangan — window-nya gak pernah maju sama sekali. Sekarang pagination.
+ *
+ * Fix TAMBAHAN (ketemu user, "sinyal baru disimpen langsung kebaca expired"):
+ * pagination sebelumnya berhenti berdasar 'klines.length < limit' — SALAH,
+ * karena batch dikit bisa aja gara-gara RENTANG WAKTUNYA emang pendek
+ * (sinyal baru disimpen), bukan karena data abis. Sekarang patokan yang
+ * bener: cursor (titik fetch berikutnya) udah >= now atau belum.
  */
 export async function checkEntryHit(log: JournalEntry): Promise<number | null> {
   const now = Date.now();
@@ -129,9 +135,9 @@ export async function checkEntryHit(log: JournalEntry): Promise<number | null> {
       }
     }
 
-    if (klines.length < 1500) break;
     cursor = klines[klines.length - 1]!.openTime + 15 * 60 * 1000;
-    if (iter < maxIterations - 1 && cursor < now) await new Promise((r) => setTimeout(r, 150));
+    if (cursor >= now) break;
+    if (iter < maxIterations - 1) await new Promise((r) => setTimeout(r, 150));
   }
   return null;
 }
@@ -159,16 +165,17 @@ export async function checkResolve(log: MonitoringSignalLog): Promise<Partial<Jo
     if (klines.length === 0) break;
 
     for (const k of klines) {
+      const openTime = k.openTime;
       if (log.bias === "bullish") {
         if (k.low <= log.stopLoss) {
-          return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime };
+          return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime, resolvedAt: openTime };
         }
         if (log.takeProfit2 && k.high >= log.takeProfit2) {
           return {
             status: "win_tp2",
             exitPrice: log.takeProfit2,
             rr: Math.round(((log.takeProfit2 - log.entryPrice) / risk) * 10) / 10,
-            evaluatedAt: evalTime,
+            evaluatedAt: evalTime, resolvedAt: openTime,
           };
         }
         if (k.high >= log.takeProfit1) {
@@ -176,19 +183,19 @@ export async function checkResolve(log: MonitoringSignalLog): Promise<Partial<Jo
             status: "win_tp1",
             exitPrice: log.takeProfit1,
             rr: Math.round(((log.takeProfit1 - log.entryPrice) / risk) * 10) / 10,
-            evaluatedAt: evalTime,
+            evaluatedAt: evalTime, resolvedAt: openTime,
           };
         }
       } else {
         if (k.high >= log.stopLoss) {
-          return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime };
+          return { status: "lose", exitPrice: log.stopLoss, rr: -1, evaluatedAt: evalTime, resolvedAt: openTime };
         }
         if (log.takeProfit2 && k.low <= log.takeProfit2) {
           return {
             status: "win_tp2",
             exitPrice: log.takeProfit2,
             rr: Math.round(((log.entryPrice - log.takeProfit2) / risk) * 10) / 10,
-            evaluatedAt: evalTime,
+            evaluatedAt: evalTime, resolvedAt: openTime,
           };
         }
         if (k.low <= log.takeProfit1) {
@@ -196,15 +203,19 @@ export async function checkResolve(log: MonitoringSignalLog): Promise<Partial<Jo
             status: "win_tp1",
             exitPrice: log.takeProfit1,
             rr: Math.round(((log.entryPrice - log.takeProfit1) / risk) * 10) / 10,
-            evaluatedAt: evalTime,
+            evaluatedAt: evalTime, resolvedAt: openTime,
           };
         }
       }
     }
 
-    if (klines.length < 1500) break; // batch gak penuh = udah nyampe ujung data yang tersedia
+    // Fix bug (ketemu user, "sinyal baru disimpen langsung kebaca expired"):
+    // patokan "udah nyampe ujung data" itu cursor vs now, BUKAN "klines.length
+    // < limit" (dulu, salah — batch bisa dikit gara-gara rentang waktu emang
+    // pendek, bukan karena data abis).
     cursor = klines[klines.length - 1]!.openTime + 15 * 60 * 1000; // +1 candle 15m biar gak fetch ulang candle yang sama
-    if (iter < maxIterations - 1 && cursor < now) await new Promise((r) => setTimeout(r, 150));
+    if (cursor >= now) break;
+    if (iter < maxIterations - 1) await new Promise((r) => setTimeout(r, 150));
   }
   return null;
 }

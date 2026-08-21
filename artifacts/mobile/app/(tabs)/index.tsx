@@ -11,7 +11,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
-import { ScoreBadge } from '@/components/animated/ScoreBadge';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { LogResultBadge } from '@/components/animated/LogResultBadge';
@@ -21,6 +20,7 @@ import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
+import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { journalSave, type JournalEntry } from './journal-helpers';
 
@@ -46,8 +46,8 @@ interface BreakoutTradingResult {
   status: 'siap_breakout' | 'siap_retest' | 'no_setup' | 'error';
   symbol: string;
   bias?: 'bullish' | 'bearish';
-  mode?: 'confidence' | 'crossover';
-  recommendedMode?: 'confidence' | 'crossover';
+  mode?: 'oi_surge' | 'funding_contrarian';
+  recommendedMode?: 'oi_surge' | 'funding_contrarian';
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
@@ -80,57 +80,13 @@ interface BreakoutTradingResult {
   btcBias?: 'bullish' | 'bearish' | 'ranging';
 }
 
-// ─── Fetch hooks (fetch langsung ke backend, relative path /api) ───────────────
-
-function useBreakoutEntry(symbol: string, mode?: 'confidence' | 'crossover', enabled: boolean = true) {
-  const [data, setData] = useState<BreakoutTradingResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isError, setIsError] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    if (!symbol || !enabled) return;
-    setIsLoading(true);
-    setIsError(false);
-    try {
-      const modeQuery = mode ? `&mode=${mode}` : '';
-      const res = await fetch(`/api/breakout-entry?symbol=${symbol}${modeQuery}`);
-      if (!res.ok) throw new Error('fetch failed');
-      setData(await res.json());
-    } catch {
-      setIsError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [symbol, mode, enabled]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  return { data, isLoading, isError, refetch: fetchData };
-}
-
-function useBreakoutEntryScan() {
-  const [data, setData] = useState<{ coins: BreakoutTradingResult[]; fetchedAt: number } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isError, setIsError] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    setIsError(false);
-    try {
-      const res = await fetch('/api/breakout-entry/scan');
-      if (!res.ok) throw new Error('fetch failed');
-      setData(await res.json());
-    } catch {
-      setIsError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  return { data, isLoading, isError, refetch: fetchData };
-}
+// ─── Fetch hooks — sekarang pake generated React Query hooks (fix bug ketemu
+// user: "abis dari Analisa balik ke Scan malah auto-refresh"). Custom hook
+// manual (useState+useEffect) SEBELUMNYA reset total tiap kali komponen
+// di-mount ulang (karena tab switching di app ini conditional-render, bukan
+// hidden/persistent tabs) — gak ada caching sama sekali, beda dari 4 menu
+// lain yang udah pake React Query (staleTime, cache persis di level
+// QueryClient, gak reset pas remount). Sekarang Menu 1 disamain arsitekturnya.
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -151,8 +107,8 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const biasColor = isBuy ? colors.bullish : colors.bearish;
   const isSiapRetest = coin.status === 'siap_retest';
   const statusColor = isSiapRetest ? colors.gold : '#818CF8';
-  const isCrossover = coin.mode === 'crossover';
-  const modeColor = isCrossover ? '#F97316' : ACCENT;
+  const isFundingContrarian = coin.mode === 'funding_contrarian';
+  const modeColor = isFundingContrarian ? '#F97316' : ACCENT;
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -173,7 +129,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
               </Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isCrossover ? '🔀 Crossover' : '📊 Confidence'}</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isFundingContrarian ? '💰 Funding Kontrarian' : '📈 OI Surge'}</Text>
             </View>
           </View>
           {coin.volumeRatio !== undefined && (
@@ -184,11 +140,11 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <StatusBadge status={coin.status} />
-          {isCrossover
+          {!isFundingContrarian && coin.volumeRatio !== undefined
             ? <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${modeColor}18` }}>
-                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: modeColor }}>{coin.candlesSinceBreakout ?? 0}c lalu</Text>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: modeColor }}>{(coin.volumeRatio * 100).toFixed(0)}% vol</Text>
               </View>
-            : <ScoreBadge score={coin.confidenceScore ?? 0} max={coin.maxScore ?? 100} />
+            : null
           }
         </View>
         <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
@@ -248,13 +204,13 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 
 function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: BreakoutTradingResult) => void }) {
   const insets = useSafeAreaInsets();
-  const { data, isLoading, isError, refetch } = useBreakoutEntryScan();
+  const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({ query: { staleTime: 3 * 60 * 1000 } });
 
   if (isLoading) {
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Confidence Score & Breakout Crossover — 2 skill</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>OI Surge Breakout & Funding Rate Kontrarian — 2 skill</Text>
       </View>
     );
   }
@@ -296,7 +252,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
-        <ScanNowButton onPress={() => refetch()} isLoading={isLoading} colors={colors} />
+        <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
 
       {inZone.length > 0 && (
@@ -342,7 +298,7 @@ const scanStyles = StyleSheet.create({
 function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady }: {
   colors: ReturnType<typeof useColors>;
   initialSymbol?: string;
-  initialMode?: 'confidence' | 'crossover';
+  initialMode?: 'oi_surge' | 'funding_contrarian';
   pinnedData?: BreakoutTradingResult | null;
   onSignalReady?: (d: BreakoutTradingResult | null) => void;
 }) {
@@ -351,8 +307,8 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? params.symbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? params.symbol ?? '');
   // undefined = belum dipilih manual, biar classifier backend (ADX H1) yang nentuin otomatis
-  const [mode, setMode] = useState<'confidence' | 'crossover' | undefined>(
-    initialMode ?? (params.mode === 'confidence' || params.mode === 'crossover' ? params.mode : undefined)
+  const [mode, setMode] = useState<'oi_surge' | 'funding_contrarian' | undefined>(
+    initialMode ?? (params.mode === 'oi_surge' || params.mode === 'funding_contrarian' ? params.mode : undefined)
   );
   // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
   // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
@@ -364,7 +320,10 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinnedData]);
 
-  const { data: liveData, isLoading, isError, refetch } = useBreakoutEntry(querySymbol, mode, liveMode);
+  const { data: liveData, isLoading, isFetching, isError, refetch } = useGetBreakoutEntry(
+    { symbol: querySymbol, ...(mode ? { mode } : {}) },
+    { query: { queryKey: getGetBreakoutEntryQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
+  );
   const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
@@ -391,14 +350,14 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = data.mode === 'confidence' ? 'Confidence Score' : 'Crossover';
+    const skillLabel = data.mode === 'oi_surge' ? 'OI Surge Breakout' : 'Funding Rate Kontrarian';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
       sourceMenu: 'Breakout Entry', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: data.mode === 'confidence' ? 'D1+H4' : 'M30', tfEksekusi: data.mode === 'confidence' ? 'M15' : 'M5',
+      tfStruktur: data.mode === 'oi_surge' ? 'M15' : 'H1', tfEksekusi: data.mode === 'oi_surge' ? 'M15' : 'M15',
       technicalSnapshot: data.technicalSnapshot,
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
@@ -412,10 +371,10 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Confidence Score (S/R + weighted score) vs Breakout Crossover (multi-TF SMA) */}
+      {/* Mode Switcher — OI Surge Breakout (breakout+lonjakan OI) vs Funding Rate Kontrarian (funding ekstrem+CHoCH) */}
       <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['confidence', 'crossover'] as const).map((m) => {
+          {(['oi_surge', 'funding_contrarian'] as const).map((m) => {
             const active = (mode ?? data?.recommendedMode) === m;
             return (
               <Pressable
@@ -424,7 +383,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                 style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
               >
                 <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'confidence' ? 'Confidence Score' : 'Breakout Crossover'}
+                  {m === 'oi_surge' ? 'OI Surge Breakout' : 'Funding Rate Kontrarian'}
                 </Text>
               </Pressable>
             );
@@ -432,7 +391,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
         </View>
         {data?.recommendedMode && mode && data.recommendedMode !== mode && (
           <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-            💡 Classifier rekomendasiin "{data.recommendedMode === 'confidence' ? 'Confidence Score' : 'Breakout Crossover'}" buat koin ini
+            💡 Classifier rekomendasiin "{data.recommendedMode === 'oi_surge' ? 'OI Surge Breakout' : 'Funding Rate Kontrarian'}" buat koin ini
           </Text>
         )}
       </View>
@@ -468,7 +427,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
         <View style={styles.emptyState}>
           <Feather name="trending-up" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Breakout Entry Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair buat analisa level S/R + confidence score</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair buat analisa level S/R + OI/funding rate</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -478,8 +437,11 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
         <View style={styles.emptyState}>
           <Feather name="alert-circle" size={36} color={colors.bearish} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Gagal menganalisa</Text>
-          <Pressable onPress={() => refetch()} style={[styles.retryBtn, { backgroundColor: ACCENT }]}>
-            <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+          <Pressable onPress={() => refetch()} disabled={isFetching} style={[styles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
+            {isFetching
+              ? <ActivityIndicator size="small" color={colors.primaryForeground} />
+              : <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
+            }
           </Pressable>
         </View>
       ) : !data ? (
@@ -519,7 +481,6 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
               </View>
               <View style={{ gap: 6, alignItems: 'flex-end' }}>
                 <StatusBadge status={data.status} />
-                {data.confidenceScore !== undefined && <ScoreBadge score={data.confidenceScore} max={100} />}
               </View>
             </View>
             {data.message && (
@@ -544,8 +505,9 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
             <MarketStructureV2Card data={data.marketStructureV2} />
           </View>
 
-          {/* Order (LIMIT hampir selalu — basis breakout+retest. STOP cuma
-              buat Confidence Score yang genuinely anticipatory) */}
+          {/* Order (STOP buat OI Surge Breakout — chasing momentum breakout
+              yang UDAH kejadian. LIMIT buat Funding Rate Kontrarian — nunggu
+              CHoCH confirmed) */}
           {data.entryPrice !== undefined && (
             <AnimatedCard index={2}>
             <View style={[styles.section, { backgroundColor: 'rgba(74,222,128,0.06)', borderColor: 'rgba(74,222,128,0.22)' }]}>
@@ -556,7 +518,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                 backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
                 borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish
               }]}>
-                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>LEVEL S&R</Text>
+                <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>{data.orderType === 'stop' ? 'LEVEL BREAKOUT' : 'LEVEL S&R'}</Text>
                 <Text style={[styles.levelCardPrice, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>
                   {formatPrice(data.entryPrice)}
                 </Text>
@@ -572,23 +534,14 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? (data.mode === 'crossover' ? '2' : '3')}`}</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? '2'}`}</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
-              {data.mode === 'crossover' && data.takeProfit2 !== undefined && (
+              {data.zoneEdgeUpper !== undefined && data.zoneEdgeLower !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 — R:R 1:3</Text>
-                    <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
-                  </View>
-                </>
-              )}
-              {data.mode === 'confidence' && data.zoneEdgeUpper !== undefined && data.zoneEdgeLower !== undefined && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Zona Edge</Text>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>{'Zona Breakout (M15)'}</Text>
                     <Text style={[styles.infoValue, { color: colors.foreground }]}>
                       {formatPrice(data.zoneEdgeLower)} – {formatPrice(data.zoneEdgeUpper)}
                     </Text>
@@ -601,6 +554,15 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                   <View style={styles.infoRow}>
                     <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Nongkrong Deket Edge</Text>
                     <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesNearEdge} candle M15</Text>
+                  </View>
+                </>
+              )}
+              {data.mode === 'oi_surge' && data.brokenLevel !== undefined && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Level Liquidity Grab (M15)</Text>
+                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{formatPrice(data.brokenLevel)}{data.candlesSinceBreakout !== undefined ? ` · ${data.candlesSinceBreakout}c lalu` : ''}</Text>
                   </View>
                 </>
               )}
@@ -622,7 +584,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
             <AnimatedCard index={3}>
             <View style={[styles.section, { backgroundColor: 'rgba(251,191,36,0.05)', borderColor: 'rgba(251,191,36,0.2)' }]}>
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-                CONFIDENCE FACTORS ({data.confidenceScore}/100 — {data.confidenceTier === 'high' ? 'High' : 'Medium'})
+                SYARAT YANG DICEK
               </Text>
               {data.filterResults.map((f, i) => {
                 const isPassed = f.startsWith('✅');
@@ -699,7 +661,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Breakout Entry</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Confidence Score (S/R+scoring) & Breakout Crossover (multi-TF)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — OI Surge Breakout (breakout+OI) & Funding Rate Kontrarian (funding ekstrem)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -723,7 +685,7 @@ export default function BreakoutEntryScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'confidence' | 'crossover' | undefined} pinnedData={pinnedCoin} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'oi_surge' | 'funding_contrarian' | undefined} pinnedData={pinnedCoin} />
         : <MenuJournalSummary sourceMenu="Breakout Entry" accentColor={ACCENT} />
       }
     </View>

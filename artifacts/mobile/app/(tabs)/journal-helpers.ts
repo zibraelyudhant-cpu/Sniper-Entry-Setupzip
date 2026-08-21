@@ -40,7 +40,7 @@ export interface JournalEntry {
 
   // Dari menu/skill mana
   sourceMenu: SourceMenu;
-  sourceSkill: string; // e.g. 'Confidence Score', 'Sniper', 'RSI-2', 'Structural', 'Skill 15M', 'Quant', 'Momentum Hunter (Retest)'
+  sourceSkill: string; // e.g. 'OI Surge Breakout', 'Sniper', 'CVD+OI Confluence', 'Structural', 'Skill 15M', 'Quant', 'Momentum Hunter (Retest)'
 
   // Harga & level
   entryPrice: number;
@@ -52,7 +52,8 @@ export interface JournalEntry {
   orderType?: 'stop' | 'limit'; // WAJIB buat evaluasi akurat — nentuin arah cek "entry udah ke-hit belum" (limit: harga harus DATENG ke entry; stop: harga harus TEMBUS ke arah breakout). Default 'limit' kalau gak ada (mayoritas skill basis Skill 15M breakout+retest).
   btcAligned?: boolean; // BTC Correlation pas sinyal ini diberikan — informasional, buat riset kombinasi kondisi win/lose
   btcBias?: 'bullish' | 'bearish' | 'ranging';
-  entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif)
+  entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif) DAN statistik timing (request user)
+  resolvedAt?: number; // timestamp candle saat SL/TP kena — buat statistik "rata-rata berapa jam sampe resolve"
   oiAtEntryHit?: number; // Open Interest baseline saat entry kehit
 
   // TF
@@ -160,6 +161,7 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
     //   STOP bullish: entry ke-fill kalau harga TEMBUS NAIK ngelewatin entry (high >= entry)
     //   STOP bearish: entry ke-fill kalau harga TEMBUS TURUN ngelewatin entry (low <= entry)
     let entryHit = false;
+    let entryHitAtTs: number | undefined; // timestamp candle open pas entry kehit — buat statistik timing (request user)
 
     let cursor = entry.savedAt;
     const maxIterations = 20; // safety cap — cakupan realistis: M1 20x1500candle ≈ 20 hari, cukup buat sinyal scalping/intraday manapun
@@ -169,9 +171,10 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
       const res = await fetch(url);
       if (!res.ok) return { status: 'pending' };
       const klines: number[][] = await res.json();
-      if (!Array.isArray(klines) || klines.length === 0) break; // gak ada candle lagi di rentang ini — udah nyampe ujung data
+      if (!Array.isArray(klines) || klines.length === 0) break; // gak ada candle di rentang ini — normal kalau sinyal baru aja disimpen (belum cukup waktu buat 1 candle kebentuk), BUKAN tanda "data abis"
 
       for (const k of klines) {
+        const openTime = k[0] as number;
         const high = k[2] as number, low = k[3] as number;
 
         if (!entryHit) {
@@ -182,18 +185,19 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
             low <= entry.entryPrice; // bearish + stop
           if (!filled) continue; // entry belum ke-hit di candle ini, skip — JANGAN cek SL/TP dulu
           entryHit = true;
+          entryHitAtTs = openTime;
         }
 
         // Entry udah ke-hit (baik di candle ini atau candle sebelumnya) —
         // BARU sekarang valid buat ngecek SL/TP.
         if (entry.bias === 'bullish') {
-          if (low <= entry.stopLoss) return { status: 'lose', exitPrice: entry.stopLoss, rr: -1, evaluatedAt: evalAt };
-          if (entry.takeProfit2 && high >= entry.takeProfit2) return { status: 'win_tp2', exitPrice: entry.takeProfit2, rr: Math.round(((entry.takeProfit2 - entry.entryPrice) / risk) * 10) / 10, evaluatedAt: evalAt };
-          if (high >= entry.takeProfit1) return { status: 'win_tp1', exitPrice: entry.takeProfit1, rr: Math.round(((entry.takeProfit1 - entry.entryPrice) / risk) * 10) / 10, evaluatedAt: evalAt };
+          if (low <= entry.stopLoss) return { status: 'lose', exitPrice: entry.stopLoss, rr: -1, evaluatedAt: evalAt, entryHitAt: entryHitAtTs, resolvedAt: openTime };
+          if (entry.takeProfit2 && high >= entry.takeProfit2) return { status: 'win_tp2', exitPrice: entry.takeProfit2, rr: Math.round(((entry.takeProfit2 - entry.entryPrice) / risk) * 10) / 10, evaluatedAt: evalAt, entryHitAt: entryHitAtTs, resolvedAt: openTime };
+          if (high >= entry.takeProfit1) return { status: 'win_tp1', exitPrice: entry.takeProfit1, rr: Math.round(((entry.takeProfit1 - entry.entryPrice) / risk) * 10) / 10, evaluatedAt: evalAt, entryHitAt: entryHitAtTs, resolvedAt: openTime };
         } else {
-          if (high >= entry.stopLoss) return { status: 'lose', exitPrice: entry.stopLoss, rr: -1, evaluatedAt: evalAt };
-          if (entry.takeProfit2 && low <= entry.takeProfit2) return { status: 'win_tp2', exitPrice: entry.takeProfit2, rr: Math.round(((entry.entryPrice - entry.takeProfit2) / risk) * 10) / 10, evaluatedAt: evalAt };
-          if (low <= entry.takeProfit1) return { status: 'win_tp1', exitPrice: entry.takeProfit1, rr: Math.round(((entry.entryPrice - entry.takeProfit1) / risk) * 10) / 10, evaluatedAt: evalAt };
+          if (high >= entry.stopLoss) return { status: 'lose', exitPrice: entry.stopLoss, rr: -1, evaluatedAt: evalAt, entryHitAt: entryHitAtTs, resolvedAt: openTime };
+          if (entry.takeProfit2 && low <= entry.takeProfit2) return { status: 'win_tp2', exitPrice: entry.takeProfit2, rr: Math.round(((entry.entryPrice - entry.takeProfit2) / risk) * 10) / 10, evaluatedAt: evalAt, entryHitAt: entryHitAtTs, resolvedAt: openTime };
+          if (low <= entry.takeProfit1) return { status: 'win_tp1', exitPrice: entry.takeProfit1, rr: Math.round(((entry.entryPrice - entry.takeProfit1) / risk) * 10) / 10, evaluatedAt: evalAt, entryHitAt: entryHitAtTs, resolvedAt: openTime };
         }
       }
 
@@ -201,23 +205,29 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
       // diproses (k[6] = closeTime), biar batch berikutnya gak fetch ulang
       // candle yang sama.
       const lastCloseTime = klines[klines.length - 1]![6] as number;
-      const reachedEnd = klines.length < limit; // batch gak penuh = udah nyampe ujung data yang tersedia di Binance
-      if (reachedEnd) {
-        // Beneran udah abis data (gak ada candle baru lagi) DAN entry gak
-        // pernah ke-hit sepanjang riwayat sampe sekarang — order LIMIT/STOP
-        // ini gak pernah ke-eksekusi di real market, bukan win/lose, bukan
-        // pending selamanya (dianggap kadaluarsa, harga udah kejauhan).
-        if (!entryHit) return { status: 'expired', evaluatedAt: evalAt };
-        break;
-      }
       cursor = lastCloseTime + 1;
-      if (iter < maxIterations - 1 && cursor < now) await new Promise(r => setTimeout(r, 150)); // jaga rate limit Binance
+      if (cursor >= now) break; // udah nyampe waktu sekarang, gak ada candle baru lagi buat dicek SEKARANG
+      if (iter < maxIterations - 1) await new Promise(r => setTimeout(r, 150)); // jaga rate limit Binance
     }
 
-    // Entry belum ke-hit tapi masih ada kemungkinan data yang belum kecek
-    // (kena maxIterations cap) — jangan buru-buru bilang 'expired', masih
-    // "pending" (aman/konservatif, coba evaluasi lagi nanti).
-    return { status: 'pending' };
+    // Fix bug KONSEPTUAL (ketemu user, "baru disimpen langsung expired"):
+    // "udah nyampe waktu sekarang" itu BUKAN patokan yang valid buat expired —
+    // data harga itu LIVE/terus berjalan, jadi "udah nyampe now" SELALU benar
+    // buat SEMUA sinyal kapanpun dievaluasi (baru disimpen 1 menit lalu ATAU
+    // udah seminggu, dua-duanya "nyampe now" begitu function ini jalan). Yang
+    // BENERAN relevan buat nentuin "expired" itu SEBERAPA LAMA WAKTU UDAH
+    // LEWAT sejak disimpen — kasih kesempatan wajar dulu (24 jam, request
+    // user) sebelum nyerah bilang "kemungkinan gak akan kesentuh lagi".
+    const maxValidityHours = 24;
+    const elapsedHours = (now - entry.savedAt) / (1000 * 60 * 60);
+    if (!entryHit) {
+      if (elapsedHours >= maxValidityHours) return { status: 'expired', evaluatedAt: evalAt };
+      return { status: 'pending' };
+    }
+    // Entry udah kehit tapi belum resolve (masih pending) — tetep simpen
+    // entryHitAt-nya biar data timing (request user) kekumpul dari sekarang,
+    // gak perlu nunggu sampe menang/kalah dulu.
+    return { status: 'pending', entryHitAt: entryHitAtTs };
   } catch {
     return { status: 'pending' };
   }
@@ -661,4 +671,113 @@ export function buildDevelopmentRecommendations(entries: JournalEntry[]): string
   }
 
   return recs;
+}
+
+// ─── Statistik timing — rata-rata berapa jam entry sampe kehit, dan berapa
+// jam dari entry kehit sampe resolve (kena TP atau SL) — request user, biar
+// tau kecepatan tiap menu/skill, bukan cuma win rate-nya doang ────────────
+
+export interface TimingStats {
+  groupLabel: string; // 'Semua' (overall) atau nama menu/skill
+  sampleEntryHit: number; // jumlah sinyal yang punya data waktu entry-hit
+  avgHoursToEntryHit: number | null; // null kalau belum ada data
+  sampleResolve: number; // jumlah sinyal yang punya data waktu resolve (entry-hit DAN selesai)
+  avgHoursToResolve: number | null; // gabungan TP+SL
+  sampleTpHit: number;
+  avgHoursToTp: number | null; // spesifik yang kena TP doang
+  sampleSlHit: number;
+  avgHoursToSl: number | null; // spesifik yang kena SL doang
+}
+
+const hoursBetween = (a: number, b: number): number => (b - a) / (1000 * 60 * 60);
+
+/**
+ * Rata-rata KECEPATAN sinyal — dua tahap: (1) dari sinyal disimpen sampe
+ * entry beneran kehit di market, (2) dari entry kehit sampe resolve (kena
+ * TP atau SL). Dipisah juga rata-rata TP vs SL doang (request user: "detail")
+ * karena bisa aja polanya beda — misal kalau kena SL biasanya CEPET (harga
+ * langsung salah arah) tapi kalau kena TP biasanya LEBIH LAMA (nunggu trend
+ * jalan), atau sebaliknya — itu insight yang beda dari sekadar win rate.
+ *
+ * CATATAN: data `entryHitAt`/`resolvedAt` baru mulai kesimpen SETELAH fix
+ * ini — sinyal LAMA yang udah dievaluasi sebelumnya gak akan punya data ini
+ * (bakal keluar dari sample otomatis, gak nyampur sama data baru).
+ */
+export function computeTimingStats(entries: JournalEntry[], groupBy?: 'menu' | 'skill'): TimingStats[] {
+  const groups = new Map<string, JournalEntry[]>();
+  if (!groupBy) {
+    groups.set('Semua', entries);
+  } else {
+    for (const e of entries) {
+      const key = groupBy === 'menu' ? e.sourceMenu : `${e.sourceMenu} — ${e.sourceSkill}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    }
+  }
+
+  const avgOf = (arr: number[]): number => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+  const result: TimingStats[] = [];
+  for (const [label, group] of groups) {
+    const withEntryHit = group.filter(e => e.entryHitAt !== undefined);
+    const avgHoursToEntryHit = withEntryHit.length > 0
+      ? Math.round(avgOf(withEntryHit.map(e => hoursBetween(e.savedAt, e.entryHitAt!))) * 10) / 10
+      : null;
+
+    const withResolve = group.filter(e => e.entryHitAt !== undefined && e.resolvedAt !== undefined);
+    const avgHoursToResolve = withResolve.length > 0
+      ? Math.round(avgOf(withResolve.map(e => hoursBetween(e.entryHitAt!, e.resolvedAt!))) * 10) / 10
+      : null;
+
+    const tpHits = withResolve.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2');
+    const avgHoursToTp = tpHits.length > 0
+      ? Math.round(avgOf(tpHits.map(e => hoursBetween(e.entryHitAt!, e.resolvedAt!))) * 10) / 10
+      : null;
+
+    const slHits = withResolve.filter(e => e.status === 'lose');
+    const avgHoursToSl = slHits.length > 0
+      ? Math.round(avgOf(slHits.map(e => hoursBetween(e.entryHitAt!, e.resolvedAt!))) * 10) / 10
+      : null;
+
+    if (withEntryHit.length === 0) continue; // skip grup yang belum ada data timing sama sekali
+
+    result.push({
+      groupLabel: label,
+      sampleEntryHit: withEntryHit.length, avgHoursToEntryHit,
+      sampleResolve: withResolve.length, avgHoursToResolve,
+      sampleTpHit: tpHits.length, avgHoursToTp,
+      sampleSlHit: slHits.length, avgHoursToSl,
+    });
+  }
+  return result.sort((a, b) => b.sampleEntryHit - a.sampleEntryHit);
+}
+
+// ─── Baseline — pisahin data histori "lama" vs "baru" (request user: mau
+// bandingin performa formula LAMA vs BARU pas skill di-rombak, tanpa data
+// campur aduk) ───────────────────────────────────────────────────────────
+
+const BASELINE_KEY = 'journal_baseline_v1';
+
+/** Ambil timestamp baseline yang tersimpen, null kalau belum pernah di-set. */
+export async function getJournalBaseline(): Promise<number | null> {
+  try {
+    const raw = await AsyncStorage.getItem(BASELINE_KEY);
+    return raw ? (JSON.parse(raw) as number) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Set/hapus baseline. ts=null buat hapus (balik nampilin semua data). */
+export async function setJournalBaseline(ts: number | null): Promise<void> {
+  try {
+    if (ts === null) await AsyncStorage.removeItem(BASELINE_KEY);
+    else await AsyncStorage.setItem(BASELINE_KEY, JSON.stringify(ts));
+  } catch {}
+}
+
+/** Filter entries yang savedAt >= baseline. baseline=null = gak difilter (semua). */
+export function filterByBaseline(entries: JournalEntry[], baseline: number | null): JournalEntry[] {
+  if (baseline === null) return entries;
+  return entries.filter(e => e.savedAt >= baseline);
 }

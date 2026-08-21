@@ -16,8 +16,9 @@ import {
   type JournalEntry, type SourceMenu,
   journalLoadAll, journalDelete, journalEvaluate, journalUpdate, journalUpdateMany,
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
-  buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles,
-  type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile,
+  buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
+  getJournalBaseline, setJournalBaseline, filterByBaseline,
+  type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.journal;
@@ -495,14 +496,114 @@ function LoseProfileCard({ profile, colors }: { profile: LoseConditionProfile; c
   );
 }
 
-function RingkasanTab({ entries, colors }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors> }) {
+function TimingCard({ stat, colors }: { stat: TimingStats; colors: ReturnType<typeof useColors> }) {
+  const fmtHours = (h: number | null) => h === null ? '—' : h < 1 ? `${Math.round(h * 60)} menit` : `${h} jam`;
+  return (
+    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, marginBottom: 8 }}>
+      <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: colors.foreground, marginBottom: 8 }} numberOfLines={1}>{stat.groupLabel}</Text>
+      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+        <View style={{ flex: 1, minWidth: 90, alignItems: 'center', backgroundColor: colors.border, borderRadius: 8, paddingVertical: 8 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>ENTRY→KEHIT</Text>
+          <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.foreground, marginTop: 2 }}>{fmtHours(stat.avgHoursToEntryHit)}</Text>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 1 }}>{stat.sampleEntryHit} sinyal</Text>
+        </View>
+        <View style={{ flex: 1, minWidth: 90, alignItems: 'center', backgroundColor: `${colors.bullish}12`, borderRadius: 8, paddingVertical: 8 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.bullish }}>KEHIT→TP</Text>
+          <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.bullish, marginTop: 2 }}>{fmtHours(stat.avgHoursToTp)}</Text>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 1 }}>{stat.sampleTpHit} sinyal</Text>
+        </View>
+        <View style={{ flex: 1, minWidth: 90, alignItems: 'center', backgroundColor: `${colors.bearish}12`, borderRadius: 8, paddingVertical: 8 }}>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.bearish }}>KEHIT→SL</Text>
+          <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.bearish, marginTop: 2 }}>{fmtHours(stat.avgHoursToSl)}</Text>
+          <Text style={{ fontSize: 8, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 1 }}>{stat.sampleSlHit} sinyal</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function BaselineControl({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const [baseline, setBaseline] = useState<number | null>(null);
+  const [showPresets, setShowPresets] = useState(false);
+
+  useFocusEffect(useCallback(() => {
+    getJournalBaseline().then(setBaseline);
+  }, []));
+
+  const presets = [
+    { label: '1 jam lalu', ms: 60 * 60 * 1000 },
+    { label: '6 jam lalu', ms: 6 * 60 * 60 * 1000 },
+    { label: '24 jam lalu', ms: 24 * 60 * 60 * 1000 },
+    { label: '3 hari lalu', ms: 3 * 24 * 60 * 60 * 1000 },
+    { label: '7 hari lalu', ms: 7 * 24 * 60 * 60 * 1000 },
+  ];
+
+  const applyPreset = async (ms: number) => {
+    const ts = Date.now() - ms;
+    await setJournalBaseline(ts);
+    setBaseline(ts);
+    setShowPresets(false);
+  };
+
+  const clearBaseline = async () => {
+    await setJournalBaseline(null);
+    setBaseline(null);
+  };
+
+  const baselineLabel = baseline ? new Date(baseline).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) + ' WIB' : null;
+
+  return (
+    <View style={{ marginBottom: 16 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Feather name="flag" size={11} color={colors.mutedForeground} />
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5 }}>BASELINE — PISAHIN DATA LAMA VS BARU</Text>
+      </View>
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, lineHeight: 15 }}>
+        Habis rombak formula skill? Set baseline biar analisa di bawah cuma liat sinyal yang disimpen SETELAH titik itu — gak nyampur sama data formula lama.
+      </Text>
+      {baseline ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, padding: 10 }}>
+          <Feather name="check-circle" size={14} color={MENU_COLORS.journal} />
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: colors.foreground, flex: 1 }}>Aktif sejak {baselineLabel} — analisa di bawah cuma sinyal SETELAH ini</Text>
+          <Pressable onPress={clearBaseline}><Feather name="x" size={16} color={colors.mutedForeground} /></Pressable>
+        </View>
+      ) : (
+        <Pressable onPress={() => setShowPresets(v => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingVertical: 10 }}>
+          <Feather name="flag" size={13} color={colors.mutedForeground} />
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>Set Baseline</Text>
+        </Pressable>
+      )}
+      {showPresets && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+          {presets.map(p => (
+            <Pressable key={p.label} onPress={() => applyPreset(p.ms)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: colors.foreground }}>{p.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function RingkasanTab({ entries: allEntries, colors }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors> }) {
   const insets = useSafeAreaInsets();
+  const [baseline, setBaseline] = useState<number | null>(null);
+
+  useFocusEffect(useCallback(() => {
+    getJournalBaseline().then(setBaseline);
+  }, []));
+
+  const entries = useMemo(() => filterByBaseline(allEntries, baseline), [allEntries, baseline]);
   const summary = useMemo(() => buildJournalSummary(entries), [entries]);
   const indicatorResult = useMemo(() => compareIndicatorsWinLose(entries), [entries]);
   const loseProfilesByMenu = useMemo(() => buildLoseConditionProfiles(entries, 'menu'), [entries]);
   const loseProfilesBySkill = useMemo(() => buildLoseConditionProfiles(entries, 'skill'), [entries]);
+  const timingOverall = useMemo(() => computeTimingStats(entries), [entries]);
+  const timingByMenu = useMemo(() => computeTimingStats(entries, 'menu'), [entries]);
+  const timingBySkill = useMemo(() => computeTimingStats(entries, 'skill'), [entries]);
 
-  if (entries.length === 0) {
+  if (allEntries.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center' }}>Belum ada data buat diringkas.</Text>
@@ -512,6 +613,14 @@ function RingkasanTab({ entries, colors }: { entries: JournalEntry[]; colors: Re
 
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+      <BaselineControl colors={colors} />
+
+      {entries.length === 0 ? (
+        <View style={{ alignItems: 'center', padding: 24 }}>
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center' }}>Belum ada sinyal yang disimpen setelah baseline ini.</Text>
+        </View>
+      ) : (
+      <>
       {/* Kesimpulan siap-baca — paling atas, paling gampang dicerna cepat */}
       <View style={{ borderRadius: 12, borderWidth: 1, borderColor: ACCENT, backgroundColor: `${ACCENT}0D`, padding: 12, marginBottom: 16 }}>
         <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.5, marginBottom: 8 }}>KESIMPULAN</Text>
@@ -533,6 +642,37 @@ function RingkasanTab({ entries, colors }: { entries: JournalEntry[]; colors: Re
           {summary.perSkill.sort((a, b) => b.winRate - a.winRate).map((v, i) => <VerdictRow key={v.label + i} item={v} colors={colors} />)}
         </View>
       )}
+
+      <View style={{ marginBottom: 16 }}>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>⏱️ TIMING — KECEPATAN SINYAL</Text>
+        {timingOverall.length === 0 ? (
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>
+            Belum ada data timing — fitur ini baru mulai kerekam mulai sekarang. Sinyal LAMA yang udah dievaluasi sebelum fix ini gak punya data ini, tapi sinyal BARU otomatis kekumpul tiap dievaluasi.
+          </Text>
+        ) : (
+          <>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, lineHeight: 15 }}>
+              "Entry→Kehit": dari sinyal disimpen sampe harga BENERAN nyentuh level entry. "Kehit→TP"/"Kehit→SL": dari entry kehit sampe resolve. Angka beda antara TP vs SL itu insight sendiri — misal kalau SL selalu jauh lebih cepet dari TP, kemungkinan momentum di skill itu sering kebalik cepet.
+            </Text>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.mutedForeground, letterSpacing: 0.3, marginBottom: 4 }}>KESELURUHAN</Text>
+            {timingOverall.map((s, i) => <TimingCard key={'all-' + s.groupLabel + i} stat={s} colors={colors} />)}
+
+            {timingByMenu.length > 0 && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.mutedForeground, letterSpacing: 0.3, marginTop: 6, marginBottom: 4 }}>PER MENU</Text>
+                {timingByMenu.map((s, i) => <TimingCard key={'menu-' + s.groupLabel + i} stat={s} colors={colors} />)}
+              </>
+            )}
+
+            {timingBySkill.length > 0 && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.mutedForeground, letterSpacing: 0.3, marginTop: 6, marginBottom: 4 }}>PER SKILL</Text>
+                {timingBySkill.map((s, i) => <TimingCard key={'skill-' + s.groupLabel + i} stat={s} colors={colors} />)}
+              </>
+            )}
+          </>
+        )}
+      </View>
 
       {(loseProfilesByMenu.length > 0 || loseProfilesBySkill.length > 0) && (
         <View style={{ marginBottom: 16 }}>
@@ -560,12 +700,14 @@ function RingkasanTab({ entries, colors }: { entries: JournalEntry[]; colors: Re
               Dari {indicatorResult.sampleWin} sinyal WIN dan {indicatorResult.sampleLose} sinyal LOSE yang punya data indikator.
             </Text>
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, fontStyle: 'italic', lineHeight: 13 }}>
-              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Sniper H1→M15 vs Confidence Score M15→M1). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
+              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Sniper H1→M15 vs OI Surge Breakout M15). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
             </Text>
             {indicatorResult.comparisons.map((c, i) => <IndicatorCompareRow key={c.label + i} item={c} colors={colors} />)}
           </>
         )}
       </View>
+      </>
+      )}
     </ScrollView>
   );
 }

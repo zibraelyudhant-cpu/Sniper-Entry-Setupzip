@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { analyzePriceActionStructure, zigzagBias, fetchKlines } from "../lib/smc";
+import { analyzeMarketStructureV2, fetchKlines } from "../lib/smc";
 
 const router = Router();
 const BINANCE_FUTURES_BASE = "https://fapi.binance.com";
@@ -198,20 +198,21 @@ router.get("/screener", async (req, res) => {
               fetchKlines(ticker.symbol, "4h", 100),
             ]);
 
-            // ── Filter 1: D1 harus trend jelas (tidak ranging) ───────────────
-            const strD1 = analyzePriceActionStructure(d1.highs, d1.lows, d1.closes);
-            if (strD1.bias === "ranging") return null;
-            const bias = strD1.bias as "bullish" | "bearish";
+            // ── Filter 1: D1 harus trend jelas (bukan sideways) — Market
+            // Structure V2 (request user: "semua market structure wajib V2,
+            // gak ada pengecualian"). Gantiin analyzePriceActionStructure +
+            // zigzagBias hard-gate — V2 udah punya klasifikasi strength
+            // built-in (bullish_strong/weak dst) yang lebih robust daripada
+            // ZigZag konfirmasi terpisah, jadi zigzagBias gak diperluin lagi.
+            const d1V2 = analyzeMarketStructureV2(d1.opens, d1.highs, d1.lows, d1.closes, 'D1');
+            if (d1V2.bias === 'sideways') return null;
+            const bias = d1V2.bias;
 
-            // HARD FILTER: konfirmasi ZigZag D1 (threshold 5%) — filter noise
-            const zzD1 = zigzagBias(d1.highs, d1.lows, 5);
-            if (zzD1.bias === "ranging" || zzD1.bias !== bias) return null;
-
-            const strH4 = analyzePriceActionStructure(h4.highs, h4.lows, h4.closes);
+            const h4V2 = analyzeMarketStructureV2(h4.opens, h4.highs, h4.lows, h4.closes, 'H4');
 
             // ── Filter 2: H4 harus berlawanan dengan D1 (koreksi sedang terjadi)
-            const h4IsCorrection = strH4.bias !== bias;
-            const h4IsRanging = strH4.bias === "ranging";
+            const h4IsCorrection = h4V2.bias !== bias && h4V2.bias !== 'sideways';
+            const h4IsRanging = h4V2.bias === 'sideways';
             if (!h4IsCorrection && !h4IsRanging) return null; // H4 searah D1 = belum koreksi
 
             const correctionBias = bias === "bullish" ? "bearish" : "bullish";
@@ -262,9 +263,10 @@ router.get("/screener", async (req, res) => {
 
             // ── Scoring (max 8) ───────────────────────────────────────────────
             let score = 0;
-            // H4 trend kuat
-            if (strH4.strength === "strong") score += 2;
-            else if (strH4.strength === "moderate") score += 1;
+            // H4 trend kuat — mapping dari classification V2 (gantiin strH4.strength
+            // lama yang udah gak ada, V2 gak punya field "strength" terpisah)
+            if (h4V2.classification === "bullish_strong" || h4V2.classification === "bearish_strong") score += 2;
+            else if (h4V2.classification === "bullish_weak" || h4V2.classification === "bearish_weak") score += 1;
             // ADX kuat
             if (adxH4 > 35) score += 2;
             else if (adxH4 > 25) score += 1;

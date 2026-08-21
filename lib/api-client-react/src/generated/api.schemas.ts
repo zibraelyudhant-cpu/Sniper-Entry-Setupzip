@@ -137,16 +137,16 @@ export type BreakoutTradingResultMode = typeof BreakoutTradingResultMode[keyof t
 
 
 export const BreakoutTradingResultMode = {
-  confidence: 'confidence',
-  crossover: 'crossover',
+  oi_surge: 'oi_surge',
+  funding_contrarian: 'funding_contrarian',
 } as const;
 
 export type BreakoutTradingResultRecommendedMode = typeof BreakoutTradingResultRecommendedMode[keyof typeof BreakoutTradingResultRecommendedMode];
 
 
 export const BreakoutTradingResultRecommendedMode = {
-  confidence: 'confidence',
-  crossover: 'crossover',
+  oi_surge: 'oi_surge',
+  funding_contrarian: 'funding_contrarian',
 } as const;
 
 export type BreakoutTradingResultBias = typeof BreakoutTradingResultBias[keyof typeof BreakoutTradingResultBias];
@@ -319,7 +319,7 @@ export type SniperResultMode = typeof SniperResultMode[keyof typeof SniperResult
 
 export const SniperResultMode = {
   sniper: 'sniper',
-  rsi2: 'rsi2',
+  cvd_oi_confluence: 'cvd_oi_confluence',
 } as const;
 
 export type SniperResultRecommendedMode = typeof SniperResultRecommendedMode[keyof typeof SniperResultRecommendedMode];
@@ -327,7 +327,7 @@ export type SniperResultRecommendedMode = typeof SniperResultRecommendedMode[key
 
 export const SniperResultRecommendedMode = {
   sniper: 'sniper',
-  rsi2: 'rsi2',
+  cvd_oi_confluence: 'cvd_oi_confluence',
 } as const;
 
 export type SniperResultMa150Relation = typeof SniperResultMa150Relation[keyof typeof SniperResultMa150Relation];
@@ -1031,10 +1031,10 @@ export interface MultiTFDetailResult {
 export interface AllMenusResult {
   symbol: string;
   timestamp: string;
-  breakoutConfidence?: BreakoutTradingResult | null;
-  breakoutCrossover?: BreakoutTradingResult | null;
+  breakoutOiSurge?: BreakoutTradingResult | null;
+  breakoutFundingContrarian?: BreakoutTradingResult | null;
   sniperStructural?: SniperResult | null;
-  sniperRsiConnors?: SniperResult | null;
+  sniperCvdOiConfluence?: SniperResult | null;
   scalpingStructural?: ScalpingResult | null;
   scalpingM15?: ScalpingResult | null;
   extremeQuant?: ExtremeScalpingResult | null;
@@ -1048,7 +1048,7 @@ export type GetBreakoutEntryParams = {
  */
 symbol: string;
 /**
- * Skill yang dipakai — kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis
+ * Skill yang dipakai — kalau gak dikasih, classifier yang nentuin otomatis
  */
 mode?: GetBreakoutEntryMode;
 };
@@ -1057,8 +1057,8 @@ export type GetBreakoutEntryMode = typeof GetBreakoutEntryMode[keyof typeof GetB
 
 
 export const GetBreakoutEntryMode = {
-  confidence: 'confidence',
-  crossover: 'crossover',
+  oi_surge: 'oi_surge',
+  funding_contrarian: 'funding_contrarian',
 } as const;
 
 export type GetSmcAnalysisParams = {
@@ -1077,7 +1077,7 @@ export type GetSmcAnalysisMode = typeof GetSmcAnalysisMode[keyof typeof GetSmcAn
 
 export const GetSmcAnalysisMode = {
   sniper: 'sniper',
-  rsi2: 'rsi2',
+  cvd_oi_confluence: 'cvd_oi_confluence',
 } as const;
 
 export type GetScalpingParams = {

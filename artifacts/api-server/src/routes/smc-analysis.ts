@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   analyzeSniperEntry,
-  analyzeRSI2Entry,
+  analyzeCvdOiConfluence,
   classifyEntryMode,
   fetchKlines,
   getRecentPerformance,
@@ -9,8 +9,8 @@ import {
 
 const router = Router();
 
-// GET /api/smc-analysis?symbol=BTCUSDT&mode=sniper|rsi2 (mode opsional — kalau
-// gak dikasih, classifier yang nentuin otomatis berdasarkan ADX+RSI(2) H4)
+// GET /api/smc-analysis?symbol=BTCUSDT&mode=sniper|cvd_oi_confluence (mode
+// opsional — kalau gak dikasih, classifier yang nentuin otomatis dari ADX H4)
 router.get("/smc-analysis", async (req, res) => {
   const symbol = req.query["symbol"] as string;
   const modeParam = req.query["mode"] as string | undefined;
@@ -24,19 +24,19 @@ router.get("/smc-analysis", async (req, res) => {
     : `${symbol.toUpperCase()}USDT`;
 
   try {
-    // Classifier dulu (murah, cuma ADX+RSI2) — buat kasih tau recommendedMode
+    // Classifier dulu (murah, cuma ADX H4) — buat kasih tau recommendedMode
     // ke UI, INDEPENDEN dari mode yang akhirnya dipilih (user bisa override manual)
     const classifyData = await fetchKlines(normalizedSymbol, "4h", 250);
     const classification = classifyEntryMode(classifyData.highs, classifyData.lows, classifyData.closes);
 
-    const mode: "sniper" | "rsi2" =
-      modeParam === "sniper" || modeParam === "rsi2" ? modeParam : classification.recommendedMode;
+    const mode: "sniper" | "cvd_oi_confluence" =
+      modeParam === "sniper" || modeParam === "cvd_oi_confluence" ? modeParam : classification.recommendedMode;
 
-    const result = mode === "rsi2"
-      ? await analyzeRSI2Entry(normalizedSymbol)
+    const result = mode === "cvd_oi_confluence"
+      ? await analyzeCvdOiConfluence(normalizedSymbol)
       : await analyzeSniperEntry(normalizedSymbol);
 
-    // Mini-backtest instan — cuma buat mode Sniper dulu (RSI-2 belum ada backtest-nya)
+    // Mini-backtest instan — cuma buat mode Sniper dulu (CVD+OI Confluence belum ada backtest-nya)
     const recentPerformance = mode === "sniper"
       ? await getRecentPerformance(normalizedSymbol, "sniper")
       : null;
@@ -62,8 +62,8 @@ router.get('/sniper/scan', async (req, res) => {
       const batchResults = await Promise.allSettled(batch.map(async (s) => {
         const classifyData = await fetchKlines(s, '4h', 250);
         const classification = classifyEntryMode(classifyData.highs, classifyData.lows, classifyData.closes);
-        const val = classification.recommendedMode === 'rsi2'
-          ? await analyzeRSI2Entry(s)
+        const val = classification.recommendedMode === 'cvd_oi_confluence'
+          ? await analyzeCvdOiConfluence(s)
           : await analyzeSniperEntry(s);
         return { ...val, mode: classification.recommendedMode, recommendedMode: classification.recommendedMode };
       }));
@@ -91,7 +91,7 @@ router.get('/sniper/scan', async (req, res) => {
     }
 
     // Sort pakai confidence yang dinormalisasi ke skala 0-100, konsisten buat
-    // kedua mode (sniper & rsi2) — sama-sama pakai score/maxScore sekarang.
+    // kedua mode (sniper & cvd_oi_confluence) — sama-sama pakai score/maxScore.
     const confidenceOf = (v: typeof results[number]) => ((v.score ?? 0) / (v.maxScore || 1)) * 100;
     results.sort((a, b) => confidenceOf(b) - confidenceOf(a));
 

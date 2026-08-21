@@ -54,10 +54,10 @@ interface MomentumHunterGenericResult {
 interface AllMenusResult {
   symbol: string;
   timestamp: string;
-  breakoutConfidence: GenericMenuResult | null;
-  breakoutCrossover: GenericMenuResult | null;
+  breakoutOiSurge: GenericMenuResult | null;
+  breakoutFundingContrarian: GenericMenuResult | null;
   sniperStructural: GenericMenuResult | null;
-  sniperRsiConnors: GenericMenuResult | null;
+  sniperCvdOiConfluence: GenericMenuResult | null;
   scalpingStructural: GenericMenuResult | null;
   scalpingM15: GenericMenuResult | null;
   extremeQuant: GenericMenuResult | null;
@@ -291,12 +291,12 @@ export default function AllMenusAnalysisScreen() {
           <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 12 }}>{data.timestamp}</Text>
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.breakout }]}>🎯 BREAKOUT ENTRY</Text>
-          <MenuResultCard title="Confidence Score" subtitle="M15→M1, anticipatory breakout" result={data.breakoutConfidence} colors={colors} index={0} />
-          <MenuResultCard title="Crossover v2" subtitle="M30→M5, breakout+retest" result={data.breakoutCrossover} colors={colors} index={1} />
+          <MenuResultCard title="OI Surge Breakout" subtitle="M15, breakout+lonjakan Open Interest" result={data.breakoutOiSurge} colors={colors} index={0} />
+          <MenuResultCard title="Funding Kontrarian" subtitle="H1→M15, funding rate ekstrem+CHoCH" result={data.breakoutFundingContrarian} colors={colors} index={1} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.sniper, marginTop: 8 }]}>🎯 SNIPER</Text>
           <MenuResultCard title="Structural" subtitle="H1→M15, breakout+retest" result={data.sniperStructural} colors={colors} index={2} />
-          <MenuResultCard title="RSI Connors" subtitle="H1→M15, RSI(2) ekstrem" result={data.sniperRsiConnors} colors={colors} index={3} />
+          <MenuResultCard title="CVD+OI Confluence" subtitle="H4→M15, CVD Spot + OI Futures" result={data.sniperCvdOiConfluence} colors={colors} index={3} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.scalping, marginTop: 8 }]}>⚡ SCALPING</Text>
           <MenuResultCard title="Structural" subtitle="H1→M5, breakout+retest" result={data.scalpingStructural} colors={colors} index={4} />

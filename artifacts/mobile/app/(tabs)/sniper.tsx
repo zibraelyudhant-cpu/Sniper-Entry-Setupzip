@@ -274,32 +274,29 @@ function SniperApproachingScreen({ data, colors }: { data: SniperResult; colors:
 }
 
 /**
- * RSI2ReadyScreen — tampilan khusus mode "RSI Connors" (Connors RSI-2). Beda total dari
- * ReadyScreen (structural SMC): gak ada zona OB/FVG, tapi ada RSI(2), posisi vs
- * MA200, ADX, dan MA5 sebagai referensi exit dinamis (versi asli Connors, exit
- * gak fixed di TP tapi pas harga cross balik ke MA5).
+ * CvdOiReadyScreen — tampilan khusus mode "CVD Spot + OI Confluence". Beda
+ * dari ReadyScreen (Sniper structural): nampilin info H4 struktur + OI
+ * Futures + CVD Spot confluence (basis penentu bias, bukan cuma S&R doang).
  */
-function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
+function CvdOiReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnType<typeof useColors> }) {
   const isBuy = data.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
 
   return (
     <>
-      <Section title="KONDISI RSI-2" tint="#F472B6" index={0}>
-        <Row label="Trend (vs MA150 H1)" value={data.ma150Relation === 'above' ? 'Di atas MA150 ✅' : 'Di bawah MA150 ✅'} valueColor={biasColor} />
-        <View style={[styles.divider, { backgroundColor: colors.border }]} />
-        <Row label="ADX H1" value={`${(data.adxH4 ?? 0).toFixed(1)} (trend kuat)`} />
+      <Section title="KONFIRMASI CVD SPOT + OI" tint="#F472B6" index={0}>
+        <Row label="Trend H4" value={isBuy ? 'Bullish ✅' : 'Bearish ✅'} valueColor={biasColor} />
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
         <Row
-          label="RSI(2) H1"
-          value={`${(data.rsi2Value ?? 0).toFixed(1)} ${isBuy ? '(oversold)' : '(overbought)'}`}
-          valueColor={isBuy ? colors.bullish : colors.bearish}
+          label="OI Futures (~40 jam)"
+          value={`${(data.oiChange ?? 0) >= 0 ? '+' : ''}${(data.oiChange ?? 0).toFixed(1)}%`}
+          valueColor={(data.oiChange ?? 0) >= 3 ? colors.bullish : colors.mutedForeground}
         />
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
-        <Row label="MA5 (exit dinamis)" value={formatPrice(data.ma5ExitTarget ?? 0)} />
+        <Row label="Candle Sejak Breakout M15" value={`${data.candlesSinceBreakout ?? 0} candle`} />
       </Section>
 
-      <Section title="RSI ENTRY SETUP" tint="#F472B6" index={1}>
+      <Section title="CVD+OI ENTRY SETUP" tint="#F472B6" index={1}>
         <View style={[styles.entryHeader, { backgroundColor: colors.surfaceMid, borderRadius: 8, padding: 12, marginBottom: 12 }]}>
           <View style={styles.entryHeaderRow}>
             <Text style={[styles.entryLabel, { color: colors.mutedForeground }]}>Harga Saat Ini</Text>
@@ -314,17 +311,15 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
         </View>
 
         <View style={[styles.levelsCard, { backgroundColor: colors.surfaceMid, borderColor: colors.border }]}>
-          <LevelRow label="ENTRY (harga sekarang)" price={data.entryPrice ?? 0} color={colors.highlight} colors={colors} big />
+          <LevelRow label="ENTRY (retest zona)" price={data.entryPrice ?? 0} color={colors.highlight} colors={colors} big />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <LevelRow label="STOP LOSS" price={data.stopLoss ?? 0} color={colors.bearish} colors={colors} sub="ATR-based" />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="TAKE PROFIT 1" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub="R:R 1:2" />
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <LevelRow label="TAKE PROFIT 2" price={data.takeProfit2 ?? 0} color={colors.gold} colors={colors} sub="R:R 1:3" />
+          <LevelRow label="TAKE PROFIT" price={data.takeProfit1 ?? 0} color={colors.bullish} colors={colors} sub="R:R 1:2" />
         </View>
 
-        {/* Kalkulator PnL button — source 'sniper_rsi2' biar badge di Kalkulator */}
-        {/* nunjukin "RSI Connors", bukan ke-generalisir jadi "Sniper" doang */}
+        {/* Kalkulator PnL button — source 'sniper_cvd_oi' biar badge di Kalkulator */}
+        {/* nunjukin "CVD+OI Confluence", bukan ke-generalisir jadi "Sniper" doang */}
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -335,10 +330,9 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
                 entryPrice: String(data.entryPrice ?? 0),
                 stopLoss: String(data.stopLoss ?? 0),
                 takeProfit1: String(data.takeProfit1 ?? 0),
-                takeProfit2: String(data.takeProfit2 ?? 0),
                 symbol: data.symbol,
                 direction: data.bias ?? 'bullish',
-                source: 'sniper_rsi2',
+                source: 'sniper_cvd_oi',
               },
             });
           }}
@@ -356,10 +350,6 @@ function RSI2ReadyScreen({ data, colors }: { data: SniperResult; colors: ReturnT
           </Text>
           <Feather name="arrow-right" size={14} color={colors.mutedForeground} style={{ marginLeft: 'auto' }} />
         </Pressable>
-
-        <Text style={[styles.entryTime, { color: colors.mutedForeground, marginTop: 10, fontStyle: 'italic' }]}>
-          💡 Versi asli Connors RSI-2: exit begitu harga cross balik ke MA5 ({formatPrice(data.ma5ExitTarget ?? 0)}), bukan nunggu TP fixed. TP1/TP2 di atas cuma referensi tambahan.
-        </Text>
       </Section>
 
       {data.filterResults && data.filterResults.length > 0 && (
@@ -452,11 +442,11 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
   const base = coin.symbol.replace('USDT', '');
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
-  const isRsi2 = coin.mode === 'rsi2';
+  const isCvdOi = coin.mode === 'cvd_oi_confluence';
   // Normalisasi confidence — kedua mode sekarang pakai score/maxScore
   // (profitProbability udah dihapus dari mode Sniper).
   const prob = ((coin.score ?? 0) / (coin.maxScore || 1)) * 100;
-  const modeColor = isRsi2 ? '#F472B6' : ACCENT;
+  const modeColor = isCvdOi ? '#F472B6' : ACCENT;
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -475,7 +465,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
               </Text>
             </View>
             <View style={[scanStyles.zoneBadge, { borderColor: modeColor, backgroundColor: `${modeColor}18` }]}>
-              <Text style={[scanStyles.zoneBadgeText, { color: modeColor }]}>{isRsi2 ? '🎯 RSI Connors' : '🎯 Sniper'}</Text>
+              <Text style={[scanStyles.zoneBadgeText, { color: modeColor }]}>{isCvdOi ? '📊 CVD+OI' : '🎯 Sniper'}</Text>
             </View>
             {coin.zoneType && (
               <View style={[scanStyles.zoneBadge, { borderColor: colors.border }]}>
@@ -500,16 +490,16 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: SniperResult
 
       {/* Row 2: kondisi — beda per mode */}
       <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
-        {isRsi2 ? (
+        {isCvdOi ? (
           <>
             <View style={scanStyles.condItem}>
-              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>ADX H1</Text>
-              <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{(coin.adxH4 ?? 0).toFixed(0)}</Text>
+              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>OI Futures</Text>
+              <Text style={[scanStyles.condValue, { color: (coin.oiChange ?? 0) >= 3 ? colors.bullish : colors.mutedForeground }]}>{(coin.oiChange ?? 0) >= 0 ? '+' : ''}{(coin.oiChange ?? 0).toFixed(1)}%</Text>
             </View>
             <View style={[scanStyles.condDivider, { backgroundColor: colors.border }]} />
             <View style={scanStyles.condItem}>
-              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>RSI(2)</Text>
-              <Text style={[scanStyles.condValue, { color: isBuy ? colors.bullish : colors.bearish }]}>{(coin.rsi2Value ?? 0).toFixed(0)}</Text>
+              <Text style={[scanStyles.condLabel, { color: colors.mutedForeground }]}>Breakout M15</Text>
+              <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.candlesSinceBreakout !== undefined ? `${coin.candlesSinceBreakout}c lalu` : '—'}</Text>
             </View>
           </>
         ) : (
@@ -612,7 +602,7 @@ function ScanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SNIPER" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural & RSI-2 (H1→M15)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural & CVD+OI Confluence (H4→M15)</Text>
       </View>
     );
   }
@@ -741,15 +731,15 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'sniper' | 'rsi2' }) {
+function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'sniper' | 'cvd_oi_confluence' }) {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ symbol?: string; mode?: string }>();
 
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? params.symbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? params.symbol ?? '');
   // undefined = belum dipilih manual, biar classifier backend yang nentuin otomatis
-  const [mode, setMode] = useState<'sniper' | 'rsi2' | undefined>(
-    initialMode ?? (params.mode === 'sniper' || params.mode === 'rsi2' ? params.mode : undefined)
+  const [mode, setMode] = useState<'sniper' | 'cvd_oi_confluence' | undefined>(
+    initialMode ?? (params.mode === 'sniper' || params.mode === 'cvd_oi_confluence' ? params.mode : undefined)
   );
   // Ref buat nge-track symbol yang UDAH diproses — biar useEffect di bawah gak
   // nimpa ulang pinnedData yang bener dari initializer pas run pertama (mount).
@@ -787,7 +777,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
       setPinnedData(null);
       setLiveMode(true); // gak ada cache cocok (misal reload manual) -> langsung live
     }
-    if (params.mode === 'sniper' || params.mode === 'rsi2') {
+    if (params.mode === 'sniper' || params.mode === 'cvd_oi_confluence') {
       setMode(params.mode);
     }
   }, [params.symbol, params.mode]);
@@ -816,7 +806,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
     if (!d.entryPrice || !d.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = d.mode === 'rsi2' ? 'RSI-2' : 'Sniper';
+    const skillLabel = d.mode === 'cvd_oi_confluence' ? 'CVD+OI Confluence' : 'Sniper';
     const entry: JournalEntry = {
       id: `${Date.now()}_${d.symbol}`,
       symbol: d.symbol, bias: d.bias,
@@ -825,7 +815,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
       currentPriceAtSignal: d.currentPrice ?? 0, rr1: d.rr1,
       tfStruktur: 'H1', tfEksekusi: 'M15',
       technicalSnapshot: d.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      orderType: 'limit', // Sniper & RSI-2 dua-duanya basis breakout+retest, selalu LIMIT
+      orderType: 'limit', // Sniper & CVD+OI Confluence dua-duanya basis breakout+retest, selalu LIMIT
       btcAligned: d.btcAligned, btcBias: d.btcBias,
       timestamp: d.timestamp ?? '', savedAt: Date.now(), status: 'pending',
     };
@@ -837,10 +827,10 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Sniper (structural SMC) vs RSI (Connors RSI-2 mean reversion) */}
+      {/* Mode Switcher — Sniper (structural SMC) vs CVD+OI Confluence (trend H4 + CVD Spot + OI Futures) */}
       <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['sniper', 'rsi2'] as const).map((m) => {
+          {(['sniper', 'cvd_oi_confluence'] as const).map((m) => {
             const active = (mode ?? data?.recommendedMode) === m;
             return (
               <Pressable
@@ -849,7 +839,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
                 style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
               >
                 <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'sniper' ? 'Sniper' : 'RSI Connors'}
+                  {m === 'sniper' ? 'Sniper' : 'CVD+OI'}
                 </Text>
               </Pressable>
             );
@@ -857,7 +847,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
         </View>
         {data?.recommendedMode && mode && data.recommendedMode !== mode && (
           <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-            💡 Classifier rekomendasiin mode "{data.recommendedMode === 'sniper' ? 'Sniper' : 'RSI Connors'}" buat koin ini
+            💡 Classifier rekomendasiin mode "{data.recommendedMode === 'sniper' ? 'Sniper' : 'CVD+OI Confluence'}" buat koin ini
           </Text>
         )}
       </View>
@@ -980,8 +970,8 @@ function AnalisaTab({ colors, initialSymbol, initialMode }: { colors: ReturnType
           )}
           {data.status === 'ready' && (
             <>
-              {data.mode === 'rsi2' ? (
-                <RSI2ReadyScreen data={data} colors={colors} />
+              {data.mode === 'cvd_oi_confluence' ? (
+                <CvdOiReadyScreen data={data} colors={colors} />
               ) : (
                 <ReadyScreen data={data} colors={colors} />
               )}
@@ -1040,7 +1030,7 @@ export default function SniperScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Entry</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural & RSI-2 (H1→M15)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural & CVD+OI Confluence (H4→M15)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -1065,7 +1055,7 @@ export default function SniperScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={params.symbol ?? undefined} initialMode={params.mode === 'sniper' || params.mode === 'rsi2' ? params.mode : undefined} />
+        ? <AnalisaTab colors={colors} initialSymbol={params.symbol ?? undefined} initialMode={params.mode === 'sniper' || params.mode === 'cvd_oi_confluence' ? params.mode : undefined} />
         : <MenuJournalSummary sourceMenu="Sniper Entry" accentColor={ACCENT} />
       }
     </View>

@@ -13,7 +13,7 @@ export type GetBreakoutEntryParams = {
  */
 symbol: string;
 /**
- * Skill yang dipakai — kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis
+ * Skill yang dipakai — kalau gak dikasih, classifier yang nentuin otomatis
  */
 mode?: GetBreakoutEntryMode;
 };

@@ -4,10 +4,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
+import { MENU_COLORS } from '@/constants/theme';
 import {
   type JournalEntry, type SourceMenu,
   journalLoadAll, breakdownBySkill,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, buildDevelopmentRecommendations,
+  getJournalBaseline, setJournalBaseline, filterByBaseline,
 } from '../app/(tabs)/journal-helpers';
 
 /**
@@ -21,17 +23,20 @@ import {
 export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: SourceMenu; accentColor: string }) {
   const colors = useColors();
   const router = useRouter();
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [allEntries, setAllEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [baseline, setBaseline] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     const all = await journalLoadAll();
-    setEntries(all.filter(e => e.sourceMenu === sourceMenu));
+    setAllEntries(all.filter(e => e.sourceMenu === sourceMenu));
+    setBaseline(await getJournalBaseline());
     setLoading(false);
   }, [sourceMenu]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const entries = React.useMemo(() => filterByBaseline(allEntries, baseline), [allEntries, baseline]);
   const summary = React.useMemo(() => buildJournalSummary(entries), [entries]);
   const indicatorResult = React.useMemo(() => compareIndicatorsWinLose(entries), [entries]);
   const loseProfiles = React.useMemo(() => buildLoseConditionProfiles(entries, 'skill'), [entries]);
@@ -42,7 +47,7 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={accentColor} /></View>;
   }
 
-  if (entries.length === 0) {
+  if (allEntries.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
         <Feather name="book" size={32} color={colors.mutedForeground} />
@@ -54,8 +59,26 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
     );
   }
 
+  const baselineLabel = baseline ? new Date(baseline).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) + ' WIB' : null;
+
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
+      {/* Info baseline aktif — baseline itu SETTING GLOBAL (di-set dari Journal
+          utama tab Ringkasan), otomatis kepake di sini juga biar konsisten. */}
+      {baseline && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: 1, borderColor: MENU_COLORS.journal, backgroundColor: `${MENU_COLORS.journal}12`, padding: 10, marginBottom: 12 }}>
+          <Feather name="flag" size={13} color={MENU_COLORS.journal} />
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_500Medium', color: colors.foreground, flex: 1 }}>Baseline aktif sejak {baselineLabel} — data di bawah cuma sinyal SETELAH ini</Text>
+          <Pressable onPress={async () => { await setJournalBaseline(null); setBaseline(null); }}><Feather name="x" size={14} color={colors.mutedForeground} /></Pressable>
+        </View>
+      )}
+
+      {entries.length === 0 ? (
+        <View style={{ alignItems: 'center', padding: 24 }}>
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center' }}>Belum ada sinyal dari menu ini setelah baseline ini.</Text>
+        </View>
+      ) : (
+      <>
       {/* Quick stats */}
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
         <StatBox label="WIN" value={String(entries.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2').length)} color={colors.bullish} colors={colors} />
@@ -131,6 +154,8 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
         <Feather name="book-open" size={14} color={colors.mutedForeground} />
         <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>Buka Journal Lengkap (detail per sinyal, evaluasi)</Text>
       </Pressable>
+      </>
+      )}
     </ScrollView>
   );
 }

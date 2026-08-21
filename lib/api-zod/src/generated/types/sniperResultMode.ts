@@ -11,5 +11,5 @@ export type SniperResultMode = typeof SniperResultMode[keyof typeof SniperResult
 
 export const SniperResultMode = {
   sniper: 'sniper',
-  rsi2: 'rsi2',
+  cvd_oi_confluence: 'cvd_oi_confluence',
 } as const;

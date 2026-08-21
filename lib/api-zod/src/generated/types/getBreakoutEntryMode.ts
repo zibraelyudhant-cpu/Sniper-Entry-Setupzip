@@ -10,6 +10,6 @@ export type GetBreakoutEntryMode = typeof GetBreakoutEntryMode[keyof typeof GetB
 
 
 export const GetBreakoutEntryMode = {
-  confidence: 'confidence',
-  crossover: 'crossover',
+  oi_surge: 'oi_surge',
+  funding_contrarian: 'funding_contrarian',
 } as const;

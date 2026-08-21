@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { analyzeBreakoutTrading, analyzeBreakoutCrossover, classifyBreakoutMode, fetchKlines, getRecentPerformance } from '../lib/smc';
+import { analyzeOiSurgeBreakout, analyzeFundingContrarian, classifyBreakoutMode, fetchKlines, getRecentPerformance } from '../lib/smc';
 import { getUniverse } from './screener';
 
 const router = Router();
 
-// GET /api/breakout-entry?symbol=BTCUSDT&mode=confidence|crossover (mode opsional —
-// kalau gak dikasih, classifier (ADX H1) yang nentuin otomatis)
+// GET /api/breakout-entry?symbol=BTCUSDT&mode=oi_surge|funding_contrarian (mode opsional —
+// kalau gak dikasih, classifier (volume spike) yang nentuin otomatis)
 router.get('/breakout-entry', async (req, res) => {
   const symbol = req.query['symbol'] as string;
   const modeParam = req.query['mode'] as string | undefined;
@@ -18,12 +18,12 @@ router.get('/breakout-entry', async (req, res) => {
     const classifyData = await fetchKlines(normalized, '30m', 250);
     const classification = classifyBreakoutMode(classifyData.highs, classifyData.lows, classifyData.closes, classifyData.volumes);
 
-    const mode: 'confidence' | 'crossover' =
-      modeParam === 'confidence' || modeParam === 'crossover' ? modeParam : classification.recommendedMode;
+    const mode: 'oi_surge' | 'funding_contrarian' =
+      modeParam === 'oi_surge' || modeParam === 'funding_contrarian' ? modeParam : classification.recommendedMode;
 
-    const result = mode === 'crossover'
-      ? await analyzeBreakoutCrossover(normalized)
-      : await analyzeBreakoutTrading(normalized);
+    const result = mode === 'funding_contrarian'
+      ? await analyzeFundingContrarian(normalized)
+      : await analyzeOiSurgeBreakout(normalized);
 
     const recentPerformance = await getRecentPerformance(normalized, 'breakout_entry');
     res.json({ ...result, mode, recommendedMode: classification.recommendedMode, recentPerformance });
@@ -38,16 +38,16 @@ router.get('/breakout-entry', async (req, res) => {
 router.get('/breakout-entry/scan', async (req, res) => {
   try {
     const universe = await getUniverse();
-    const results: Array<Awaited<ReturnType<typeof analyzeBreakoutTrading>> & { mode: string; recommendedMode: string }> = [];
+    const results: Array<Awaited<ReturnType<typeof analyzeOiSurgeBreakout>> & { mode: string; recommendedMode: string }> = [];
     const batchSize = 3;
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(batch.map(async (s) => {
         const classifyData = await fetchKlines(s, '30m', 250);
         const classification = classifyBreakoutMode(classifyData.highs, classifyData.lows, classifyData.closes, classifyData.volumes);
-        const val = classification.recommendedMode === 'crossover'
-          ? await analyzeBreakoutCrossover(s)
-          : await analyzeBreakoutTrading(s);
+        const val = classification.recommendedMode === 'funding_contrarian'
+          ? await analyzeFundingContrarian(s)
+          : await analyzeOiSurgeBreakout(s);
         return { ...val, mode: classification.recommendedMode, recommendedMode: classification.recommendedMode };
       }));
       if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300));
@@ -59,13 +59,13 @@ router.get('/breakout-entry/scan', async (req, res) => {
         }
       }
     }
-    // Sort: siap_retest duluan, di dalam grup sort by "kesegaran" breakout.
-    // Mode confidence: confidenceScore 0-100 apa adanya. Mode crossover (v3,
-    // basis Skill 15M): udah gak ada confidence score numerik lagi (logic-nya
-    // rule-engine kayak Skill 15M), jadi dipakein candlesSinceBreakout — makin
-    // BARU breakout-nya kejadian, makin tinggi rank-nya (100 - candles, floor 0).
+    // Sort: siap_retest duluan, di dalam grup sort by "kekuatan sinyal".
+    // Dua-duanya SEKARANG SAMA-SAMA gak punya confidence score numerik lagi —
+    // mode 'oi_surge' pake volumeRatio (breakout volume strength) sebagai
+    // proxy kekuatan sinyal, mode 'funding_contrarian' gak punya metric
+    // numerik yang natural buat dibandingkan (fallback netral 50).
     const confidenceOf = (v: typeof results[number]) =>
-      v.mode === 'crossover' ? Math.max(0, 100 - (v.candlesSinceBreakout ?? 100)) : (v.confidenceScore ?? 0);
+      v.mode === 'oi_surge' ? Math.min(100, (v.volumeRatio ?? 0) * 50) : 50;
     const order: Record<string, number> = { siap_retest: 0, siap_breakout: 1 };
     results.sort((a, b) => {
       const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
