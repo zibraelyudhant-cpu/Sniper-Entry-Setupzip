@@ -54,7 +54,7 @@ router.get('/breakout-entry/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status === 'siap_breakout' || val.status === 'siap_retest')
+          if (val.status === 'siap_breakout' || val.status === 'siap_retest' || val.status === 'waiting')
             results.push(val);
         }
       }

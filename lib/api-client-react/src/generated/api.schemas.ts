@@ -543,10 +543,8 @@ export type MomentumHunterResultSetupType = typeof MomentumHunterResultSetupType
 
 
 export const MomentumHunterResultSetupType = {
-  retest: 'retest',
-  breakout_antisipasi: 'breakout_antisipasi',
-  reversal_ekstrem: 'reversal_ekstrem',
-  sideways_rejection: 'sideways_rejection',
+  pump: 'pump',
+  dump: 'dump',
 } as const;
 
 export type MomentumHunterResultOrderType = typeof MomentumHunterResultOrderType[keyof typeof MomentumHunterResultOrderType];
@@ -1040,6 +1038,7 @@ export interface AllMenusResult {
   extremeQuant?: ExtremeScalpingResult | null;
   extremeSniper?: ExtremeScalpingResult | null;
   multiTf?: MultiTFDetailResult | null;
+  momentumHunter?: MomentumHunterResult | null;
 }
 
 export type GetBreakoutEntryParams = {

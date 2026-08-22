@@ -106,7 +106,8 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
   const isSiapRetest = coin.status === 'siap_retest';
-  const statusColor = isSiapRetest ? colors.gold : '#818CF8';
+  const isPantau = coin.status === 'waiting';
+  const statusColor = isSiapRetest ? colors.gold : isPantau ? '#F87171' : '#818CF8';
   const isFundingContrarian = coin.mode === 'funding_contrarian';
   const modeColor = isFundingContrarian ? '#F97316' : ACCENT;
 
@@ -125,7 +126,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${statusColor}18`, borderColor: statusColor }]}>
               <Text style={[scanStyles.biasBadgeText, { color: statusColor }]}>
-                {isSiapRetest ? '🎯 SIAP RETEST' : '⏳ SIAP BREAKOUT'}
+                {isSiapRetest ? '🎯 SIAP RETEST' : isPantau ? '⚠️ PANTAU' : '⏳ SIAP BREAKOUT'}
               </Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
@@ -231,6 +232,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const fetchedAt = data ? new Date(data.fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
   const inZone      = coins.filter(c => c.status === 'siap_retest');
   const ready       = coins.filter(c => c.status === 'siap_breakout');
+  const pantau      = coins.filter(c => c.status === 'waiting');
 
   if (coins.length === 0) {
     return (
@@ -265,6 +267,12 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <>
           <Text style={[scanStyles.groupHeader, { color: '#818CF8' }]}>⏳ SIAP BREAKOUT — Tunggu Retest</Text>
           {ready.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
+        </>
+      )}
+      {pantau.length > 0 && (
+        <>
+          <Text style={[scanStyles.groupHeader, { color: '#F87171' }]}>⚠️ PANTAU — Momentum Exhaustion</Text>
+          {pantau.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
     </ScrollView>

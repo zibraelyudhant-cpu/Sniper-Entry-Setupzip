@@ -36,14 +36,10 @@ function formatPrice(price: number): string {
 // setupType -> label + warna + icon, dipake scan card & detail view
 function setupTypeInfo(setupType?: string): { label: string; short: string; color: string; icon: keyof typeof Feather.glyphMap; desc: string } {
   switch (setupType) {
-    case 'retest':
-      return { label: 'RETEST (Trend)', short: '↩ Retest', color: '#4ADE80', icon: 'repeat', desc: 'Breakout udah kejadian (candle close + volume confirm), harga balik retest ke zona — basis Skill 15M murni.' };
-    case 'reversal_ekstrem':
-      return { label: 'REVERSAL-EKSTREM', short: '⤴ Reversal', color: '#60A5FA', icon: 'refresh-ccw', desc: 'Harga di S&R TERKUAT (≥3x touch), ada rejection candle valid, didukung RSI ekstrem (20/80) atau divergence.' };
-    case 'breakout_antisipasi':
-      return { label: 'BREAKOUT-ANTISIPASI', short: '⚡ Antisipasi', color: '#FBBF24', icon: 'zap', desc: 'Breakout BELUM kejadian, harga mendekati edge zona dengan momentum akselerasi — entry pakai STOP order, nangkep breakout dari awal.' };
-    case 'sideways_rejection':
-      return { label: 'SIDEWAYS-REJECTION', short: '↔ Sideways', color: '#A78BFA', icon: 'shuffle', desc: 'Market genuinely ranging di semua TF trend — fallback single-TF, mean-reversion di boundary range.' };
+    case 'pump':
+      return { label: 'PUMP', short: '🚀 Pump', color: '#4ADE80', icon: 'trending-up', desc: 'H4 trend bullish deket support mayor, H1 konsolidasi+volume beli naik, RSI Divergence+MACD M15 bullish, trigger candle+volume spike M5 — basis dokumen Pump/Dump Entry.' };
+    case 'dump':
+      return { label: 'DUMP', short: '📉 Dump', color: '#F87171', icon: 'trending-down', desc: 'H4 trend bearish deket resistance mayor, H1 konsolidasi+volume jual naik, RSI Divergence+MACD M15 bearish, trigger candle+volume spike M5 — basis dokumen Pump/Dump Entry.' };
     default:
       return { label: 'MOMENTUM HUNTER', short: '—', color: ACCENT, icon: 'compass', desc: '' };
   }
@@ -177,7 +173,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       <View style={scanStyles.center}>
         <Feather name="compass" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Belum ada momentum yang ketemu</Text>
-        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Sistem ini coba 4 TF × 3 tipe setup + fallback sideways per koin — kosong itu wajar kalau lagi gak ada peluang jelas. Jaga kesehatan, jangan overtrading.</Text>
+        <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Sistem ini cek H4→H1→M15→M5 sekaligus (Pump/Dump Entry) — kosong itu wajar kalau lagi gak ada peluang jelas. Jaga kesehatan, jangan overtrading.</Text>
         <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
           {isFetching ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>}
         </Pressable>
@@ -279,7 +275,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: data.tfStruktur ?? '15M', tfEksekusi: data.tfEksekusi,
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      orderType: data.orderType, // dinamis — stop khusus breakout_antisipasi, limit buat 3 tipe setup lain
+      orderType: data.orderType, // selalu 'stop' — basis Pump/Dump chasing momentum M5
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -324,7 +320,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="compass" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Momentum Hunter</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair — sistem otomatis coba 4 pasangan TF (15M→1M, 5M→1M, H1→15M, H4→M30) × 3 tipe setup (retest, reversal-ekstrem, breakout-antisipasi), fallback sideways (15M/5M/H1) kalau semua TF trend gak ketemu apa-apa</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair — sistem cek H4 (trend+S&R mayor) → H1 (konsolidasi+volume) → M15 (RSI Divergence+MACD) → M5 (trigger candle+volume spike) sekaligus</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -408,7 +404,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Order type</Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                  {data.orderType === 'stop' ? '🔺 STOP (breakout belum kejadian)' : '🎯 LIMIT (zona/retest udah dikonfirmasi)'}
+                  {data.orderType === 'stop' ? '🔺 STOP (chasing momentum M5)' : '🎯 LIMIT (zona udah dikonfirmasi)'}
                 </Text>
               </View>
             </View>
@@ -580,7 +576,7 @@ export default function MomentumHunterScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Momentum Hunter</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>4 TF × 3 tipe setup, basis Skill 15M — retest, reversal-ekstrem, breakout-antisipasi</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4→H1→M15→M5, basis dokumen Pump/Dump Entry — Pump (bullish) / Dump (bearish)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

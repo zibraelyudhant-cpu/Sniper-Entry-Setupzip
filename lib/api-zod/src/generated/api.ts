@@ -2709,6 +2709,73 @@ export const GetAllMenusAnalysisResponse = zod.object({
   "reasoning": zod.array(zod.string())
 }).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.')
 })).optional()
+}).nullish(),
+  "momentumHunter": zod.object({
+  "status": zod.enum(['siap_entry', 'approaching', 'no_setup', 'error']),
+  "symbol": zod.string(),
+  "currentPrice": zod.number(),
+  "timestamp": zod.string(),
+  "bias": zod.enum(['bullish', 'bearish']).optional(),
+  "setupType": zod.enum(['pump', 'dump']).optional(),
+  "tfStruktur": zod.string().optional(),
+  "tfEksekusi": zod.string().optional(),
+  "orderType": zod.enum(['stop', 'limit']).optional(),
+  "zoneEdgeUpper": zod.number().optional(),
+  "zoneEdgeLower": zod.number().optional(),
+  "candlesSinceBreakout": zod.number().optional(),
+  "entryPrice": zod.number().optional(),
+  "stopLoss": zod.number().optional(),
+  "takeProfit1": zod.number().optional(),
+  "rr1": zod.number().optional(),
+  "message": zod.string().optional(),
+  "filterResults": zod.array(zod.string()).optional(),
+  "attemptsLog": zod.array(zod.string()).optional(),
+  "maxScore": zod.number(),
+  "technicalSnapshot": zod.object({
+  "struktur": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
+}),
+  "eksekusi": zod.object({
+  "rsi": zod.number(),
+  "atr": zod.number(),
+  "atrPct": zod.number(),
+  "adx": zod.number(),
+  "stochK": zod.number(),
+  "stochD": zod.number(),
+  "macd": zod.number(),
+  "mfi": zod.number(),
+  "cci": zod.number(),
+  "roc": zod.number()
+})
+}).optional().describe('RSI\/ATR\/ADX\/Stochastic\/MACD\/MFI\/CCI\/ROC di TF struktur dan eksekusi — murni informasional buat Journal Trading, gak pernah jadi hard\/soft filter di logic entry manapun.'),
+  "marketStructureV2": zod.object({
+  "classification": zod.enum(['bullish_strong', 'bullish_weak', 'bearish_strong', 'bearish_weak', 'sideways', 'transition']),
+  "bias": zod.enum(['bullish', 'bearish', 'sideways']),
+  "bullishTotal": zod.number(),
+  "bearishTotal": zod.number(),
+  "sidewaysTotal": zod.number(),
+  "structureBullishScore": zod.number().optional(),
+  "structureBearishScore": zod.number().optional(),
+  "breakQualityLabel": zod.string().optional(),
+  "breakQualityPoints": zod.number().optional(),
+  "bullishRetraceScore": zod.number().optional(),
+  "bearishReboundScore": zod.number().optional(),
+  "rangePosition": zod.number().optional(),
+  "candleCountUsed": zod.number(),
+  "passes": zod.number(),
+  "reasoning": zod.array(zod.string())
+}).optional().describe('Model multi-layer scoring buat baca struktur market (bullish\/bearish\/sideways\/transition) — PRIMARY GATE di basis Skill 15M. Sistem lama tetep dihitung terpisah sebagai soft-warning (structureNote di filterResults), gak nge-block apapun.'),
+  "btcAligned": zod.boolean().optional(),
+  "btcBias": zod.enum(['bullish', 'bearish', 'ranging']).optional()
 }).nullish()
 })
 
@@ -2726,7 +2793,7 @@ export const GetMomentumHunterResponse = zod.object({
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
-  "setupType": zod.enum(['retest', 'breakout_antisipasi', 'reversal_ekstrem', 'sideways_rejection']).optional(),
+  "setupType": zod.enum(['pump', 'dump']).optional(),
   "tfStruktur": zod.string().optional(),
   "tfEksekusi": zod.string().optional(),
   "orderType": zod.enum(['stop', 'limit']).optional(),
@@ -2799,7 +2866,7 @@ export const GetMomentumHunterScanResponse = zod.object({
   "currentPrice": zod.number(),
   "timestamp": zod.string(),
   "bias": zod.enum(['bullish', 'bearish']).optional(),
-  "setupType": zod.enum(['retest', 'breakout_antisipasi', 'reversal_ekstrem', 'sideways_rejection']).optional(),
+  "setupType": zod.enum(['pump', 'dump']).optional(),
   "tfStruktur": zod.string().optional(),
   "tfEksekusi": zod.string().optional(),
   "orderType": zod.enum(['stop', 'limit']).optional(),

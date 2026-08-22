@@ -10,8 +10,6 @@ export type MomentumHunterResultSetupType = typeof MomentumHunterResultSetupType
 
 
 export const MomentumHunterResultSetupType = {
-  retest: 'retest',
-  breakout_antisipasi: 'breakout_antisipasi',
-  reversal_ekstrem: 'reversal_ekstrem',
-  sideways_rejection: 'sideways_rejection',
+  pump: 'pump',
+  dump: 'dump',
 } as const;

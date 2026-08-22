@@ -7,6 +7,7 @@
  */
 import type { BreakoutTradingResult } from './breakoutTradingResult';
 import type { ExtremeScalpingResult } from './extremeScalpingResult';
+import type { MomentumHunterResult } from './momentumHunterResult';
 import type { MultiTFDetailResult } from './multiTFDetailResult';
 import type { ScalpingResult } from './scalpingResult';
 import type { SniperResult } from './sniperResult';
@@ -23,4 +24,5 @@ export interface AllMenusResult {
   extremeQuant?: ExtremeScalpingResult | null;
   extremeSniper?: ExtremeScalpingResult | null;
   multiTf?: MultiTFDetailResult | null;
+  momentumHunter?: MomentumHunterResult | null;
 }

@@ -5,8 +5,8 @@ import { getUniverse } from './screener';
 const router = Router();
 
 // GET /api/momentum-hunter?symbol=BTCUSDT — 1 fungsi doang (gak ada
-// classifier/mode kaya menu lain), karena internal-nya udah otomatis coba
-// 4 pasangan TF x 3 tipe setup + fallback sideways single-TF.
+// classifier/mode kaya menu lain). Basis: Pump/Dump Entry (H4→H1→M15→M5,
+// request user, gantiin 4 tipe setup lama).
 // NOTE: gak ada recentPerformance — runBacktest belum support menu ini
 // (technical debt yang sama kayak menu-menu lain, backtest emang belum disync).
 router.get('/momentum-hunter', async (req, res) => {
@@ -24,8 +24,7 @@ router.get('/momentum-hunter', async (req, res) => {
 });
 
 // GET /api/momentum-hunter/scan — loop universe, tiap koin langsung full
-// analisa (gak ada classifier murah kayak menu lain, karena "murah"-nya di
-// sini gak relevan — semua koin emang butuh dicoba semua TF x tipe)
+// analisa (gak ada classifier murah, basis-nya 1 alur tetap H4→H1→M15→M5)
 router.get('/momentum-hunter/scan', async (req, res) => {
   try {
     const universe = await getUniverse();
@@ -38,21 +37,16 @@ router.get('/momentum-hunter/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          // Tampilin siap_entry (fully confirmed) DAN approaching (proyeksi)
-          if (val.status === 'siap_entry' || val.status === 'approaching') results.push(val);
+          if (val.status === 'siap_entry') results.push(val);
         }
       }
     }
-    // Sort: siap_entry duluan, baru approaching. Di dalam grup siap_entry,
-    // prioritasin tipe retest > reversal_ekstrem > breakout_antisipasi >
-    // sideways_rejection (urutan sesuai keandalan, konsisten sama basis internal)
-    const statusOrder: Record<string, number> = { siap_entry: 0, approaching: 1 };
-    const typeOrder: Record<string, number> = { retest: 0, reversal_ekstrem: 1, breakout_antisipasi: 2, sideways_rejection: 3 };
-    results.sort((a, b) => {
-      const so = (statusOrder[a.status] ?? 2) - (statusOrder[b.status] ?? 2);
-      if (so !== 0) return so;
-      return (typeOrder[a.setupType ?? ''] ?? 4) - (typeOrder[b.setupType ?? ''] ?? 4);
-    });
+    // Sort by jumlah bonus yang lolos (CVD + ATR Squeeze) — proxy kekuatan
+    // sinyal, given basis WAJIB-nya SAMA buat semua (H4→H1→M15→M5), yang
+    // beda cuma berapa banyak konfirmasi BONUS yang nyambung.
+    const bonusCount = (v: typeof results[number]) =>
+      (v.filterResults ?? []).filter(f => f.includes('Bonus:') && f.startsWith('✅')).length;
+    results.sort((a, b) => bonusCount(b) - bonusCount(a));
     res.json({ coins: results, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
