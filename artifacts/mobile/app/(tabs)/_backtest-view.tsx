@@ -65,17 +65,9 @@ interface BacktestResult {
   symbol: string;
   period: string;
   totalCandles: number;
-  sniperResult?: BacktestAnalysis;
   breakoutResult?: BacktestAnalysis;
   scalpingResult?: BacktestAnalysis;
-  extremeScalpingResult?: BacktestAnalysis;
   breakoutEntryResult?: BacktestAnalysis;
-  comparison?: {
-    better: 'sniper' | 'breakout' | 'equal';
-    sniperWinRate: number;
-    breakoutWinRate: number;
-    mostImpactfulFilter: string;
-  };
   timestamp: string;
 }
 
@@ -160,7 +152,7 @@ function MenuResult({ title, result, colors, menu }: {
   title: string;
   result: BacktestAnalysis;
   colors: ReturnType<typeof useColors>;
-  menu: 'sniper' | 'scalping' | 'extreme_scalping' | 'breakout_entry';
+  menu: 'scalping' | 'breakout_entry';
 }) {
   const [expanded, setExpanded] = useState(false);
   const winColor = result.winRate >= 75 ? colors.bullish : result.winRate >= 50 ? colors.gold : colors.bearish;
@@ -204,15 +196,7 @@ function MenuResult({ title, result, colors, menu }: {
 
           {/* Breakdown kondisi */}
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>BREAKDOWN KONDISI</Text>
-          {menu === 'sniper' ? (
-            <>
-              <BreakdownRow label="RSI Divergence H1" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
-            </>
-          ) : menu === 'extreme_scalping' ? (
-            <>
-              <BreakdownRow label="Reversal CHoCH H1" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
-            </>
-          ) : menu === 'breakout_entry' ? (
+          {menu === 'breakout_entry' ? (
             <>
               <BreakdownRow label="Tipe Continuation" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
             </>
@@ -233,25 +217,12 @@ function MenuResult({ title, result, colors, menu }: {
               sistem OB/FVG/S&R tier, dan breakout candle itu sendiri adalah trigger-nya */}
           {menu !== 'breakout_entry' && (
             <>
-              <BreakdownRow label={menu === 'sniper' ? 'Pattern' : menu === 'extreme_scalping' ? 'Pattern M15' : 'Pattern M30'} with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
+              <BreakdownRow label="Pattern M30" with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
               <BreakdownRow label="Zona Tier 1-2" with={result.breakdown.tier1to2} without={result.breakdown.tier3plus} colors={colors} />
             </>
           )}
           <BreakdownRow label="London/NY" with={result.breakdown.londonNY} without={result.breakdown.asian} colors={colors} />
           <BreakdownRow label="Vol Tinggi (≥2x)" with={result.breakdown.highVolume} without={result.breakdown.lowVolume} colors={colors} />
-
-          {/* Breakdown probabilitas cuma relevan buat Sniper — di live cuma Sniper yang
-              nunjukin angka persen (profitProbability). Scalping/Extreme Scalping di live
-              nunjukin status (WAITING/MENDEKATI/BAGUS), bukan persen, jadi breakdown ini
-              gak nyambung/gak konsisten kalau dipasang di situ juga. */}
-          {menu === 'sniper' && (
-            <StrengthTierRow
-              low={result.breakdown.strengthLow}
-              moderate={result.breakdown.strengthModerate}
-              high={result.breakdown.strengthHigh}
-              colors={colors}
-            />
-          )}
 
           {/* Penyebab lose */}
           {result.lossCauses.length > 0 && (
@@ -304,10 +275,8 @@ const PERIODS = [
 ] as const;
 
 const MENUS = [
-  { label: 'Breakout', value: 'breakout_entry' },
-  { label: 'Sniper', value: 'sniper' },
+  { label: 'Counter Scalping', value: 'breakout_entry' },
   { label: 'Scalping', value: 'breakout' },
-  { label: 'Extreme', value: 'extreme_scalping' },
   { label: 'Semua', value: 'both' },
 ] as const;
 
@@ -319,7 +288,7 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
 
   const [symbol, setSymbol] = useState('');
   const [period, setPeriod] = useState<'1m' | '3m' | '6m' | '1y' | '2y' | '3y'>('3m');
-  const [menu, setMenu] = useState<'sniper' | 'breakout' | 'extreme_scalping' | 'breakout_entry' | 'both'>('both');
+  const [menu, setMenu] = useState<'breakout' | 'breakout_entry' | 'both'>('both');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -498,16 +467,6 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
               />
             )}
 
-            {/* Hasil Sniper */}
-            {result.sniperResult && (
-              <MenuResult
-                title="Menu 2 — Sniper Entry"
-                result={result.sniperResult}
-                colors={colors}
-                menu="sniper"
-              />
-            )}
-
             {/* Hasil Breakout */}
             {result.breakoutResult && (
               <MenuResult
@@ -516,46 +475,6 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
                 colors={colors}
                 menu="scalping"
               />
-            )}
-
-            {/* Hasil Extreme Scalping */}
-            {result.extremeScalpingResult && (
-              <MenuResult
-                title="Extreme Scalping H1→M15→M5"
-                result={result.extremeScalpingResult}
-                colors={colors}
-                menu="extreme_scalping"
-              />
-            )}
-
-            {/* Perbandingan */}
-            {result.comparison && (
-              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.cardTitle, { color: colors.foreground }]}>⚖ Perbandingan</Text>
-                <View style={styles.compareRow}>
-                  <View style={styles.compareItem}>
-                    <Text style={[styles.compareLabel, { color: colors.mutedForeground }]}>Sniper</Text>
-                    <WinRateBadge rate={result.comparison.sniperWinRate} colors={colors} />
-                  </View>
-                  <Text style={[styles.compareVs, { color: colors.mutedForeground }]}>VS</Text>
-                  <View style={styles.compareItem}>
-                    <Text style={[styles.compareLabel, { color: colors.mutedForeground }]}>Breakout</Text>
-                    <WinRateBadge rate={result.comparison.breakoutWinRate} colors={colors} />
-                  </View>
-                </View>
-                <View style={[styles.compareResult, { borderTopColor: colors.border }]}>
-                  <Text style={[styles.compareResultText, { color: colors.foreground }]}>
-                    {result.comparison.better === 'equal'
-                      ? '⚡ Performa setara'
-                      : result.comparison.better === 'sniper'
-                      ? '🎯 Sniper lebih profitable'
-                      : '⚡ Breakout lebih profitable'}
-                  </Text>
-                  <Text style={[styles.compareFilterText, { color: colors.mutedForeground }]}>
-                    Filter paling berpengaruh: {result.comparison.mostImpactfulFilter}
-                  </Text>
-                </View>
-              </View>
             )}
           </>
         )}

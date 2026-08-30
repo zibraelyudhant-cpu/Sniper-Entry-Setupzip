@@ -391,7 +391,7 @@ export default function MonitoringView() {
           <Feather name="inbox" size={40} color={colors.mutedForeground} />
           <Text style={[s.emptyTitle, { color: colors.foreground }]}>Belum ada posisi aktif</Text>
           <Text style={[s.emptySub, { color: colors.mutedForeground }]}>
-            Sinyal dari semua menu (Breakout Entry, Sniper Entry, Scalping, Extreme Scalping, Momentum Hunter) yang harga entry-nya sudah kehit akan otomatis muncul di sini untuk dipantau.
+            Sinyal dari semua menu (Counter Scalping, Scalping) yang harga entry-nya sudah kehit akan otomatis muncul di sini untuk dipantau.
           </Text>
           <Pressable
             onPress={onRefresh}

@@ -32,25 +32,26 @@ router.get('/breakout', async (req, res) => {
   }
 });
 
-// GET /api/breakout/scan — classifier-driven: tiap koin di-classify dulu (murah,
-// pake data M15 yang emang udah di-fetch), BARU dianalisa penuh sesuai mode yang
-// cocok (1x per koin, BUKAN 2x/koin)
+// GET /api/breakout/scan — CEK KEDUA SKILL per koin (request user eksplisit,
+// dengan izin khusus menyentuh Menu 4 HANYA buat perubahan ini — logic internal
+// analyzeScalpingEntry & analyzeScalping15M TIDAK disentuh sama sekali,
+// cuma cara route MANGGIL mereka yang berubah dari 'classifier pilih 1' jadi
+// 'cek dua-duanya'. Lebih lambat (2x fetch per koin) tapi kedua skill selalu
+// dapet kesempatan dianalisa, gak tergantung classifier volume M15 vs MA20.
 router.get('/breakout/scan', async (req, res) => {
   try {
     const universe = await getUniverse();
-    const results: Array<Awaited<ReturnType<typeof analyzeScalpingEntry>> & { mode: string; recommendedMode: string }> = [];
-    const batchSize = 3;
+    const results: Array<Awaited<ReturnType<typeof analyzeScalpingEntry>> & { mode: string }> = [];
+    const batchSize = 2; // FIX (ketemu user, kena rate limit Binance): batch 4 kombinasi 150 koin x 2 skill itu TERLALU AGRESIF (~32 request simultan tiap 300ms). Diturunkan ke 2 + delay diperpanjang jadi 500ms.
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
-      const batchResults = await Promise.allSettled(batch.map(async (s) => {
-        const classifyData = await fetchKlines(s, '15m', 250);
-        const classification = classifyScalpingMode(classifyData.closes, classifyData.volumes);
-        const val = classification.recommendedMode === 'scalping15m'
-          ? await analyzeScalping15M(s)
-          : await analyzeScalpingEntry(s);
-        return { ...val, mode: classification.recommendedMode, recommendedMode: classification.recommendedMode };
-      }));
-      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300));
+      const batchResults = await Promise.allSettled(
+        batch.flatMap((s) => [
+          analyzeScalpingEntry(s).then(val => ({ ...val, mode: 'structural' as const })),
+          analyzeScalping15M(s).then(val => ({ ...val, mode: 'scalping15m' as const })),
+        ])
+      );
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 500));
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;

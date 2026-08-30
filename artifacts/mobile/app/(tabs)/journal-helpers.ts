@@ -23,7 +23,7 @@ export interface JournalTechnicalSnapshot {
 export type JournalStatus = 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';
 
 export const SOURCE_MENUS = [
-  'Breakout Entry', 'Sniper Entry', 'Scalping', 'Extreme Scalping', 'Momentum Hunter',
+  'Counter Scalping', 'Scalping',
 ] as const;
 export type SourceMenu = typeof SOURCE_MENUS[number];
 
@@ -40,7 +40,7 @@ export interface JournalEntry {
 
   // Dari menu/skill mana
   sourceMenu: SourceMenu;
-  sourceSkill: string; // e.g. 'OI Surge Breakout', 'Sniper', 'CVD+OI Confluence', 'Structural', 'Skill 15M', 'Quant', 'Momentum Hunter (Retest)'
+  sourceSkill: string; // e.g. 'Counter Structural', 'Sniper', 'CVD+OI Confluence', 'Structural', 'Skill 15M', 'Quant', 'Momentum Hunter (Retest)'
 
   // Harga & level
   entryPrice: number;
@@ -79,10 +79,22 @@ export interface JournalEntry {
 
 const JOURNAL_KEY = 'trading_journal_v1';
 
+// Nama menu LAMA yang sekarang udah dihapus total (request user, "bersihin
+// semuanya") — Journal Entry dengan sourceMenu ini bakal DIBUANG PERMANEN
+// dari storage begitu journalLoadAll dipanggil pertama kali setelah update.
+const REMOVED_MENUS = new Set(['Breakout Entry', 'Sniper Entry', 'Extreme Scalping', 'Momentum Hunter']);
+
 export async function journalLoadAll(): Promise<JournalEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(JOURNAL_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const all: JournalEntry[] = raw ? JSON.parse(raw) : [];
+    const cleaned = all.filter(e => !REMOVED_MENUS.has(e.sourceMenu as string));
+    if (cleaned.length !== all.length) {
+      // Ada entry lama yang kebuang — simpan balik biar PERMANEN kehapus
+      // dari storage, bukan cuma di-filter pas ditampilin doang.
+      try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(cleaned)); } catch {}
+    }
+    return cleaned;
   } catch {
     return [];
   }

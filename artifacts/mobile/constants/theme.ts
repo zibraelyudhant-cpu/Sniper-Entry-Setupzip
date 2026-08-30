@@ -6,14 +6,11 @@
 // ─── Warna identitas tiap menu ──────────────────────────────────────────────
 export const MENU_COLORS = {
   breakout: '#22D3EE',   // Menu 1 — cyan
-  sniper: '#A78BFA',     // Menu 2 — ungu
   calculator: '#FBBF24', // Menu 3 — amber
   scalping: '#FB923C',   // Menu 4 — oranye
-  extremeScalping: '#F43F5E', // Menu 5 — rose/merah (kesan "extreme")
   multiTfScan: '#34D399', // Menu 6 — emerald (kesan "overview/dashboard")
   allMenus: '#F472B6', // Menu 7 — pink (kesan "gabungan semua")
-  momentumHunter: '#A3E635', // Menu 8 — lime (kesan "berburu peluang")
-  journal: '#F0ABFC', // Menu Journal — fuchsia terang (beda dari 8 menu lain, kesan "catatan")
+  journal: '#F0ABFC', // Menu Journal — fuchsia terang (beda dari menu lain, kesan "catatan")
   insight: '#60A5FA',    // Menu 5 (lama, sekarang sub-tab Tools) — biru
   backtest: '#2DD4BF',   // Menu 6 (lama, sekarang sub-tab Tools) — teal
   tools: '#818CF8',      // Menu gabungan (Kalkulator+Insight+Backtest) — indigo

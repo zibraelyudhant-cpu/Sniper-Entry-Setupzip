@@ -360,7 +360,7 @@ export async function getUniverse(): Promise<string[]> {
       const symbols = allTickers
         .filter(t => cryptoSymbols.has(t.symbol))
         .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-        .slice(0, 50)
+        .slice(0, 150) // Dinaikkan dari 50 (request user, lebih banyak sinyal tanpa turunin threshold — SEMUA menu termasuk Menu 4 pakai fungsi shared ini, TIDAK ada logic analyze yang disentuh)
         .map(t => t.symbol);
       universeCache = { symbols, ts: Date.now() };
       return symbols;

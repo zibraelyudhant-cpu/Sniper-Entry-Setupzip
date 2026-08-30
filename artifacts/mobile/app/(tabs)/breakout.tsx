@@ -155,7 +155,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H1→M5) & Scalping 15M (M15→M1)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (M30→M5) & Scalping 15M (M15)</Text>
       </View>
     );
   }
@@ -299,7 +299,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
       sourceMenu: 'Scalping', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: data.mode === 'scalping15m' ? '15M' : 'H1', tfEksekusi: data.mode === 'scalping15m' ? '1M' : 'M5',
+      tfStruktur: data.mode === 'scalping15m' ? '15M' : 'M30', tfEksekusi: data.mode === 'scalping15m' ? '15M' : 'M5',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       orderType: 'limit', // Structural & Skill 15M dua-duanya basis breakout+retest, selalu LIMIT
       btcAligned: data.btcAligned, btcBias: data.btcBias,
@@ -313,7 +313,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Structural (H1->M5) vs Scalping 15M (M15->M1, breakout+retest zona) */}
+      {/* Mode Switcher — Structural (M30->M5) vs Scalping 15M (M15, breakout+retest zona) */}
       <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {(['structural', 'scalping15m'] as const).map((m) => {
@@ -369,7 +369,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa breakout+retest — Structural (H1→M5) atau Scalping 15M (M15→M1)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa breakout+retest — Structural (M30→M5) atau Scalping 15M (M15)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -436,7 +436,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
             <AnimatedCard index={2}>
             <View style={[styles.section, { backgroundColor: 'rgba(167,139,250,0.06)', borderColor: 'rgba(167,139,250,0.22)' }]}>
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-                {data.mode === 'scalping15m' ? 'ZONA BREAKOUT (M15)' : 'ZONA BREAKOUT (H1)'}
+                {data.mode === 'scalping15m' ? 'ZONA BREAKOUT (M15)' : 'ZONA BREAKOUT (M30)'}
               </Text>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Bias</Text>
@@ -463,7 +463,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>
-                  ATR ({data.mode === 'scalping15m' ? 'M15' : 'H1'})
+                  ATR ({data.mode === 'scalping15m' ? 'M15' : 'M30'})
                 </Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
                   {data.atr15MPct ? `${data.atr15MPct.toFixed(2)}%` : '—'}
@@ -612,7 +612,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (H1→M5) & Scalping 15M (M15→M1)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (M30→M5) & Scalping 15M (M15)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

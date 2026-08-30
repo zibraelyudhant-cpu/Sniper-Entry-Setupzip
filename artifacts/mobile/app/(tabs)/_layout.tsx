@@ -14,20 +14,12 @@ function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: 'arrow.up.right', selected: 'arrow.up.right' }} />
-        <Label>Breakout</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="sniper">
-        <Icon sf={{ default: 'scope', selected: 'scope' }} />
-        <Label>Sniper</Label>
+        <Icon sf={{ default: 'arrow.triangle.2.circlepath', selected: 'arrow.triangle.2.circlepath' }} />
+        <Label>Counter Scalping</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="breakout">
         <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
         <Label>Scalping</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="extreme-scalping">
-        <Icon sf={{ default: 'flame', selected: 'flame.fill' }} />
-        <Label>Extreme</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="multi-tf-scan">
         <Icon sf={{ default: 'square.grid.3x3', selected: 'square.grid.3x3.fill' }} />
@@ -36,10 +28,6 @@ function NativeTabLayout() {
       <NativeTabs.Trigger name="all-menus-analysis">
         <Icon sf={{ default: 'rectangle.stack', selected: 'rectangle.stack.fill' }} />
         <Label>Semua Menu</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="momentum-hunter">
-        <Icon sf={{ default: 'binoculars', selected: 'binoculars.fill' }} />
-        <Label>Momentum</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="journal">
         <Icon sf={{ default: 'book', selected: 'book.fill' }} />
@@ -96,30 +84,14 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Breakout',
+          title: 'Counter Scalping',
           tabBarActiveTintColor: MENU_COLORS.breakout,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
               {isIOS ? (
-                <SymbolView name="arrow.up.right" tintColor={color} size={22} />
+                <SymbolView name="arrow.triangle.2.circlepath" tintColor={color} size={22} />
               ) : (
-                <Feather name="trending-up" size={22} color={color} />
-              )}
-            </AnimatedTabIcon>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="sniper"
-        options={{
-          title: 'Sniper',
-          tabBarActiveTintColor: MENU_COLORS.sniper,
-          tabBarIcon: ({ color, focused }) => (
-            <AnimatedTabIcon focused={focused} color={color}>
-              {isIOS ? (
-                <SymbolView name="scope" tintColor={color} size={22} />
-              ) : (
-                <Feather name="crosshair" size={22} color={color} />
+                <Feather name="repeat" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),
@@ -134,22 +106,6 @@ function ClassicTabLayout() {
             <AnimatedTabIcon focused={focused} color={color}>
               {isIOS ? (
                 <SymbolView name="bolt.horizontal.fill" tintColor={color} size={22} />
-              ) : (
-                <Feather name="zap" size={22} color={color} />
-              )}
-            </AnimatedTabIcon>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="extreme-scalping"
-        options={{
-          title: 'Extreme',
-          tabBarActiveTintColor: MENU_COLORS.extremeScalping,
-          tabBarIcon: ({ color, focused }) => (
-            <AnimatedTabIcon focused={focused} color={color}>
-              {isIOS ? (
-                <SymbolView name="flame.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="zap" size={22} color={color} />
               )}
@@ -184,22 +140,6 @@ function ClassicTabLayout() {
                 <SymbolView name="rectangle.stack.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="layers" size={22} color={color} />
-              )}
-            </AnimatedTabIcon>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="momentum-hunter"
-        options={{
-          title: 'Momentum',
-          tabBarActiveTintColor: MENU_COLORS.momentumHunter,
-          tabBarIcon: ({ color, focused }) => (
-            <AnimatedTabIcon focused={focused} color={color}>
-              {isIOS ? (
-                <SymbolView name="binoculars.fill" tintColor={color} size={22} />
-              ) : (
-                <Feather name="compass" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),

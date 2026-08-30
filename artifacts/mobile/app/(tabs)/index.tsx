@@ -43,11 +43,9 @@ interface TFBreakdownItem {
 }
 
 interface BreakoutTradingResult {
-  status: 'siap_breakout' | 'siap_retest' | 'no_setup' | 'error';
+  status: 'siap_retest' | 'approaching' | 'waiting' | 'no_setup' | 'error';
   symbol: string;
   bias?: 'bullish' | 'bearish';
-  mode?: 'oi_surge' | 'funding_contrarian';
-  recommendedMode?: 'oi_surge' | 'funding_contrarian';
   recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
@@ -108,8 +106,6 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const isSiapRetest = coin.status === 'siap_retest';
   const isPantau = coin.status === 'waiting';
   const statusColor = isSiapRetest ? colors.gold : isPantau ? '#F87171' : '#818CF8';
-  const isFundingContrarian = coin.mode === 'funding_contrarian';
-  const modeColor = isFundingContrarian ? '#F97316' : ACCENT;
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -129,9 +125,6 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
                 {isSiapRetest ? '🎯 SIAP RETEST' : isPantau ? '⚠️ PANTAU' : '⏳ SIAP BREAKOUT'}
               </Text>
             </View>
-            <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isFundingContrarian ? '💰 Funding Kontrarian' : '📈 OI Surge'}</Text>
-            </View>
           </View>
           {coin.volumeRatio !== undefined && (
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
@@ -141,9 +134,9 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <StatusBadge status={coin.status} />
-          {!isFundingContrarian && coin.volumeRatio !== undefined
-            ? <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${modeColor}18` }}>
-                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: modeColor }}>{(coin.volumeRatio * 100).toFixed(0)}% vol</Text>
+          {coin.volumeRatio !== undefined
+            ? <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${ACCENT}18` }}>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>{(coin.volumeRatio * 100).toFixed(0)}% vol</Text>
               </View>
             : null
           }
@@ -211,7 +204,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>OI Surge Breakout & Funding Rate Kontrarian — 2 skill</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Counter Structural — kebalikan dari Skill Structural Menu 4</Text>
       </View>
     );
   }
@@ -231,7 +224,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date(data.fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
   const inZone      = coins.filter(c => c.status === 'siap_retest');
-  const ready       = coins.filter(c => c.status === 'siap_breakout');
+  const ready       = coins.filter(c => c.status === 'approaching');
   const pantau      = coins.filter(c => c.status === 'waiting');
 
   if (coins.length === 0) {
@@ -271,7 +264,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       )}
       {pantau.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: '#F87171' }]}>⚠️ PANTAU — Momentum Exhaustion</Text>
+          <Text style={[scanStyles.groupHeader, { color: '#F87171' }]}>⚠️ PANTAU — Belum Ada Breakout</Text>
           {pantau.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
@@ -303,21 +296,16 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalReady }: {
+function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
   colors: ReturnType<typeof useColors>;
   initialSymbol?: string;
-  initialMode?: 'oi_surge' | 'funding_contrarian';
   pinnedData?: BreakoutTradingResult | null;
   onSignalReady?: (d: BreakoutTradingResult | null) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ symbol?: string; mode?: string }>();
+  const params = useLocalSearchParams<{ symbol?: string }>();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? params.symbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? params.symbol ?? '');
-  // undefined = belum dipilih manual, biar classifier backend (ADX H1) yang nentuin otomatis
-  const [mode, setMode] = useState<'oi_surge' | 'funding_contrarian' | undefined>(
-    initialMode ?? (params.mode === 'oi_surge' || params.mode === 'funding_contrarian' ? params.mode : undefined)
-  );
   // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
   // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
   // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
@@ -329,13 +317,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
   }, [pinnedData]);
 
   const { data: liveData, isLoading, isFetching, isError, refetch } = useGetBreakoutEntry(
-    { symbol: querySymbol, ...(mode ? { mode } : {}) },
-    { query: { queryKey: getGetBreakoutEntryQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
+    { symbol: querySymbol },
+    { query: { queryKey: getGetBreakoutEntryQueryKey({ symbol: querySymbol }), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
   );
   const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'siap_breakout' || data?.status === 'siap_retest' ? data : null);
+    if (onSignalReady) onSignalReady(data?.status === 'approaching' || data?.status === 'siap_retest' ? data : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -358,14 +346,13 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = data.mode === 'oi_surge' ? 'OI Surge Breakout' : 'Funding Rate Kontrarian';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Breakout Entry', sourceSkill: skillLabel,
+      sourceMenu: 'Counter Scalping', sourceSkill: 'Counter Structural',
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: data.mode === 'oi_surge' ? 'M15' : 'H1', tfEksekusi: data.mode === 'oi_surge' ? 'M15' : 'M15',
+      tfStruktur: 'H1', tfEksekusi: 'M5',
       technicalSnapshot: data.technicalSnapshot,
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
@@ -379,31 +366,6 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — OI Surge Breakout (breakout+lonjakan OI) vs Funding Rate Kontrarian (funding ekstrem+CHoCH) */}
-      <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
-        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['oi_surge', 'funding_contrarian'] as const).map((m) => {
-            const active = (mode ?? data?.recommendedMode) === m;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => setMode(m)}
-                style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
-              >
-                <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'oi_surge' ? 'OI Surge Breakout' : 'Funding Rate Kontrarian'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {data?.recommendedMode && mode && data.recommendedMode !== mode && (
-          <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-            💡 Classifier rekomendasiin "{data.recommendedMode === 'oi_surge' ? 'OI Surge Breakout' : 'Funding Rate Kontrarian'}" buat koin ini
-          </Text>
-        )}
-      </View>
-
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Feather name="trending-up" size={15} color={ACCENT} />
@@ -434,7 +396,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
       {!querySymbol ? (
         <View style={styles.emptyState}>
           <Feather name="trending-up" size={40} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Breakout Entry Scanner</Text>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Counter Scalping Scanner</Text>
           <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair buat analisa level S/R + OI/funding rate</Text>
         </View>
       ) : (liveMode && isLoading) ? (
@@ -501,7 +463,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
 
           {/* Simpan ke Journal — SATU-SATUNYA cara nyimpen sinyal sekarang
               (request user: Log per-menu diganti Ringkasan dari Journal) */}
-          {(data.status === 'siap_breakout' || data.status === 'siap_retest') && (
+          {(data.status === 'approaching' || data.status === 'siap_retest') && (
             <Pressable onPress={handleSaveJournal} disabled={savingJournal}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed || savingJournal ? 0.8 : 1 }]}>
               <Feather name="book-open" size={15} color={colors.primaryForeground} />
@@ -562,15 +524,6 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData, onSignalRe
                   <View style={styles.infoRow}>
                     <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Nongkrong Deket Edge</Text>
                     <Text style={[styles.infoValue, { color: colors.foreground }]}>{data.candlesNearEdge} candle M15</Text>
-                  </View>
-                </>
-              )}
-              {data.mode === 'oi_surge' && data.brokenLevel !== undefined && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Level Liquidity Grab (M15)</Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>{formatPrice(data.brokenLevel)}{data.candlesSinceBreakout !== undefined ? ` · ${data.candlesSinceBreakout}c lalu` : ''}</Text>
                   </View>
                 </>
               )}
@@ -668,8 +621,8 @@ export default function BreakoutEntryScreen() {
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Breakout Entry</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — OI Surge Breakout (breakout+OI) & Funding Rate Kontrarian (funding ekstrem)</Text>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Counter Scalping</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Counter Structural — H1 zona S&R sama kayak Menu 4, sinyal dibalik</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -693,8 +646,8 @@ export default function BreakoutEntryScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'oi_surge' | 'funding_contrarian' | undefined} pinnedData={pinnedCoin} />
-        : <MenuJournalSummary sourceMenu="Breakout Entry" accentColor={ACCENT} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} pinnedData={pinnedCoin} />
+        : <MenuJournalSummary sourceMenu="Counter Scalping" accentColor={ACCENT} />
       }
     </View>
   );

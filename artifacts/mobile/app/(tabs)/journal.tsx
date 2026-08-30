@@ -31,11 +31,8 @@ function formatPrice(v: number): string {
 }
 
 const MENU_FILTER_COLORS: Record<SourceMenu, string> = {
-  'Breakout Entry': MENU_COLORS.breakout,
-  'Sniper Entry': MENU_COLORS.sniper,
+  'Counter Scalping': MENU_COLORS.breakout,
   'Scalping': MENU_COLORS.scalping,
-  'Extreme Scalping': MENU_COLORS.extremeScalping,
-  'Momentum Hunter': MENU_COLORS.momentumHunter,
 };
 
 // ─── Breakdown mini bar ───────────────────────────────────────────────────────
@@ -335,7 +332,7 @@ export default function JournalScreen() {
           <Feather name="book-open" size={40} color={colors.mutedForeground} />
           <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: colors.foreground, textAlign: 'center' }}>Journal masih kosong</Text>
           <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 20 }}>
-            Simpan sinyal ke Journal dari tab Analisa di menu manapun (Breakout Entry, Sniper, Scalping, Extreme Scalping, Momentum Hunter) — tombol "Simpan ke Journal" ada di bawah kartu Entry/SL/TP.
+            Simpan sinyal ke Journal dari tab Analisa di menu manapun (Counter Scalping, Scalping) — tombol "Simpan ke Journal" ada di bawah kartu Entry/SL/TP.
           </Text>
         </View>
       ) : activeTab === 'daftar' ? (
@@ -700,7 +697,7 @@ function RingkasanTab({ entries: allEntries, colors }: { entries: JournalEntry[]
               Dari {indicatorResult.sampleWin} sinyal WIN dan {indicatorResult.sampleLose} sinyal LOSE yang punya data indikator.
             </Text>
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, fontStyle: 'italic', lineHeight: 13 }}>
-              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Sniper H1→M15 vs OI Surge Breakout M15). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
+              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Structural H1→M5 vs Counter Structural H1→M5). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
             </Text>
             {indicatorResult.comparisons.map((c, i) => <IndicatorCompareRow key={c.label + i} item={c} colors={colors} />)}
           </>

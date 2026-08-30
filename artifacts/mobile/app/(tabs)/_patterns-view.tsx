@@ -783,7 +783,7 @@ export default function PatternsView({
           <Feather name="activity" size={48} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Masukkan Symbol</Text>
           <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-            Ketik pair di atas atau buka dari halaman Sniper Entry
+            Ketik pair di atas atau buka dari halaman Scalping
           </Text>
         </View>
       ) : isLoading ? (
