@@ -22,7 +22,7 @@ import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
-import { journalSave, type JournalEntry } from './journal-helpers';
+import { journalSave, journalSaveMany, type JournalEntry } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.breakout;
 // ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
@@ -199,6 +199,38 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: BreakoutTradingResult) => void }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({ query: { staleTime: 3 * 60 * 1000 } });
+  const [savingAll, setSavingAll] = useState(false);
+  const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
+
+  // FIX (request user, "Masukin Semua ke Journal"): status 'waiting' itu GAK
+  // PUNYA entryPrice/SL/TP/bias sama sekali — gak bisa dievaluasi, OTOMATIS
+  // DI-SKIP. Status 'siap_retest' di-map jadi 'in_zone' pas disimpan (konsep
+  // sama kayak Scalping — siap entry sekarang — cuma beda nama status).
+  const handleSaveAllToJournal = useCallback(async (coinsToSave: BreakoutTradingResult[]) => {
+    const eligible = coinsToSave.filter(c => c.entryPrice !== undefined && c.stopLoss !== undefined && c.takeProfit1 !== undefined && c.bias);
+    if (eligible.length === 0) return;
+    setSavingAll(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const entries: JournalEntry[] = eligible.map(c => ({
+      id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
+      symbol: c.symbol, bias: c.bias!,
+      sourceMenu: 'Counter Scalping', sourceSkill: 'Counter Structural',
+      entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0, takeProfit2: c.takeProfit2,
+      currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
+      tfStruktur: 'H1', tfEksekusi: 'M5',
+      technicalSnapshot: c.technicalSnapshot,
+      orderType: c.orderType,
+      btcAligned: c.btcAligned, btcBias: c.btcBias,
+      signalStatus: c.status === 'siap_retest' ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
+      timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
+    }));
+    // journalSaveMany otomatis dedup (symbol+bias+skill+entryPrice) -- entry
+    // yang sinyalnya PERSIS SAMA kayak yang udah ada di Journal bakal di-skip.
+    const { savedCount, skippedCount } = await journalSaveMany(entries);
+    setSaveAllResult({ savedCount, skippedCount });
+    setSavingAll(false);
+    setTimeout(() => setSaveAllResult(null), 3000);
+  }, []);
 
   if (isLoading) {
     return (
@@ -240,6 +272,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     );
   }
 
+  const eligibleCount = inZone.length + ready.length;
+
   return (
     <ScrollView
       contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }}
@@ -249,6 +283,36 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
         <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
+
+      {eligibleCount > 0 && (
+        <Pressable
+          onPress={() => handleSaveAllToJournal([...inZone, ...ready])}
+          disabled={savingAll}
+          style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+            paddingVertical: 10, borderRadius: 10, marginBottom: 10,
+            backgroundColor: saveAllResult !== null ? `${colors.bullish}22` : `${ACCENT}18`,
+            borderWidth: 1, borderColor: saveAllResult !== null ? colors.bullish : ACCENT,
+            opacity: savingAll ? 0.6 : 1,
+          }}
+        >
+          {savingAll ? (
+            <ActivityIndicator size="small" color={ACCENT} />
+          ) : saveAllResult !== null ? (
+            <>
+              <Feather name="check-circle" size={14} color={colors.bullish} />
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.bullish }}>
+                {saveAllResult.savedCount} sinyal masuk ke Journal{saveAllResult.skippedCount > 0 ? ` (${saveAllResult.skippedCount} udah ada, di-skip)` : ''}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Feather name="bookmark" size={14} color={ACCENT} />
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>Masukin Semua ke Journal ({eligibleCount})</Text>
+            </>
+          )}
+        </Pressable>
+      )}
 
       {inZone.length > 0 && (
         <>

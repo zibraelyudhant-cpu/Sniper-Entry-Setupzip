@@ -34,6 +34,13 @@ interface DivergenceResult {
   bearish: boolean;
 }
 
+interface FreshBreakoutInfo {
+  bias: 'bullish' | 'bearish';
+  level: number;
+  breakoutPrice: number;
+  candlesSinceBreakout: number;
+}
+
 interface TFDetail {
   timeframe: 'D1' | 'H4' | 'H1' | 'M30' | 'M15' | 'M5';
   bias: Bias;
@@ -43,6 +50,7 @@ interface TFDetail {
   rsiDivergence?: DivergenceResult;
   volumeDivergence?: DivergenceResult;
   marketStructureV2?: MarketStructureV2Result | null;
+  breakout?: FreshBreakoutInfo;
 }
 
 interface MultiTFScanCoin {
@@ -223,11 +231,30 @@ function ScanView({ colors, onSelectCoin }: { colors: ReturnType<typeof useColor
 
 function TFDetailCard({ tf, colors, index }: { tf: TFDetail; colors: ReturnType<typeof useColors>; index: number }) {
   const biasColor = biasColorOf(tf.bias, colors);
+  // Sekarang breakout udah pasti "ADA" begitu backend ngirim field ini
+  // (backend cuma isi field ini kalau breakout candle-nya udah kejadian+valid,
+  // TANPA nunggu retest — lihat detectFreshBreakout di backend)
+  const hasBreakout = !!tf.breakout;
+  const breakoutColor = hasBreakout ? (tf.breakout!.bias === 'bullish' ? colors.bullish : colors.bearish) : undefined;
+
   return (
     <AnimatedCard index={index}>
-      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={[
+        styles.section,
+        { backgroundColor: colors.card, borderColor: hasBreakout ? breakoutColor : colors.border },
+        // Border/glow mencolok (request user) — TF yang lagi breakout valid
+        // ditandain beda dari TF biasa, biar keliatan langsung tanpa perlu baca detail
+        hasBreakout && { borderWidth: 2, shadowColor: breakoutColor, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
+      ]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={[styles.tfLabel, { color: colors.foreground }]}>{tf.timeframe}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[styles.tfLabel, { color: colors.foreground }]}>{tf.timeframe}</Text>
+            {hasBreakout && (
+              <View style={[styles.biasBadge, { backgroundColor: `${breakoutColor}25`, borderColor: breakoutColor }]}>
+                <Text style={[styles.biasBadgeText, { color: breakoutColor }]}>🎯 ADA BREAKOUT</Text>
+              </View>
+            )}
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>ADX {tf.adx.toFixed(1)}</Text>
             <View style={[styles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
@@ -235,6 +262,19 @@ function TFDetailCard({ tf, colors, index }: { tf: TFDetail; colors: ReturnType<
             </View>
           </View>
         </View>
+
+        {tf.breakout && (
+          <View style={[styles.infoRow, { backgroundColor: `${breakoutColor}12`, borderRadius: 8, padding: 8, marginBottom: 8 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: breakoutColor, marginBottom: 2 }}>
+                {tf.breakout.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'} — nembus {tf.breakout.level.toFixed(4)}
+              </Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>
+                Breakout di {tf.breakout.breakoutPrice.toFixed(4)} · {tf.breakout.candlesSinceBreakout === 0 ? 'candle ini' : `${tf.breakout.candlesSinceBreakout} candle lalu`}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {tf.marketStructureV2 && (
           <View style={{ marginBottom: 8 }}>
@@ -331,9 +371,28 @@ function DetailView({ colors, symbol, onBack }: { colors: ReturnType<typeof useC
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>
+          {(() => {
+            const breakoutTFs = tfs?.filter(tf => tf.breakout) ?? [];
+            if (breakoutTFs.length < 2) return null;
+            // Cek apakah SEMUA breakout yang ketemu itu SEARAH (bukan campur bullish+bearish)
+            const allBullish = breakoutTFs.every(tf => tf.breakout!.bias === 'bullish');
+            const allBearish = breakoutTFs.every(tf => tf.breakout!.bias === 'bearish');
+            const bonusColor = allBullish ? colors.bullish : allBearish ? colors.bearish : colors.gold;
+            return (
+              <View style={[styles.section, { backgroundColor: `${bonusColor}15`, borderColor: bonusColor, borderWidth: 2, marginBottom: 12 }]}>
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: bonusColor, marginBottom: 4 }}>
+                  🔥 BONUS — {breakoutTFs.length} TF breakout bareng!
+                </Text>
+                <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>
+                  {breakoutTFs.map(tf => tf.timeframe).join(', ')}
+                  {allBullish || allBearish ? ` — SEMUA ${allBullish ? 'LONG' : 'SHORT'}, sinyal makin kuat` : ' — arah campur, hati-hati'}
+                </Text>
+              </View>
+            );
+          })()}
           {tfs?.map((tf, i) => <TFDetailCard key={tf.timeframe} tf={tf} colors={colors} index={i} />)}
           <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
-            Info doang — SL/TP silakan tentuin manual sendiri.
+            Zona referensi (📦/📐) itu info doang. Breakout (🎯) itu candle udah nembus zona + volume valid + lolos struktur — BUKAN sinyal entry siap pakai (belum ada retest), tetep DYOR sebelum eksekusi.
           </Text>
         </ScrollView>
       )}

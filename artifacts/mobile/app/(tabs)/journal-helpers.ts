@@ -60,6 +60,14 @@ export interface JournalEntry {
   tfStruktur: string;
   tfEksekusi?: string; // kosong kalau single-TF (mode sideways Momentum Hunter)
 
+  // Status SINYAL saat disimpan (request user, fitur "Masukin Semua ke
+  // Journal") — BEDA dari `status` di bawah (yang itu status EVALUASI
+  // win/lose). Ini status dari hasil scan: 'in_zone' (siap entry sekarang),
+  // 'approaching' (breakout udah kejadian, nunggu retest), 'waiting' (belum
+  // ada breakout sama sekali). Optional — entry yang disimpan manual satuan
+  // (tombol "Simpan ke Journal" biasa) gak perlu isi ini, dia SELALU in_zone.
+  signalStatus?: 'in_zone' | 'approaching' | 'waiting';
+
   // Indikator — informasional
   technicalSnapshot?: JournalTechnicalSnapshot;
 
@@ -107,6 +115,43 @@ export async function journalSave(entry: JournalEntry): Promise<JournalEntry[]> 
   const updated = [entry, ...all].slice(0, 300);
   try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
   return updated;
+}
+
+/**
+ * Bikin "kunci" identitas sinyal buat dedup — symbol+bias+sourceSkill+entryPrice
+ * (dibulatin 6 desimal biar toleran floating-point noise). SENGAJA gak ikutin
+ * timestamp/savedAt, given TUJUANNYA emang nangkep 'sinyal yang PERSIS SAMA'
+ * biarpun di-scan ulang di waktu beda.
+ */
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'entryPrice'>): string {
+  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${e.entryPrice.toFixed(6)}`;
+}
+
+/**
+ * Simpan BANYAK entry sekaligus, 1x write ke storage doang (request user,
+ * "Masukin Semua ke Journal" — biar gak satu-satu). Entry BARU ditaruh di
+ * depan (paling baru duluan), sama urutan kayak journalSave biasa.
+ *
+ * FIX (request user, "pastikan gak ada yang terduplikat"): filter 2 lapis
+ * sebelum nyimpen — (1) dalam batch yang mau disimpen sendiri (misal 2 skill
+ * kebetulan kasih sinyal sama), (2) terhadap entry yang UDAH ADA di storage
+ * (misal user klik tombol ini 2x abis refresh scan, sinyalnya masih persis
+ * sama). Return jumlah yang GENUINELY baru disimpen (dipake buat notif UI).
+ */
+export async function journalSaveMany(entries: JournalEntry[]): Promise<{ all: JournalEntry[]; savedCount: number; skippedCount: number }> {
+  const all = await journalLoadAll();
+  const existingKeys = new Set(all.map(signalDedupKey));
+  const seenInBatch = new Set<string>();
+  const deduped: JournalEntry[] = [];
+  for (const e of entries) {
+    const key = signalDedupKey(e);
+    if (existingKeys.has(key) || seenInBatch.has(key)) continue; // udah ada di storage ATAU duplikat sesama batch ini
+    seenInBatch.add(key);
+    deduped.push(e);
+  }
+  const updated = [...deduped, ...all].slice(0, 300);
+  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  return { all: updated, savedCount: deduped.length, skippedCount: entries.length - deduped.length };
 }
 
 export async function journalUpdate(id: string, patch: Partial<JournalEntry>): Promise<JournalEntry[]> {

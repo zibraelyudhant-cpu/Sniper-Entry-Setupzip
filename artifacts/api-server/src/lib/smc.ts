@@ -685,6 +685,24 @@ function calcRSISeries(closes: number[], period = 14): number[] {
 }
 
 /**
+ * Stochastic RSI — Stochastic Oscillator yang diterapkan ke SERIES RSI (bukan
+ * ke harga langsung kayak Stochastic biasa). Lebih sensitif buat baca
+ * overbought/oversold dibanding RSI polos, given itu "stochastic dari
+ * stochastic momentum". Basis filter indikator entry Menu Scalping (request
+ * user, kedua skill — Structural & Skill 15M).
+ */
+function calcStochRSI(closes: number[], rsiPeriod = 14, stochPeriod = 14): number {
+  const rsiSeries = calcRSISeries(closes, rsiPeriod);
+  if (rsiSeries.length < stochPeriod) return 50;
+  const recentRsi = rsiSeries.slice(-stochPeriod);
+  const lo = Math.min(...recentRsi);
+  const hi = Math.max(...recentRsi);
+  if (hi === lo) return 50;
+  const currentRsi = rsiSeries[rsiSeries.length - 1]!;
+  return ((currentRsi - lo) / (hi - lo)) * 100;
+}
+
+/**
  * Hitung Bollinger Bands untuk candle terakhir.
  * Return { upper, middle, lower, bandwidth } untuk candle terakhir.
  */
@@ -2236,9 +2254,13 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
   const maxScore = 4; // pullback volume (wajib) + rejection volume + momentum align + BTC correlation
 
   try {
-    const [m30, m5, tickerRes] = await Promise.all([
+    // FIX (request user): filter indikator (RSI+StochRSI+MACD+Volume) sekarang
+    // cek di H1, BUKAN di M30 (TF struktur) — fetch TAMBAHAN khusus buat filter
+    // ini doang, gak dipake buat zona/breakout (itu tetep M30).
+    const [m30, m5, h1ForFilter, tickerRes] = await Promise.all([
       fetchKlines(symbol, '30m', 100),
       fetchKlines(symbol, '5m', 120),
+      fetchKlines(symbol, '1h', 100),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -2255,9 +2277,16 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       return { status: 'skip', symbol, currentPrice, timestamp, mode: 'structural', message: `ATR M30 terlalu rendah (${atrM30Pct.toFixed(2)}%) — volatilitas gak cukup buat scalping`, maxScore };
     }
 
-    const { resistanceLevels, supportLevels, zoneWidth } = detectZonesForExtreme(m30, atrM30);
+    const zones = detectZonesForExtreme(m30, atrM30);
+    // FIX (request user): zona WAJIB numpuk sama Fibonacci retracement, sama
+    // pola kayak Skill 15M — dipisah dari detectZonesForExtreme (fungsi
+    // shared, sengaja gak diubah) biar Multi-TF Scanner+Counter Structural
+    // tetep apa adanya.
+    const resistanceLevels = filterZonesNumpukFib(zones.resistanceLevels, m30.highs, m30.lows, m30.closes);
+    const supportLevels = filterZonesNumpukFib(zones.supportLevels, m30.highs, m30.lows, m30.closes);
+    const zoneWidth = zones.zoneWidth;
     if (resistanceLevels.length === 0 && supportLevels.length === 0) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: 'Gak ada zona S/R yang valid', maxScore, atr15MPct: atrM30Pct };
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: 'Gak ada zona S/R yang numpuk sama Fibonacci retracement', maxScore, atr15MPct: atrM30Pct };
     }
 
     const picked = tryZoneBreakoutRetest(m30, m5, currentPrice, resistanceLevels, supportLevels, zoneWidth, atrM30, 'M30');
@@ -2268,9 +2297,20 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       return { status: picked.status, symbol, currentPrice, timestamp, mode: 'structural', message: picked.reason, maxScore, atr15MPct: atrM30Pct, marketStructureV2: picked.marketStructureV2 };
     }
 
+    // FIX (request user, kedua skill Menu Scalping): cek RSI+StochRSI+MACD+
+    // Volume SEBELUM sinyal dikasih — cegah BUY pas overbought / SELL pas
+    // oversold (kejadian nyata: sinyal SELL keluar pas oversold, market malah
+    // rebound naik, jadi LOSE). Block kalau minimal 3/4 indikator konsisten
+    // nunjukin kondisi ekstrem lawan arah.
+    const exhaustionCheck = checkIndicatorExhaustion(h1ForFilter.highs, h1ForFilter.lows, h1ForFilter.closes, h1ForFilter.volumes, picked.bias);
+    if (exhaustionCheck.blocked) {
+      return { status: 'no_setup', symbol, bias: picked.bias, currentPrice, timestamp, mode: 'structural', message: exhaustionCheck.reason!, maxScore, atr15MPct: atrM30Pct };
+    }
+
     const filterResults = [
       `✅ Zona S&R terdeteksi (${resistanceLevels.length} resistance, ${supportLevels.length} support), ATR M30 ${atrM30Pct.toFixed(2)}%`,
       `✅ ${picked.note}`,
+      `✅ Indikator H1 gak overbought/oversold lawan arah — RSI ${exhaustionCheck.rsi.toFixed(1)}, StochRSI ${exhaustionCheck.stochRsi.toFixed(1)}`,
     ];
 
     const btcCheck = await checkBtcAlignment(picked.bias, symbol, '30m', 100); // TF struktur (M30)
@@ -2315,9 +2355,11 @@ export interface ScalpingModeClassification {
 
 /**
  * Skill "Scalping 15M" — beda total dari skill Structural (H1→M5 SMC-based).
- * Basis: deteksi zona S/R M15 (bukan garis, tapi ZONA lebar ATR×0.35), validasi
- * breakout+volume, tunggu retest ke zona dengan pullback volume rendah (wajib)
- * + minimal 1 dari 2 konfirmasi tambahan (rejection volume, momentum align).
+ * Basis: deteksi zona S/R M15 pakai Fibonacci retracement confluence (swing
+ * high/low + merge, TAPI WAJIB numpuk sama level Fib — zona lebar ATR×0.35),
+ * validasi breakout+volume, tunggu retest ke zona dengan pullback volume
+ * rendah (wajib) + minimal 1 dari 2 konfirmasi tambahan (rejection volume,
+ * momentum align).
  * FIX (request user): sekarang 1 TF doang (M15) — sebelumnya struktur M15 +
  * eksekusi M1 terpisah, sekarang momentum align & technicalSnapshot eksekusi
  * dihitung dari M15 juga (bukan M1 lagi).
@@ -2333,8 +2375,12 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
   const maxScore = 4; // pullback volume (wajib) + rejection volume + momentum align + BTC correlation
 
   try {
-    const [m15, tickerRes] = await Promise.all([
+    // FIX (request user): filter indikator (RSI+StochRSI+MACD+Volume) sekarang
+    // cek di H1, BUKAN di M15 (TF struktur) — fetch TAMBAHAN khusus buat
+    // filter ini doang, gak dipake buat zona/breakout (itu tetep M15).
+    const [m15, h1ForFilter, tickerRes] = await Promise.all([
       fetchKlines(symbol, '15m', 100),
+      fetchKlines(symbol, '1h', 100),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -2372,11 +2418,24 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       }
       return merged;
     };
-    const resistanceLevels = mergeLevels(swingH);
-    const supportLevels = mergeLevels(swingL);
+    const mergedResistance = mergeLevels(swingH);
+    const mergedSupport = mergeLevels(swingL);
+
+    // FIX (request user): zona WAJIB numpuk sama level Fibonacci retracement
+    // (basis Skill 15M, sama persis pola confluence yang dipake di
+    // detectStrongestZonePerTF/Multi-TF Scanner) — bukan sekadar swing+merge
+    // doang. Toleransi numpuk 0.5% (konsisten sama fungsi lain yang udah ada).
+    const fib15 = calcFibonacci(m15.highs, m15.lows, m15.closes);
+    const filterNumpukFib = (levels: number[]): number[] => {
+      if (!fib15) return []; // gak ada range Fib valid (30 candle terakhir flat) — gak ada zona yang bisa dikonfirmasi
+      const fibValues = Object.values(fib15.levels);
+      return levels.filter(lvl => fibValues.some(fv => (Math.abs(lvl - fv) / lvl) * 100 < 0.5));
+    };
+    const resistanceLevels = filterNumpukFib(mergedResistance);
+    const supportLevels = filterNumpukFib(mergedSupport);
 
     if (resistanceLevels.length === 0 && supportLevels.length === 0) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'Gak ada zona S/R yang valid', maxScore, atr15MPct };
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'Gak ada zona S/R yang numpuk sama Fibonacci retracement', maxScore, atr15MPct };
     }
 
     const volMA20At = (idx: number) => {
@@ -2416,6 +2475,16 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
     const bias = foundBreakout.direction;
     const candlesSinceBreakout = n15 - 1 - foundBreakout.breakoutIdx;
 
+    // FIX (request user, kedua skill Menu Scalping): cek RSI+StochRSI+MACD+
+    // Volume SEBELUM sinyal dikasih — cegah BUY pas overbought / SELL pas
+    // oversold (kejadian nyata: sinyal SELL keluar pas oversold, market malah
+    // rebound naik, jadi LOSE). Block kalau minimal 3/4 indikator konsisten
+    // nunjukin kondisi ekstrem lawan arah.
+    const exhaustionCheck15M = checkIndicatorExhaustion(h1ForFilter.highs, h1ForFilter.lows, h1ForFilter.closes, h1ForFilter.volumes, bias);
+    if (exhaustionCheck15M.blocked) {
+      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, mode: 'scalping15m', message: exhaustionCheck15M.reason!, maxScore, atr15MPct };
+    }
+
     // ═══ Market Structure V2 — primary gate (request user) ════════════════
     const structGate15M = checkStructureV2Gate(m15, bias, 'M15');
     if (structGate15M.blocked) {
@@ -2424,6 +2493,7 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
     if (structGate15M.structureNote) filterResults.push(structGate15M.structureNote);
 
     filterResults.push(`✅ Breakout ${bias === 'bullish' ? 'bullish' : 'bearish'} dari zona ${foundBreakout.zoneLevel.toFixed(4)}, ${candlesSinceBreakout} candle lalu`);
+    filterResults.push(`✅ Indikator H1 gak overbought/oversold lawan arah — RSI ${exhaustionCheck15M.rsi.toFixed(1)}, StochRSI ${exhaustionCheck15M.stochRsi.toFixed(1)}`);
 
     // ── Entry, SL, TP — dihitung dari sini karena zona (edgeUpper/edgeLower)
     // udah FIXED begitu breakout kedeteksi. Dipake buat status 'approaching'
@@ -2660,6 +2730,79 @@ function detectZonesForExtreme(htf: KlineData, atrHtf: number, minTouches = 2): 
       .map(g => g.reduce((a, b) => a + b, 0) / g.length); // level = rata-rata titik dalam grup
   };
   return { resistanceLevels: mergeLevelsWithTouches(swingH), supportLevels: mergeLevelsWithTouches(swingL), zoneWidth };
+}
+
+/**
+ * FIX (request user): filter zona S&R WAJIB numpuk sama level Fibonacci
+ * retracement (30 candle terakhir) — dipake TERPISAH dari detectZonesForExtreme
+ * (fungsi shared itu SENGAJA gak diubah, biar Multi-TF Scanner + Counter
+ * Structural TETAP apa adanya, cuma Structural yang kena filter ini). Pola
+ * confluence sama persis Skill 15M & detectStrongestZonePerTF, toleransi
+ * numpuk 0.5%. Dipanggil manual setelah detectZonesForExtreme, gantiin hasil
+ * resistanceLevels/supportLevels-nya sebelum lanjut ke tryZoneBreakoutRetest.
+ */
+function filterZonesNumpukFib(levels: number[], highs: number[], lows: number[], closes: number[]): number[] {
+  const fib = calcFibonacci(highs, lows, closes);
+  if (!fib) return []; // gak ada range Fib valid (30 candle terakhir flat) — gak ada zona yang bisa dikonfirmasi
+  const fibValues = Object.values(fib.levels);
+  return levels.filter(lvl => fibValues.some(fv => (Math.abs(lvl - fv) / lvl) * 100 < 0.5));
+}
+
+/**
+ * FIX (request user, kedua skill Menu Scalping — Structural & Skill 15M):
+ * cegah kasih sinyal BUY pas market udah overbought, atau SELL pas udah
+ * oversold — kejadian nyata yang dialami user: sinyal SELL keluar pas market
+ * lagi oversold, ternyata malah rebound naik, jadi LOSE.
+ *
+ * Cek 4 indikator: RSI, Stochastic RSI, MACD histogram, Volume. Block SIGNAL
+ * (bukan cuma warning) kalau MAYORITAS (3 dari 4) indikator nunjukin kondisi
+ * "melawan arah" — biar gak terlalu ketat cuma karena 1 indikator kebetulan
+ * ekstrem, tapi tetep block kalau memang udah konsisten di banyak indikator.
+ *
+ * CATATAN JUJUR: backtest 128 trade (38 koin H1) yang saya jalanin sebelum
+ * implementasi ini justru nunjukin KEBALIKAN — sinyal yang "melawan" RSI
+ * ekstrem itu WR-nya LEBIH TINGGI (55.6% vs 38.7%), bukan lebih rendah. Sample
+ * kecil (9 trade) jadi belum konklusif, tapi user tetep minta diimplementasikan
+ * buat ditest sendiri di live — bukan karena udah terbukti bagus di backtest.
+ */
+interface IndicatorExhaustionCheck {
+  blocked: boolean;
+  reason?: string;
+  rsi: number;
+  stochRsi: number;
+  macdHistogram: number;
+  volRatio: number;
+}
+
+function checkIndicatorExhaustion(highs: number[], lows: number[], closes: number[], volumes: number[], bias: 'bullish' | 'bearish'): IndicatorExhaustionCheck {
+  const rsi = calcRSI(closes, 14);
+  const stochRsi = calcStochRSI(closes);
+  const macd = calcMACD(closes);
+  const volMA20 = volumes.length >= 21 ? volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20 : 0;
+  const lastVol = volumes[volumes.length - 1] ?? 0;
+  const volRatio = volMA20 > 0 ? lastVol / volMA20 : 1;
+
+  let exhaustionCount = 0;
+  if (bias === 'bullish') {
+    // BUY tapi overbought — 4 indikator dicek searah "overbought"
+    if (rsi >= 70) exhaustionCount++;
+    if (stochRsi >= 80) exhaustionCount++;
+    if (macd.histogram < 0) exhaustionCount++; // momentum udah mulai melemah
+    if (volRatio < 0.8) exhaustionCount++; // volume ngedrop, kurang dukungan buat lanjut naik
+  } else {
+    // SELL tapi oversold — 4 indikator dicek searah "oversold"
+    if (rsi <= 30) exhaustionCount++;
+    if (stochRsi <= 20) exhaustionCount++;
+    if (macd.histogram > 0) exhaustionCount++;
+    if (volRatio < 0.8) exhaustionCount++;
+  }
+
+  const blocked = exhaustionCount >= 3;
+  const reason = blocked
+    ? `Market udah ${bias === 'bullish' ? 'overbought' : 'oversold'} (${exhaustionCount}/4 indikator: RSI ${rsi.toFixed(1)}, StochRSI ${stochRsi.toFixed(1)}, MACD hist ${macd.histogram.toFixed(4)}, vol ${(volRatio*100).toFixed(0)}% MA20) — resiko rebound lawan arah`
+    : undefined;
+
+  return { blocked, reason, rsi, stochRsi, macdHistogram: macd.histogram, volRatio };
 }
 
 /**
@@ -3492,6 +3635,7 @@ export interface TFDetail {
   rsiDivergence?: DivergenceResult;
   volumeDivergence?: DivergenceResult;
   marketStructureV2?: MarketStructureV2Result | null;
+  breakout?: FreshBreakoutInfo; // request user: breakout candle udah kejadian+valid (TANPA nunggu retest)
 }
 
 export interface MultiTFScanCoin {
@@ -3511,6 +3655,62 @@ export interface MultiTFDetailResult {
   btcTFs?: TFDetail[]; // 6 TF punya BTC, SELALU ada
 }
 
+/**
+ * FIX (request user, revisi dari versi awal): "ADA BREAKOUT" itu breakout
+ * candle-nya UDAH KEJADIAN + VALID (nembus edge zona + volume >1.4x MA20 +
+ * lolos MSV2 gate) — TANPA NUNGGU RETEST. Beda dari tryZoneBreakoutRetest
+ * (yang basisnya Menu Scalping, WAJIB nunggu harga balik retest ke zona dulu
+ * baru dianggap "in_zone"/siap entry). Di sini breakout aja udah cukup buat
+ * ditandain "ada breakout" — bukan sinyal entry siap pakai, cuma info bahwa
+ * breakout barusan kejadian dan bukan fakeout (given volume+MSV2 udah dicek).
+ */
+export interface FreshBreakoutInfo {
+  bias: 'bullish' | 'bearish';
+  level: number;
+  breakoutPrice: number;
+  candlesSinceBreakout: number;
+}
+
+function detectFreshBreakout(
+  htf: KlineData, resistanceLevels: number[], supportLevels: number[], zoneWidth: number, tf: TFLabelV2
+): FreshBreakoutInfo | null {
+  const n = htf.closes.length;
+  const volMA20At = (idx: number) => {
+    const start = Math.max(0, idx - 20);
+    const win = htf.volumes.slice(start, idx);
+    return win.length > 0 ? win.reduce((a, b) => a + b, 0) / win.length : 0;
+  };
+
+  const lookbackMax = 24; // sama window kayak Menu Scalping, biar konsisten "baru aja"
+  let found: { direction: 'bullish' | 'bearish'; level: number; breakoutPrice: number; breakoutIdx: number } | null = null;
+
+  for (let idx = Math.max(1, n - lookbackMax); idx < n; idx++) {
+    const closeAt = htf.closes[idx]!;
+    const volAt = htf.volumes[idx]!;
+    const volMA = volMA20At(idx);
+    if (volMA <= 0) continue;
+    for (const level of resistanceLevels) {
+      const edgeUpper = level + zoneWidth / 2;
+      if (closeAt > edgeUpper && volAt > 1.4 * volMA) found = { direction: 'bullish', level, breakoutPrice: closeAt, breakoutIdx: idx };
+    }
+    for (const level of supportLevels) {
+      const edgeLower = level - zoneWidth / 2;
+      if (closeAt < edgeLower && volAt > 1.4 * volMA) found = { direction: 'bearish', level, breakoutPrice: closeAt, breakoutIdx: idx };
+    }
+  }
+  if (!found) return null;
+
+  // MSV2 gate tetep dicek — biar breakout yang ditandain itu genuinely
+  // searah struktur, bukan breakout liar yang bakal langsung dibantah balik
+  const structGate = checkStructureV2Gate(htf, found.direction, tf);
+  if (structGate.blocked) return null;
+
+  return {
+    bias: found.direction, level: found.level, breakoutPrice: found.breakoutPrice,
+    candlesSinceBreakout: n - 1 - found.breakoutIdx,
+  };
+}
+
 async function buildTFDetail(timeframe: TFDetail['timeframe'], interval: string, symbol: string): Promise<TFDetail> {
   const limitMap: Record<TFDetail['timeframe'], number> = {
     D1: 100, H4: 360, H1: 720, M30: 336, M15: 480, M5: 288,
@@ -3521,10 +3721,29 @@ async function buildTFDetail(timeframe: TFDetail['timeframe'], interval: string,
   const zone = detectStrongestZonePerTF(data.opens, data.highs, data.lows, data.closes, classification.bias);
   const rsiDivergence = detectRSIDivergenceGeneric(data.highs, data.lows, data.closes);
   const volumeDivergence = detectVolumeDivergence(data.highs, data.lows, data.closes, data.volumes);
+
+  // FIX (revisi, request user): "ADA BREAKOUT" itu breakout candle-nya UDAH
+  // KEJADIAN+VALID (nembus edge zona + volume 1.4x + lolos MSV2 gate) — TANPA
+  // NUNGGU RETEST (beda dari versi awal yang reuse tryZoneBreakoutRetest, yang
+  // basisnya Menu Scalping WAJIB nunggu harga balik ke zona dulu).
+  let breakout: FreshBreakoutInfo | null = null;
+  try {
+    const atr = calcATR(data.highs, data.lows, data.closes);
+    if (atr > 0) {
+      const { resistanceLevels, supportLevels, zoneWidth } = detectZonesForExtreme(data, atr);
+      if (resistanceLevels.length > 0 || supportLevels.length > 0) {
+        breakout = detectFreshBreakout(data, resistanceLevels, supportLevels, zoneWidth, timeframe);
+      }
+    }
+  } catch {
+    // breakout check gagal (data kurang dsb) — biarin null, gak perlu gagalin seluruh TFDetail
+  }
+
   return {
     timeframe, bias: classification.bias, adx: classification.adx, confirmations: classification.confirmations,
     zone: zone ?? undefined, rsiDivergence, volumeDivergence,
     marketStructureV2: classification.marketStructureV2,
+    breakout: breakout ?? undefined,
   };
 }
 

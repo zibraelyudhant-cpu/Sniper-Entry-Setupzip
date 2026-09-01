@@ -98,6 +98,13 @@ function JournalEntryCard({
     : entry.status === 'expired' ? colors.mutedForeground : colors.gold;
   const statusLabel = entry.status === 'win_tp1' ? 'WIN TP1' : entry.status === 'win_tp2' ? 'WIN TP2'
     : entry.status === 'lose' ? 'LOSE' : entry.status === 'expired' ? 'EXPIRED' : 'PENDING';
+  // Status SINYAL saat disimpan (request user, "Masukin Semua ke Journal") —
+  // BEDA dari status evaluasi win/lose di atas. Cuma tampil kalau ada
+  // (entry manual satuan gak isi field ini, given itu SELALU in_zone).
+  const signalStatusColor = entry.signalStatus === 'in_zone' ? colors.bullish
+    : entry.signalStatus === 'approaching' ? ACCENT : colors.gold;
+  const signalStatusLabel = entry.signalStatus === 'in_zone' ? '🎯 SIAP ENTRY'
+    : entry.signalStatus === 'approaching' ? '⚡ MENDEKATI' : '⏳ WAITING';
 
   return (
     <AnimatedCard index={index}>
@@ -114,6 +121,11 @@ function JournalEntryCard({
                 <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.mutedForeground}12` }}>
                   <Text style={{ fontSize: 9, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>{entry.sourceSkill}</Text>
                 </View>
+                {entry.signalStatus && (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${signalStatusColor}18`, borderWidth: 1, borderColor: signalStatusColor }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: signalStatusColor }}>{signalStatusLabel}</Text>
+                  </View>
+                )}
               </View>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 4 }}>
