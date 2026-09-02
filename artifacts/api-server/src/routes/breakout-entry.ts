@@ -17,7 +17,7 @@ router.get('/breakout-entry', async (req, res) => {
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   try {
     const result = await analyzeCounterStructural(normalized);
-    const recentPerformance = await getRecentPerformance(normalized, 'breakout_entry');
+    const recentPerformance = await getRecentPerformance(normalized, 'counter_scalping');
     res.json({ ...result, recentPerformance });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

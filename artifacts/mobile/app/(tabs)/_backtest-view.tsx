@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 
 import {
   ActivityIndicator,
-  Animated,
   Platform,
   Pressable,
   ScrollView,
@@ -21,60 +20,44 @@ const ACCENT = MENU_COLORS.backtest;
 const PERIOD_CANDLES: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 4320, '1y': 8640, '2y': 17280, '3y': 25920 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+// GANTI TOTAL (request user, "sekalian diperbarui" — backend sekarang Python
+// vectorized, REPLIKASI PERSIS 3 skill live: Structural, Skill 15M, Counter
+// Scalping). Struktur hasil lebih SEDERHANA dari versi lama (gak ada
+// breakdown "with/without ChoCH/pattern/dst" — itu basis sistem LAMA yang
+// udah ditinggalkan jauh sebelum sesi ini).
 
-interface BreakdownItem {
-  trades: number;
-  wins: number;
-  winRate: number;
+interface BacktestTrade {
+  bias: 'bullish' | 'bearish';
+  result: 'WIN' | 'LOSE';
+  entry_price: number;
+  stop_loss: number;
+  take_profit1: number;
+  entry_time: number;
+  exit_time: number;
 }
 
-interface BacktestAnalysis {
+interface PyBacktestSummary {
   totalTrades: number;
   wins: number;
   losses: number;
   winRate: number;
-  avgRR: number;
-  breakdown: {
-    withChoch15M: BreakdownItem;
-    withoutChoch15M: BreakdownItem;
-    withRejection15M: BreakdownItem;
-    withoutRejection15M: BreakdownItem;
-    withPattern: BreakdownItem;
-    withoutPattern: BreakdownItem;
-    tier1to2: BreakdownItem;
-    tier3plus: BreakdownItem;
-    londonNY: BreakdownItem;
-    asian: BreakdownItem;
-    highVolume: BreakdownItem;
-    lowVolume: BreakdownItem;
-    withBBSqueeze?: BreakdownItem;
-    withoutBBSqueeze?: BreakdownItem;
-    withEMA34Confirm?: BreakdownItem;
-    withoutEMA34Confirm?: BreakdownItem;
-    withM30Correction?: BreakdownItem;
-    withoutM30Correction?: BreakdownItem;
-    strengthLow: BreakdownItem;
-    strengthModerate: BreakdownItem;
-    strengthHigh: BreakdownItem;
-  };
-  lossCauses: Array<{ cause: string; count: number; percentage: number }>;
-  recommendations: string[];
+  trades: BacktestTrade[];
 }
 
 interface BacktestResult {
   symbol: string;
   period: string;
-  totalCandles: number;
-  breakoutResult?: BacktestAnalysis;
-  scalpingResult?: BacktestAnalysis;
-  breakoutEntryResult?: BacktestAnalysis;
   timestamp: string;
+  structuralResult: PyBacktestSummary | null;
+  scalping15mResult: PyBacktestSummary | null;
+  counterScalpingResult: PyBacktestSummary | null;
+  elapsedSeconds: number;
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
 function WinRateBadge({ rate, colors }: { rate: number; colors: ReturnType<typeof useColors> }) {
-  const color = rate >= 75 ? colors.bullish : rate >= 50 ? colors.gold : colors.bearish;
+  const color = rate >= 55 ? colors.bullish : rate >= 40 ? colors.gold : colors.bearish;
   return (
     <View style={[styles.badge, { backgroundColor: `${color}20`, borderColor: color }]}>
       <Text style={[styles.badgeText, { color }]}>{rate.toFixed(1)}%</Text>
@@ -82,203 +65,98 @@ function WinRateBadge({ rate, colors }: { rate: number; colors: ReturnType<typeo
   );
 }
 
-function StrengthTierRow({ low, moderate, high, colors }: {
-  low: BreakdownItem;
-  moderate: BreakdownItem;
-  high: BreakdownItem;
-  colors: ReturnType<typeof useColors>;
-}) {
-  if (low.trades === 0 && moderate.trades === 0 && high.trades === 0) return null;
-
-  return (
-    <View style={{ marginTop: 4, marginBottom: 8 }}>
-      <Text style={[styles.breakdownLabel, { color: colors.foreground, marginBottom: 8 }]}>
-        Win Rate per Level Kekuatan Sinyal
-      </Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {[
-          { label: 'Low', sub: '<40%', item: low },
-          { label: 'Moderate', sub: '40-70%', item: moderate },
-          { label: 'High', sub: '>70%', item: high },
-        ].map(({ label, sub, item }) => (
-          <View key={label} style={{ flex: 1, alignItems: 'center', backgroundColor: colors.surfaceMid, borderRadius: 8, paddingVertical: 10 }}>
-            <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>{label}</Text>
-            <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 6 }}>{sub}</Text>
-            <WinRateBadge rate={item.winRate} colors={colors} />
-            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4 }}>{item.trades} trade</Text>
-          </View>
-        ))}
-      </View>
-      <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 6, fontStyle: 'italic' }}>
-        Skor kekuatan cuma pakai faktor yang dihitung di backtest (belum termasuk BTC Correlation/Economic Calendar) — bukan 100% identik skor live.
-      </Text>
-    </View>
-  );
+function formatTime(ms: number): string {
+  return new Date(ms).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-function BreakdownRow({ label, with: withItem, without: withoutItem, colors }: {
-  label: string;
-  with: BreakdownItem;
-  without: BreakdownItem;
-  colors: ReturnType<typeof useColors>;
-}) {
-  if (withItem.trades === 0 && withoutItem.trades === 0) return null;
-  const diff = withItem.winRate - withoutItem.winRate;
-  const diffColor = diff > 0 ? colors.bullish : diff < 0 ? colors.bearish : colors.mutedForeground;
-
+function TradeRow({ trade, colors }: { trade: BacktestTrade; colors: ReturnType<typeof useColors> }) {
+  const resultColor = trade.result === 'WIN' ? colors.bullish : colors.bearish;
+  const biasColor = trade.bias === 'bullish' ? colors.bullish : colors.bearish;
   return (
-    <View style={[styles.breakdownRow, { borderBottomColor: colors.border }]}>
-      <Text style={[styles.breakdownLabel, { color: colors.foreground }]}>{label}</Text>
-      <View style={styles.breakdownRight}>
-        <View style={styles.breakdownItem}>
-          <Text style={[styles.breakdownSub, { color: colors.mutedForeground }]}>Ada ({withItem.trades})</Text>
-          <WinRateBadge rate={withItem.winRate} colors={colors} />
-        </View>
-        <View style={styles.breakdownItem}>
-          <Text style={[styles.breakdownSub, { color: colors.mutedForeground }]}>Tidak ({withoutItem.trades})</Text>
-          <WinRateBadge rate={withoutItem.winRate} colors={colors} />
-        </View>
-        {Math.abs(diff) > 3 && (
-          <Text style={[styles.breakdownDiff, { color: diffColor }]}>
-            {diff > 0 ? '+' : ''}{diff.toFixed(0)}%
+    <View style={[styles.tradeRow, { borderColor: colors.border }]}>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: biasColor }}>
+            {trade.bias === 'bullish' ? '▲ LONG' : '▼ SHORT'}
           </Text>
-        )}
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>
+            {formatTime(trade.entry_time)}
+          </Text>
+        </View>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>
+          Entry {trade.entry_price.toFixed(4)} · SL {trade.stop_loss.toFixed(4)} · TP {trade.take_profit1.toFixed(4)}
+        </Text>
+      </View>
+      <View style={[styles.tradeResultBadge, { backgroundColor: `${resultColor}20`, borderColor: resultColor }]}>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: resultColor }}>{trade.result}</Text>
       </View>
     </View>
   );
 }
 
-function MenuResult({ title, result, colors, menu }: {
+function MenuResult({ title, result, colors }: {
   title: string;
-  result: BacktestAnalysis;
+  result: PyBacktestSummary;
   colors: ReturnType<typeof useColors>;
-  menu: 'scalping' | 'breakout_entry';
 }) {
   const [expanded, setExpanded] = useState(false);
-  const winColor = result.winRate >= 75 ? colors.bullish : result.winRate >= 50 ? colors.gold : colors.bearish;
+  const winColor = result.winRate >= 55 ? colors.bullish : result.winRate >= 40 ? colors.gold : colors.bearish;
 
-  // Reveal animation: win rate count-up + bar keisi mengikuti, muncul sekali pas hasil pertama render
-  const [displayWinRate, setDisplayWinRate] = useState(0);
-  const revealAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    revealAnim.setValue(0);
-    const listener = revealAnim.addListener(({ value }) => setDisplayWinRate(value));
-    Animated.timing(revealAnim, { toValue: result.winRate, duration: 700, delay: 100, useNativeDriver: false }).start();
-    return () => revealAnim.removeListener(listener);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result.winRate]);
+  if (result.totalTrades === 0) {
+    return (
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.cardTitle, { color: colors.foreground }]}>{title}</Text>
+        <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4 }}>
+          Gak ada sinyal ketemu di periode ini.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      {/* Header */}
       <Pressable onPress={() => setExpanded(!expanded)} style={styles.cardHeader}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>{title}</Text>
-          <Text style={[styles.cardSub, { color: colors.mutedForeground }]}>
-            {result.totalTrades} sinyal · Avg R:R {result.avgRR}
-          </Text>
+          <Text style={[styles.cardSub, { color: colors.mutedForeground }]}>{result.totalTrades} sinyal</Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          <Text style={[styles.winRateMain, { color: winColor }]}>{displayWinRate.toFixed(1)}%</Text>
-          <Text style={[styles.winRateSub, { color: colors.mutedForeground }]}>
-            {result.wins}W / {result.losses}L
-          </Text>
+          <Text style={[styles.winRateMain, { color: winColor }]}>{result.winRate.toFixed(1)}%</Text>
+          <Text style={[styles.winRateSub, { color: colors.mutedForeground }]}>{result.wins}W / {result.losses}L</Text>
         </View>
         <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.mutedForeground} style={{ marginLeft: 8 }} />
       </Pressable>
 
       {expanded && (
         <>
-          {/* Win rate bar */}
           <View style={[styles.barBg, { backgroundColor: colors.border }]}>
-            <View style={[styles.barFill, { width: `${Math.min(displayWinRate, 100)}%`, backgroundColor: winColor }]} />
+            <View style={[styles.barFill, { width: `${Math.min(result.winRate, 100)}%`, backgroundColor: winColor }]} />
           </View>
-
-          {/* Breakdown kondisi */}
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>BREAKDOWN KONDISI</Text>
-          {menu === 'breakout_entry' ? (
-            <>
-              <BreakdownRow label="Tipe Continuation" with={result.breakdown.withChoch15M} without={result.breakdown.withoutChoch15M} colors={colors} />
-            </>
-          ) : (
-            <>
-              {result.breakdown.withBBSqueeze && result.breakdown.withoutBBSqueeze && (
-                <BreakdownRow label="BB Squeeze M30" with={result.breakdown.withBBSqueeze} without={result.breakdown.withoutBBSqueeze} colors={colors} />
-              )}
-              {result.breakdown.withEMA34Confirm && result.breakdown.withoutEMA34Confirm && (
-                <BreakdownRow label="Konfirmasi EMA34 H4" with={result.breakdown.withEMA34Confirm} without={result.breakdown.withoutEMA34Confirm} colors={colors} />
-              )}
-              {result.breakdown.withM30Correction && result.breakdown.withoutM30Correction && (
-                <BreakdownRow label="M30 Sudah Koreksi" with={result.breakdown.withM30Correction} without={result.breakdown.withoutM30Correction} colors={colors} />
-              )}
-            </>
-          )}
-          {/* Pattern & Zona Tier gak relevan buat Breakout Entry — dia gak pakai
-              sistem OB/FVG/S&R tier, dan breakout candle itu sendiri adalah trigger-nya */}
-          {menu !== 'breakout_entry' && (
-            <>
-              <BreakdownRow label="Pattern M30" with={result.breakdown.withPattern} without={result.breakdown.withoutPattern} colors={colors} />
-              <BreakdownRow label="Zona Tier 1-2" with={result.breakdown.tier1to2} without={result.breakdown.tier3plus} colors={colors} />
-            </>
-          )}
-          <BreakdownRow label="London/NY" with={result.breakdown.londonNY} without={result.breakdown.asian} colors={colors} />
-          <BreakdownRow label="Vol Tinggi (≥2x)" with={result.breakdown.highVolume} without={result.breakdown.lowVolume} colors={colors} />
-
-          {/* Penyebab lose */}
-          {result.lossCauses.length > 0 && (
-            <>
-              <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 12 }]}>PENYEBAB LOSE</Text>
-              {result.lossCauses.map((c, idx) => (
-                <View key={idx} style={[styles.causeRow, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.causeRank, { color: colors.bearish }]}>#{idx + 1}</Text>
-                  <Text style={[styles.causeName, { color: colors.foreground }]}>{c.cause}</Text>
-                  <Text style={[styles.causePct, { color: colors.bearish }]}>{c.percentage}%</Text>
-                </View>
-              ))}
-            </>
-          )}
-
-          {/* Rekomendasi */}
-          {result.recommendations.length > 0 && (
-            <>
-              <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 12 }]}>
-                {result.winRate >= 75 ? '✅ PERFORMA BAGUS' : '💡 REKOMENDASI'}
-              </Text>
-              {result.winRate >= 75 ? (
-                <Text style={[styles.recText, { color: colors.bullish }]}>
-                  Win rate sudah di atas 75% — pertahankan filter yang ada.
-                </Text>
-              ) : (
-                result.recommendations.map((rec, idx) => (
-                  <View key={idx} style={[styles.recRow, { borderLeftColor: colors.gold, backgroundColor: `${colors.gold}10` }]}>
-                    <Text style={[styles.recText, { color: colors.foreground }]}>{rec}</Text>
-                  </View>
-                ))
-              )}
-            </>
-          )}
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>DAFTAR TRADE ({result.trades.length})</Text>
+          {result.trades.slice().reverse().map((t, i) => <TradeRow key={i} trade={t} colors={colors} />)}
         </>
       )}
     </View>
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 const PERIODS = [
-  { label: '1 Bulan', value: '1m' },
-  { label: '3 Bulan', value: '3m' },
-  { label: '6 Bulan', value: '6m' },
-  { label: '1 Tahun', value: '1y' },
-  { label: '2 Tahun', value: '2y' },
-  { label: '3 Tahun', value: '3y' },
-] as const;
+  { label: '1 Bulan', value: '1m' as const },
+  { label: '3 Bulan', value: '3m' as const },
+  { label: '6 Bulan', value: '6m' as const },
+  { label: '1 Tahun', value: '1y' as const },
+  { label: '2 Tahun', value: '2y' as const },
+  { label: '3 Tahun', value: '3y' as const },
+];
 
 const MENUS = [
-  { label: 'Counter Scalping', value: 'breakout_entry' },
-  { label: 'Scalping', value: 'breakout' },
-  { label: 'Semua', value: 'both' },
-] as const;
+  { label: 'Structural', value: 'structural' as const },
+  { label: 'Skill 15M', value: 'scalping15m' as const },
+  { label: 'Counter Scalping', value: 'counter_scalping' as const },
+  { label: 'Semua', value: 'both' as const },
+];
 
 export default function BacktestScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const colors = useColors();
@@ -288,7 +166,7 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
 
   const [symbol, setSymbol] = useState('');
   const [period, setPeriod] = useState<'1m' | '3m' | '6m' | '1y' | '2y' | '3y'>('3m');
-  const [menu, setMenu] = useState<'breakout' | 'breakout_entry' | 'both'>('both');
+  const [menu, setMenu] = useState<'structural' | 'scalping15m' | 'counter_scalping' | 'both'>('both');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -329,47 +207,22 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Backtesting</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Analisa performa sinyal historis</Text>
+        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Analisa performa sinyal historis — powered by Python (pandas/numpy)</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
-
-        {/* Disclaimer PERMANEN: engine backtest ini pakai logic LAMA, belum
-            disync sama rewrite-rewrite terbaru di menu live (basis Skill 15M,
-            RR terbaru, dll). Angka win rate di sini JANGAN dijadiin acuan
-            performa sinyal LIVE sekarang — beda logic. */}
-        <View style={{
-          flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16,
-          padding: 12, borderRadius: 10, backgroundColor: 'rgba(248,113,113,0.08)', borderWidth: 1, borderColor: 'rgba(248,113,113,0.3)',
-        }}>
-          <Feather name="alert-triangle" size={16} color="#F87171" style={{ marginTop: 1 }} />
-          <Text style={{ flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>
-            <Text style={{ fontFamily: 'Inter_700Bold', color: '#F87171' }}>PENTING: </Text>
-            Engine backtest ini masih pakai logic LAMA (belum di-update sama semua perubahan terbaru di menu live — threshold, RR, dan basis analisa struktur udah beda). Angka win rate/performa di halaman ini JANGAN dijadiin acuan performa sinyal live sekarang.
-          </Text>
-        </View>
-
-        {/* Input Symbol */}
-        <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="search" size={15} color={colors.mutedForeground} />
-          <TextInput
-            style={[styles.inputText, { color: colors.foreground }]}
-            placeholder="Masukkan pair (BTC atau BTCUSDT)"
-            placeholderTextColor={colors.mutedForeground}
-            value={symbol}
-            onChangeText={setSymbol}
-            autoCapitalize="characters"
-            returnKeyType="done"
-          />
-          {symbol.length > 0 && (
-            <Pressable onPress={() => setSymbol('')}>
-              <Feather name="x" size={14} color={colors.mutedForeground} />
-            </Pressable>
-          )}
-        </View>
+        {/* Input symbol */}
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>PAIR</Text>
+        <TextInput
+          value={symbol}
+          onChangeText={setSymbol}
+          placeholder="BTCUSDT"
+          placeholderTextColor={colors.mutedForeground}
+          autoCapitalize="characters"
+          style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+        />
 
         {/* Pilih Periode */}
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 12 }]}>PERIODE</Text>
@@ -409,14 +262,12 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
           ))}
         </View>
 
-        {/* Warning loading time */}
         <Text style={[styles.warningText, { color: colors.mutedForeground }]}>
           {period === '2y' || period === '3y'
             ? '⏱ Backtest 2-3 tahun bisa membutuhkan beberapa menit'
-            : '⏱ Backtest 6 bulan / 1 tahun membutuhkan 30-60 detik'}
+            : '⏱ Backtest 6 bulan / 1 tahun butuh sekitar 10-30 detik'}
         </Text>
 
-        {/* Tombol Run */}
         <Pressable
           onPress={runBacktest}
           disabled={loading || !symbol.trim()}
@@ -431,7 +282,6 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
           }
         </Pressable>
 
-        {/* Error */}
         {error && (
           <View style={[styles.errorBox, { backgroundColor: `${colors.bearish}15`, borderColor: colors.bearish }]}>
             <Feather name="alert-circle" size={16} color={colors.bearish} />
@@ -439,42 +289,29 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
           </View>
         )}
 
-        {/* Loading state */}
         {loading && (
           <BacktestLoading totalCandles={PERIOD_CANDLES[period] ?? 8640} accentColor={ACCENT} />
         )}
 
-        {/* Hasil */}
         {result && !loading && (
           <>
-            {/* Info periode */}
             <View style={[styles.infoBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.infoText, { color: colors.foreground }]}>
                 {result.symbol.replace('USDT', '/USDT')} · {result.period}
               </Text>
               <Text style={[styles.infoSub, { color: colors.mutedForeground }]}>
-                {result.totalCandles} candle H1 · {result.timestamp}
+                {result.timestamp} · diproses {result.elapsedSeconds}s
               </Text>
             </View>
 
-            {/* Hasil Breakout Entry */}
-            {result.breakoutEntryResult && (
-              <MenuResult
-                title="Menu 1 — Breakout Entry H2"
-                result={result.breakoutEntryResult}
-                colors={colors}
-                menu="breakout_entry"
-              />
+            {result.structuralResult && (
+              <MenuResult title="Scalping — Structural (M30)" result={result.structuralResult} colors={colors} />
             )}
-
-            {/* Hasil Breakout */}
-            {result.breakoutResult && (
-              <MenuResult
-                title="Menu 4 — Scalping SMC M30→M5"
-                result={result.breakoutResult}
-                colors={colors}
-                menu="scalping"
-              />
+            {result.scalping15mResult && (
+              <MenuResult title="Scalping — Skill 15M" result={result.scalping15mResult} colors={colors} />
+            )}
+            {result.counterScalpingResult && (
+              <MenuResult title="Counter Scalping — Multi-Factor Score (H1)" result={result.counterScalpingResult} colors={colors} />
             )}
           </>
         )}
@@ -488,66 +325,37 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  headerTitle: { fontSize: 26, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
+  headerTitle: { fontSize: 20, fontFamily: 'Inter_700Bold' },
   headerSub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
-
-  inputBox: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 12, gap: 8, marginBottom: 4 },
-  inputText: { flex: 1, fontSize: 14, fontFamily: 'Inter_500Medium', letterSpacing: 0.5 },
-
-  sectionLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 1.2, marginBottom: 8 },
-
-  toggleRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 4 },
+  sectionLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.5, marginBottom: 6 },
+  input: {
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, fontFamily: 'Inter_600SemiBold',
+  },
+  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   toggleBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
-  toggleText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
-
-  warningText: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 8, marginBottom: 12 },
-
-  runBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
-  runBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#fff' },
-
-  errorBox: { flexDirection: 'row', gap: 8, borderWidth: 1, borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 12 },
-  errorText: { fontSize: 13, fontFamily: 'Inter_400Regular', flex: 1 },
-
-  loadingBox: { alignItems: 'center', gap: 6, padding: 20 },
-  loadingText: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
-
-  infoBar: { borderRadius: 10, borderWidth: 1, padding: 12, marginBottom: 12 },
-  infoText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  toggleText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  warningText: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 10, fontStyle: 'italic' },
+  runBtn: { marginTop: 16, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  runBtnText: { color: '#fff', fontSize: 15, fontFamily: 'Inter_700Bold' },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, padding: 12, borderRadius: 10, borderWidth: 1 },
+  errorText: { fontSize: 12, fontFamily: 'Inter_400Regular', flex: 1 },
+  infoBar: { marginTop: 16, padding: 12, borderRadius: 10, borderWidth: 1 },
+  infoText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   infoSub: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
-
-  card: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 12 },
+  card: { marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1 },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  cardTitle: { fontSize: 14, fontFamily: 'Inter_700Bold' },
   cardSub: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
-  winRateMain: { fontSize: 22, fontFamily: 'Inter_700Bold' },
-  winRateSub: { fontSize: 11, fontFamily: 'Inter_400Regular' },
-
-  barBg: { height: 6, borderRadius: 3, marginVertical: 10, overflow: 'hidden' },
-  barFill: { height: 6, borderRadius: 3 },
-
-  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
-  breakdownLabel: { fontSize: 12, fontFamily: 'Inter_500Medium', flex: 1 },
-  breakdownRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  breakdownItem: { alignItems: 'center', gap: 2 },
-  breakdownSub: { fontSize: 9, fontFamily: 'Inter_400Regular' },
-  breakdownDiff: { fontSize: 11, fontFamily: 'Inter_700Bold', minWidth: 32, textAlign: 'right' },
-
-  badge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  winRateMain: { fontSize: 20, fontFamily: 'Inter_700Bold' },
+  winRateSub: { fontSize: 10, fontFamily: 'Inter_400Regular' },
+  barBg: { height: 6, borderRadius: 3, marginTop: 12, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 3 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
   badgeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
-
-  causeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
-  causeRank: { fontSize: 11, fontFamily: 'Inter_700Bold', width: 20 },
-  causeName: { fontSize: 12, fontFamily: 'Inter_400Regular', flex: 1 },
-  causePct: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
-
-  recRow: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 8, marginBottom: 6, borderRadius: 4 },
-  recText: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 18 },
-
-  compareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, paddingVertical: 12 },
-  compareItem: { alignItems: 'center', gap: 6 },
-  compareLabel: { fontSize: 12, fontFamily: 'Inter_500Medium' },
-  compareVs: { fontSize: 14, fontFamily: 'Inter_700Bold' },
-  compareResult: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, alignItems: 'center', gap: 4 },
-  compareResultText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
-  compareFilterText: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  tradeRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  tradeResultBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
 });

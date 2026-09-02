@@ -24,7 +24,7 @@ router.get('/breakout', async (req, res) => {
       ? await analyzeScalping15M(normalized)
       : await analyzeScalpingEntry(normalized);
 
-    const recentPerformance = await getRecentPerformance(normalized, 'scalping');
+    const recentPerformance = await getRecentPerformance(normalized, mode);
     res.json({ ...result, mode, recommendedMode: classification.recommendedMode, recentPerformance });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

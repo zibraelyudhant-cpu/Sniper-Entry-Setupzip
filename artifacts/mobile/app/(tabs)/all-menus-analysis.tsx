@@ -272,7 +272,7 @@ export default function AllMenusAnalysisScreen() {
           <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 12 }}>{data.timestamp}</Text>
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.breakout }]}>🔄 COUNTER SCALPING</Text>
-          <MenuResultCard title="Counter Structural" subtitle="H1→M5, kebalikan dari Skill Structural (Menu Scalping)" result={data.breakoutCounterStructural} colors={colors} index={0} />
+          <MenuResultCard title="Multi-Factor Score" subtitle="H1, SuperTrend+RSI+MACD+Bollinger (threshold 0.15)" result={data.breakoutCounterStructural} colors={colors} index={0} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.scalping, marginTop: 8 }]}>⚡ SCALPING</Text>
           <MenuResultCard title="Structural" subtitle="M30→M5, breakout+retest" result={data.scalpingStructural} colors={colors} index={1} />

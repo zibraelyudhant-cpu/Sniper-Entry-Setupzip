@@ -214,7 +214,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     const entries: JournalEntry[] = eligible.map(c => ({
       id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
       symbol: c.symbol, bias: c.bias!,
-      sourceMenu: 'Counter Scalping', sourceSkill: 'Counter Structural',
+      sourceMenu: 'Counter Scalping', sourceSkill: 'Multi-Factor Score',
       entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0, takeProfit2: c.takeProfit2,
       currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
       tfStruktur: 'H1', tfEksekusi: 'M5',
@@ -236,7 +236,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Counter Structural — kebalikan dari Skill Structural Menu 4</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Multi-Factor Score — SuperTrend+RSI+MACD+Bollinger</Text>
       </View>
     );
   }
@@ -316,13 +316,13 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
       {inZone.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🎯 SIAP RETEST — Entry Sekarang</Text>
+          <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>🎯 SIAP ENTRY — Harga di Level Breakout</Text>
           {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
       {ready.length > 0 && (
         <>
-          <Text style={[scanStyles.groupHeader, { color: '#818CF8' }]}>⏳ SIAP BREAKOUT — Tunggu Retest</Text>
+          <Text style={[scanStyles.groupHeader, { color: '#818CF8' }]}>⏳ MENDEKATI — Nunggu Balik ke Level Breakout</Text>
           {ready.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
@@ -413,7 +413,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Counter Scalping', sourceSkill: 'Counter Structural',
+      sourceMenu: 'Counter Scalping', sourceSkill: 'Multi-Factor Score',
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: 'H1', tfEksekusi: 'M5',
@@ -535,9 +535,11 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
             </Pressable>
           )}
 
-          <View style={{ marginHorizontal: 12 }}>
-            <MarketStructureV2Card data={data.marketStructureV2} />
-          </View>
+          {data.marketStructureV2 && (
+            <View style={{ marginHorizontal: 12 }}>
+              <MarketStructureV2Card data={data.marketStructureV2} />
+            </View>
+          )}
 
           {/* Order (STOP buat OI Surge Breakout — chasing momentum breakout
               yang UDAH kejadian. LIMIT buat Funding Rate Kontrarian — nunggu
@@ -571,17 +573,6 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
                 <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? '2'}`}</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
-              {data.zoneEdgeUpper !== undefined && data.zoneEdgeLower !== undefined && (
-                <>
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>{'Zona Breakout (M15)'}</Text>
-                    <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                      {formatPrice(data.zoneEdgeLower)} – {formatPrice(data.zoneEdgeUpper)}
-                    </Text>
-                  </View>
-                </>
-              )}
               {data.candlesNearEdge !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -686,7 +677,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Counter Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Counter Structural — H1 zona S&R sama kayak Menu 4, sinyal dibalik</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Multi-Factor Score (H1) — SuperTrend+RSI+MACD+Bollinger, threshold 0.15</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
