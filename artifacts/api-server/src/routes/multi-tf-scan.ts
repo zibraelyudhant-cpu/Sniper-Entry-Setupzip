@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { scanMultiTFTrendCoin, analyzeMultiTFDetail } from '../lib/smc';
-import { getUniverse } from './screener';
+import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
 
@@ -22,7 +22,12 @@ router.get('/multi-tf-scan', async (req, res) => {
     }
     // Sort by ADX gabungan (D1+H4) desc — trend paling kuat di atas
     results.sort((a, b) => (b.d1Adx + b.h4Adx) - (a.d1Adx + a.h4Adx));
-    res.json({ coins: results, fetchedAt: Date.now() });
+
+    // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
+    const metadata = await getMarketMetadata(results.map(r => r.symbol));
+    const resultsWithMeta = results.map(r => ({ ...r, marketMeta: metadata.get(r.symbol) ?? null }));
+
+    res.json({ coins: resultsWithMeta, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

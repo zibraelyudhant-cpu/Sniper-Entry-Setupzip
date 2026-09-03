@@ -19,6 +19,7 @@ import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
+import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
@@ -76,6 +77,8 @@ interface BreakoutTradingResult {
   marketStructureV2?: MarketStructureV2Result | null;
   btcAligned?: boolean;
   btcBias?: 'bullish' | 'bearish' | 'ranging';
+  // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
+  marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null;
 }
 
 // ─── Fetch hooks — sekarang pake generated React Query hooks (fix bug ketemu
@@ -201,6 +204,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({ query: { staleTime: 3 * 60 * 1000 } });
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('default');
 
   // FIX (request user, "Masukin Semua ke Journal"): status 'waiting' itu GAK
   // PUNYA entryPrice/SL/TP/bias sama sekali — gak bisa dievaluasi, OTOMATIS
@@ -255,9 +259,9 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date(data.fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
-  const inZone      = coins.filter(c => c.status === 'siap_retest');
-  const ready       = coins.filter(c => c.status === 'approaching');
-  const pantau      = coins.filter(c => c.status === 'waiting');
+  const inZone      = applySorting(coins.filter(c => c.status === 'siap_retest'), sortKey, c => c.marketMeta);
+  const ready       = applySorting(coins.filter(c => c.status === 'approaching'), sortKey, c => c.marketMeta);
+  const pantau      = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, c => c.marketMeta);
 
   if (coins.length === 0) {
     return (
@@ -283,6 +287,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
         <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
+
+      <SortSelector value={sortKey} onChange={setSortKey} />
 
       {eligibleCount > 0 && (
         <Pressable

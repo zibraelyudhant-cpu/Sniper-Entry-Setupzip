@@ -13,6 +13,20 @@ export interface JournalTFIndicator {
   mfi: number;
   cci: number;
   roc: number;
+  // FIX (request user, 12 indikator tambahan)
+  williamsR: number;
+  momentum: number;
+  awesomeOscillator: number;
+  chaikinMoneyFlow: number;
+  obv: number;
+  atrSqueeze: number;
+  keltnerUpper: number; keltnerMiddle: number; keltnerLower: number;
+  bbUpper: number; bbMiddle: number; bbLower: number; bbBandwidth: number;
+  trix: number;
+  elderBullPower: number; elderBearPower: number;
+  vwap: number;
+  cvd: number;
+  openInterest: number | null;
 }
 
 export interface JournalTechnicalSnapshot {
@@ -290,7 +304,84 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
   }
 }
 
-// ─── Analisa pola (win rate per kondisi) ───────────────────────────────────
+// ─── Analisa pasca-trade otomatis (request user, "Menu Journal AI Agent" —
+// cek 1 jam setelah SL/TP kena, apakah market beneran lanjut/balik) ────────
+
+function getFollowupApiUrl(path: string): string {
+  return typeof window !== 'undefined'
+    ? `${window.location.origin}${path}`
+    : `https://${process.env['EXPO_PUBLIC_DOMAIN']}${path}`;
+}
+
+/**
+ * Daftarin entry yang BARU RESOLVE (status berubah dari pending ke
+ * win_tp1/win_tp2/lose) ke server — server bakal cek harga 1 jam kemudian
+ * via background worker. Dipanggil OTOMATIS begitu journalEvaluate ngasih
+ * status non-pending (lihat journal.tsx handleEvaluate/handleEvaluateAll).
+ * Gagal DIAM-DIAM (gak throw) — ini fitur analisa TAMBAHAN, bukan boleh
+ * ganggu alur evaluasi utama kalau server API lagi bermasalah.
+ */
+export async function registerFollowup(entry: JournalEntry, patch: Partial<JournalEntry>): Promise<void> {
+  const status = patch.status;
+  if (status !== 'win_tp1' && status !== 'win_tp2' && status !== 'lose') return; // cuma resolve yang didaftarin
+  const resolvedAt = patch.resolvedAt;
+  const exitPrice = patch.exitPrice;
+  if (!resolvedAt || exitPrice === undefined) return; // data gak lengkap, skip diam-diam
+
+  try {
+    await fetch(getFollowupApiUrl('/api/journal/register-followup'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        journalEntryId: entry.id,
+        symbol: entry.symbol,
+        bias: entry.bias,
+        sourceMenu: entry.sourceMenu,
+        sourceSkill: entry.sourceSkill,
+        resolvedStatus: status,
+        resolvedPrice: exitPrice,
+        resolvedAt,
+        atrStrukturAtSignal: entry.technicalSnapshot?.struktur?.atr,
+      }),
+    });
+  } catch {
+    // diam-diam gagal — fitur analisa tambahan, gak boleh ganggu evaluasi utama
+  }
+}
+
+export interface SignalFollowupResult {
+  journalEntryId: string;
+  symbol: string;
+  bias: string;
+  resolvedStatus: string;
+  resolvedPrice: number;
+  checkedAt: string | null;
+  checkPrice1h: number | null;
+  priceChangePct: number | null;
+  priceChangeAtrRatio: number | null;
+  verdict: string | null;
+  verdictNote: string | null;
+  isPending: boolean;
+}
+
+/**
+ * Fetch hasil followup buat sekumpulan entry (dipanggil pas buka tab Journal
+ * "Ringkasan"/list, biar bisa gabungin hasil analisa pasca-trade ke tampilan).
+ * Return map kosong kalau gagal fetch (fail-safe, gak throw).
+ */
+export async function fetchFollowups(journalEntryIds: string[]): Promise<Map<string, SignalFollowupResult>> {
+  if (journalEntryIds.length === 0) return new Map();
+  try {
+    const idsParam = journalEntryIds.join(',');
+    const res = await fetch(getFollowupApiUrl(`/api/journal/followups?ids=${encodeURIComponent(idsParam)}`));
+    if (!res.ok) return new Map();
+    const data = await res.json() as { followups: SignalFollowupResult[] };
+    return new Map(data.followups.map(f => [f.journalEntryId, f]));
+  } catch {
+    return new Map();
+  }
+}
+
 
 export interface JournalBreakdown {
   label: string;

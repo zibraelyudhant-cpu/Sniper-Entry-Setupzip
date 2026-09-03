@@ -337,6 +337,33 @@ export default router;
 let universeCache: { symbols: string[]; ts: number } | null = null;
 const UNIVERSE_CACHE_MS = 10 * 60 * 1000;
 
+// FIX (request user, tombol sortir "Volume/Perubahan Harga/Funding Rate" di
+// semua menu scan — samain persis kolom yang ada di Binance Futures market
+// list): simpan metadata priceChangePercent+quoteVolume DARI DATA YANG UDAH
+// DI-FETCH getUniverse() sendiri (ticker/24hr), TANPA nambah API call baru
+// sama sekali buat 2 dari 3 kriteria sortir.
+export interface MarketMetadataEntry {
+  priceChangePercent: number; // dari ticker/24hr, field "priceChangePercent"
+  quoteVolume: number; // dari ticker/24hr, field "quoteVolume" (USDT)
+  fundingRate: number | null; // dari premiumIndex, field "lastFundingRate" — null kalau gagal fetch/gak ketemu
+}
+
+// FIX BUG KRUSIAL (ketemu user, "sortir gak ngaruh, urutan tetep sama"):
+// versi SEBELUMNYA getMarketMetadata() BERGANTUNG ke side-effect getUniverse()
+// buat ngisi tickerMetadataCache — TAPI getUniverse() punya jalur "return cepat"
+// (baris if universeCache masih valid) yang TIDAK PERNAH nyentuh blok yang
+// nge-set tickerMetadataCache. Kalau ada RACE/timing dimana tickerMetadataCache
+// null/stale TAPI universeCache masih valid, metadata GAK PERNAH KE-ISI —
+// semua koin dapet fallback 0/null, jadi SORT-nya SECARA VISUAL "gak ngaruh"
+// (angka yang dibandingin sama semua). FIX: getMarketMetadata() PUNYA CACHE
+// SENDIRI, FETCH SENDIRI kalau perlu — TIDAK bergantung state global punya
+// fungsi lain sama sekali.
+let marketMetadataCache: { data: Map<string, { priceChangePercent: number; quoteVolume: number }>; ts: number } | null = null;
+const MARKET_METADATA_CACHE_MS = 3 * 60 * 1000; // lebih pendek dari universe cache — data harga/volume lebih cepat berubah
+
+let fundingRateCache: { data: Map<string, number>; ts: number } | null = null;
+const FUNDING_RATE_CACHE_MS = 5 * 60 * 1000; // funding rate update tiap 8 jam di Binance, 5 menit cache cukup aman
+
 export async function getUniverse(): Promise<string[]> {
   if (universeCache && Date.now() - universeCache.ts < UNIVERSE_CACHE_MS) {
     return universeCache.symbols;
@@ -356,13 +383,23 @@ export async function getUniverse(): Promise<string[]> {
         if (attempt < 1) { await new Promise(r => setTimeout(r, 1000)); continue; }
         throw new Error(`Failed to fetch tickers (${tickersRes.status})`);
       }
-      const allTickers: Array<{ symbol: string; quoteVolume: string }> = await tickersRes.json();
-      const symbols = allTickers
-        .filter(t => cryptoSymbols.has(t.symbol))
+      const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = await tickersRes.json();
+      const filtered = allTickers.filter(t => cryptoSymbols.has(t.symbol));
+      const symbols = filtered
         .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
         .slice(0, 150) // Dinaikkan dari 50 (request user, lebih banyak sinyal tanpa turunin threshold — SEMUA menu termasuk Menu 4 pakai fungsi shared ini, TIDAK ada logic analyze yang disentuh)
         .map(t => t.symbol);
       universeCache = { symbols, ts: Date.now() };
+
+      // Simpan metadata SEKALIAN — data yang sama, gak fetch ulang. TETEP
+      // di-set di sini buat kasus normal (efisien, gak nambah API call),
+      // TAPI getMarketMetadata() DIBAWAH GAK BERGANTUNG SEMATA-MATA ke ini.
+      const metaMap = new Map<string, { priceChangePercent: number; quoteVolume: number }>();
+      for (const t of filtered) {
+        metaMap.set(t.symbol, { priceChangePercent: parseFloat(t.priceChangePercent), quoteVolume: parseFloat(t.quoteVolume) });
+      }
+      marketMetadataCache = { data: metaMap, ts: Date.now() };
+
       return symbols;
     } catch (err) {
       if (attempt < 1) { await new Promise(r => setTimeout(r, 1000)); continue; }
@@ -372,4 +409,62 @@ export async function getUniverse(): Promise<string[]> {
     }
   }
   throw new Error('Failed to fetch universe after retries');
+}
+
+/**
+ * FIX: independen — cek cache SENDIRI, kalau stale/kosong FETCH SENDIRI
+ * (ticker/24hr, TANPA filter cryptoSymbols — kita cuma butuh price/volume,
+ * gak perlu filter kategori). TIDAK bergantung sama sekali ke getUniverse()
+ * pernah dipanggil atau enggak sebelumnya.
+ */
+async function ensureMarketMetadataFresh(): Promise<void> {
+  if (marketMetadataCache && Date.now() - marketMetadataCache.ts < MARKET_METADATA_CACHE_MS) return;
+  try {
+    const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr`);
+    if (!res.ok) return; // fail-safe — biarin cache lama (kalau ada) atau tetep kosong, JANGAN throw
+    const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = await res.json();
+    const metaMap = new Map<string, { priceChangePercent: number; quoteVolume: number }>();
+    for (const t of allTickers) {
+      metaMap.set(t.symbol, { priceChangePercent: parseFloat(t.priceChangePercent), quoteVolume: parseFloat(t.quoteVolume) });
+    }
+    marketMetadataCache = { data: metaMap, ts: Date.now() };
+  } catch {
+    // fail-safe — sortir cuma gak akurat, gak boleh gagalin scan
+  }
+}
+
+async function getFundingRateMap(): Promise<Map<string, number>> {
+  if (fundingRateCache && Date.now() - fundingRateCache.ts < FUNDING_RATE_CACHE_MS) {
+    return fundingRateCache.data;
+  }
+  try {
+    const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/premiumIndex`); // TANPA symbol = semua koin sekaligus, 1x call doang
+    if (!res.ok) return fundingRateCache?.data ?? new Map();
+    const data: Array<{ symbol: string; lastFundingRate: string }> = await res.json();
+    const map = new Map<string, number>();
+    for (const d of data) map.set(d.symbol, parseFloat(d.lastFundingRate));
+    fundingRateCache = { data: map, ts: Date.now() };
+    return map;
+  } catch {
+    return fundingRateCache?.data ?? new Map(); // fail-safe — sortir funding rate cuma gak akurat, gak boleh gagalin scan
+  }
+}
+
+/**
+ * Ambil metadata (perubahan harga, volume, funding rate) buat SEKUMPULAN
+ * simbol sekaligus — dipanggil abis hasil scan siap, di tiap route scan.
+ */
+export async function getMarketMetadata(symbols: string[]): Promise<Map<string, MarketMetadataEntry>> {
+  await ensureMarketMetadataFresh();
+  const fundingMap = await getFundingRateMap();
+  const result = new Map<string, MarketMetadataEntry>();
+  for (const symbol of symbols) {
+    const ticker = marketMetadataCache?.data.get(symbol);
+    result.set(symbol, {
+      priceChangePercent: ticker?.priceChangePercent ?? 0,
+      quoteVolume: ticker?.quoteVolume ?? 0,
+      fundingRate: fundingMap.get(symbol) ?? null,
+    });
+  }
+  return result;
 }

@@ -23,6 +23,7 @@ import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
+import { SortSelector, applySorting, type SortKey, type MarketMeta } from '@/components/SortSelector';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 
 const ACCENT = MENU_COLORS.scalping;
@@ -152,6 +153,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   });
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('default');
 
   // FIX (request user, "Masukin Semua ke Journal"): status 'waiting' itu GAK
   // PUNYA entryPrice/SL/TP/bias sama sekali (belum ada breakout kejadian) —
@@ -211,9 +213,15 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date((data as any).fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
-  const inZone     = coins.filter(c => c.status === 'in_zone');
-  const approaching = coins.filter(c => c.status === 'approaching');
-  const waiting    = coins.filter(c => c.status === 'waiting');
+  // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate):
+  // marketMeta di-attach backend TAPI belum ada di generated api.schemas.ts
+  // (file itu sengaja gak diedit manual — resiko ketimpa kalau ada proses
+  // regenerate dari openapi.yaml). Cast manual di sini, pola yang SAMA
+  // kayak (data as any).fetchedAt yang udah ada di atas.
+  const getMeta = (c: ScalpingResult): MarketMeta | null => (c as any).marketMeta ?? null;
+  const inZone     = applySorting(coins.filter(c => c.status === 'in_zone'), sortKey, getMeta);
+  const approaching = applySorting(coins.filter(c => c.status === 'approaching'), sortKey, getMeta);
+  const waiting    = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, getMeta);
 
   if (coins.length === 0) {
     return (
@@ -239,6 +247,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
         <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
       </View>
+
+      <SortSelector value={sortKey} onChange={setSortKey} />
 
       {eligibleCount > 0 && (
         <Pressable

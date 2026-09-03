@@ -18,6 +18,7 @@ import {
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
+  registerFollowup, fetchFollowups, type SignalFollowupResult,
   type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
 
@@ -85,10 +86,11 @@ function IndicatorRow({ label, value, colors }: { label: string; value: string; 
 }
 
 function JournalEntryCard({
-  entry, colors, index, expanded, onToggle, onEvaluate, onDelete, evaluating,
+  entry, colors, index, expanded, onToggle, onEvaluate, onDelete, evaluating, followup,
 }: {
   entry: JournalEntry; colors: ReturnType<typeof useColors>; index: number;
   expanded: boolean; onToggle: () => void; onEvaluate: () => void; onDelete: () => void; evaluating: boolean;
+  followup?: SignalFollowupResult;
 }) {
   const isBuy = entry.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
@@ -201,6 +203,37 @@ function JournalEntryCard({
               </>
             )}
 
+            {/* Analisa Pasca-Trade (request user, Menu Journal "AI Agent") —
+                cek 1 jam SETELAH SL/TP kena, apakah market beneran lanjut ke
+                arah bias asli atau balik. Cuma tampil buat entry yang UDAH
+                RESOLVE (win/lose), dan udah didaftarin ke server. */}
+            {(entry.status === 'win_tp1' || entry.status === 'win_tp2' || entry.status === 'lose') && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.gold, letterSpacing: 0.5, marginTop: 10, marginBottom: 6 }}>
+                  🤖 ANALISA PASCA-TRADE (1 JAM SETELAH)
+                </Text>
+                {!followup ? (
+                  <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, fontStyle: 'italic' }}>
+                    Belum terdaftar — bakal otomatis dicek server begitu lo evaluasi ulang atau buka lagi nanti.
+                  </Text>
+                ) : followup.isPending ? (
+                  <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, fontStyle: 'italic' }}>
+                    ⏳ Masih dipantau — server bakal cek harga 1 jam setelah resolve, hasilnya muncul di sini otomatis.
+                  </Text>
+                ) : (
+                  <View style={{ backgroundColor: `${colors.gold}12`, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: `${colors.gold}40` }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 4 }}>
+                      {followup.priceChangePct !== null ? `${followup.priceChangePct > 0 ? '+' : ''}${followup.priceChangePct.toFixed(2)}%` : '-'} dalam 1 jam
+                      {followup.priceChangeAtrRatio !== null ? ` (${Math.abs(followup.priceChangeAtrRatio).toFixed(2)}x ATR)` : ''}
+                    </Text>
+                    <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15 }}>
+                      {followup.verdictNote}
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
               {entry.status === 'pending' && (
                 <Pressable onPress={onEvaluate} disabled={evaluating}
@@ -234,6 +267,7 @@ export default function JournalScreen() {
   const [menuFilter, setMenuFilter] = useState<SourceMenu | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
+  const [followups, setFollowups] = useState<Map<string, SignalFollowupResult>>(new Map());
 
   const load = useCallback(async (showSpinner: boolean) => {
     if (showSpinner) setLoading(true);
@@ -241,6 +275,31 @@ export default function JournalScreen() {
     setEntries(all);
     setLoading(false);
     hasLoadedOnceRef.current = true;
+
+    // Fetch hasil "Analisa Pasca-Trade" (request user, Menu Journal "AI
+    // Agent") — cuma buat entry yang UDAH RESOLVE (pending gak punya
+    // followup sama sekali). Fail-safe di dalam fetchFollowups sendiri.
+    const resolved = all.filter(e => e.status !== 'pending' && e.status !== 'expired');
+    if (resolved.length > 0) {
+      const result = await fetchFollowups(resolved.map(e => e.id));
+      setFollowups(result);
+
+      // FIX (gap ketemu pas review — sinyal LAMA yang resolve SEBELUM fitur
+      // ini ada gak akan pernah kedaftar, given registerFollowup cuma
+      // dipanggil pas TITIK EVALUASI, bukan titik LOAD): daftarin OTOMATIS
+      // entry yang statusnya resolve TAPI belum ada di hasil fetch sama
+      // sekali (bukan cuma isPending — genuinely gak kedaftar). Batch 5 +
+      // delay, biar gak flood server kalau ada RATUSAN sinyal lama sekaligus
+      // (kejadian nyata: user punya 175 sinyal Journal).
+      const unregistered = resolved.filter(e => !result.has(e.id) && e.exitPrice !== undefined && e.resolvedAt !== undefined);
+      (async () => {
+        for (let i = 0; i < unregistered.length; i += 5) {
+          const batch = unregistered.slice(i, i + 5);
+          await Promise.all(batch.map(e => registerFollowup(e, { status: e.status, exitPrice: e.exitPrice, resolvedAt: e.resolvedAt })));
+          if (i + 5 < unregistered.length) await new Promise(r => setTimeout(r, 200));
+        }
+      })();
+    }
   }, []);
 
   // Fix: dulu pake useEffect biasa — cuma load data pas screen ini PERTAMA
@@ -264,6 +323,7 @@ export default function JournalScreen() {
     const updated = await journalUpdate(entry.id, patch);
     setEntries(updated);
     setEvaluatingId(null);
+    registerFollowup(entry, patch); // fire-and-forget — analisa pasca-trade (request user)
   }, []);
 
   const handleDelete = useCallback(async (id: string) => {
@@ -293,9 +353,10 @@ export default function JournalScreen() {
       const batch = pending.slice(i, i + batchSize);
       const results = await Promise.all(batch.map(async (entry) => {
         const patch = await journalEvaluate(entry);
-        return { id: entry.id, patch };
+        return { id: entry.id, patch, entry };
       }));
-      patches.push(...results);
+      patches.push(...results.map(r => ({ id: r.id, patch: r.patch })));
+      results.forEach(r => registerFollowup(r.entry, r.patch)); // fire-and-forget — analisa pasca-trade (request user)
       setEvalProgress({ done: Math.min(i + batchSize, pending.length), total: pending.length });
       if (i + batchSize < pending.length) await new Promise(r => setTimeout(r, 300));
     }
@@ -400,6 +461,7 @@ export default function JournalScreen() {
               onEvaluate={() => handleEvaluate(entry)}
               onDelete={() => handleDelete(entry.id)}
               evaluating={evaluatingId === entry.id}
+              followup={followups.get(entry.id)}
             />
           ))}
         </ScrollView>

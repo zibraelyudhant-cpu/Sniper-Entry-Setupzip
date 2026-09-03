@@ -173,13 +173,14 @@ def run_backtest_15m(m15_df, h4_df, btc_h1_df, start_idx=150, step=1):
 
 def run_backtest_counter(h1_df, btc_h1_df, start_idx=150, step=1):
     trades = []
-    series = precompute_counter_series(h1_df)  # SEKALI doang, bukan per-titik
+    series = precompute_counter_series(h1_df)  # SuperTrend/RSI/MACD/Bollinger — SEKALI doang
+    exhaustion_series = precompute_indicator_series(h1_df)  # RSI/StochRSI/MACD/CCI/MFI/ROC/Vol — buat filter exhaustion (sinkron smc.ts)
     i = start_idx
     n = len(h1_df)
     while i < n - 5:
         h1_ts = h1_df["timestamp"].iloc[i]
         btc_bias = get_btc_bias_at(btc_h1_df, h1_ts, "H1") if btc_h1_df is not None else None
-        entry = try_entry_counter_scalping(h1_df, i, series, btc_h1_bias=btc_bias)
+        entry = try_entry_counter_scalping(h1_df, i, series, exhaustion_series, btc_h1_bias=btc_bias)
         if entry:
             fill_idx = wait_for_limit_fill(h1_df, entry["entry_idx"], entry["entry_price"], entry["bias"])
             if fill_idx is not None:

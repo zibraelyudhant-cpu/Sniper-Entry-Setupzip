@@ -12,6 +12,7 @@ import { ScanLoading } from '@/components/animated/ScanLoading';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
+import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { MENU_COLORS } from '@/constants/theme';
 
 const ACCENT = MENU_COLORS.multiTfScan;
@@ -59,6 +60,8 @@ interface MultiTFScanCoin {
   d1Adx: number;
   h4Bias: Bias;
   h4Adx: number;
+  // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
+  marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null;
 }
 
 interface MultiTFDetailResult {
@@ -172,7 +175,8 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: MultiTFScanC
 function ScanView({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (symbol: string) => void }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, refetch } = useMultiTFScan();
-  const coins = data?.coins ?? [];
+  const [sortKey, setSortKey] = useState<SortKey>('default');
+  const coins = applySorting(data?.coins ?? [], sortKey, c => c.marketMeta);
   const fetchedAt = data ? new Date(Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
 
   if (isLoading) {
@@ -221,6 +225,7 @@ function ScanView({ colors, onSelectCoin }: { colors: ReturnType<typeof useColor
           <Text style={[scanStyles.scanNowText, { color: ACCENT }]}>Scan Ulang</Text>
         </Pressable>
       </View>
+      <SortSelector value={sortKey} onChange={setSortKey} />
       <Text style={[scanStyles.groupHeader, { color: ACCENT }]}>📊 D1 & H4 TRENDING KUAT ({coins.length} koin)</Text>
       {coins.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c.symbol); }} />)}
     </ScrollView>

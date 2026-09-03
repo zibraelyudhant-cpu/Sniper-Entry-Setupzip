@@ -8,6 +8,7 @@ import pandas as pd
 from indicators import calc_rsi_wilder, calc_macd, calc_atr_wilder
 from zones import detect_zones_for_extreme
 from msv2 import analyze_market_structure_v2
+from exhaustion import check_indicator_exhaustion_at
 
 
 def _average_true_range_simple(highs, lows, closes, window=10):
@@ -186,7 +187,15 @@ def find_fresh_breakout_level(h1_slice, bias, lookback=24):
     return found["level"]
 
 
-def try_entry_counter_scalping(h1_df, idx_h1, series, threshold=0.15, btc_h1_bias=None):
+def try_entry_counter_scalping(h1_df, idx_h1, series, exhaustion_series, threshold=0.15, btc_h1_bias=None):
+    """
+    exhaustion_series: precompute_indicator_series(h1_df) dari indicators.py —
+    TERPISAH dari `series` (precompute_counter_series, khusus Multi-Factor
+    Score). FIX (request user, sinkronisasi sama smc.ts — Counter Scalping
+    SEBELUMNYA gak punya filter exhaustion sama sekali, sekarang ada, sama
+    kayak Menu Scalping): cek RSI+StochRSI+MACD+Vol+CCI+MFI+ROC SEBELUM
+    sinyal dikasih.
+    """
     h1_slice = h1_df.iloc[:idx_h1 + 1]
     if len(h1_slice) < 100:
         return None
@@ -197,6 +206,10 @@ def try_entry_counter_scalping(h1_df, idx_h1, series, threshold=0.15, btc_h1_bia
     composite, _ = compute_multifactor_score_at(series, closes, idx_h1)
     bias = "bullish" if composite >= threshold else "bearish" if composite <= -threshold else None
     if bias is None:
+        return None
+
+    exhaustion = check_indicator_exhaustion_at(exhaustion_series, idx_h1, bias)
+    if exhaustion["blocked"]:
         return None
 
     fresh_level = find_fresh_breakout_level(h1_slice, bias)

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { analyzeScalpingEntry, analyzeScalping15M, classifyScalpingMode, fetchKlines, getRecentPerformance } from '../lib/smc';
-import { getUniverse } from './screener';
+import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
 
@@ -68,7 +68,15 @@ router.get('/breakout/scan', async (req, res) => {
       if (ao !== bo) return ao - bo;
       return (b.score ?? 0) - (a.score ?? 0);
     });
-    res.json({ coins: results, fetchedAt: Date.now() });
+
+    // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate —
+    // samain persis kolom Binance Futures market list): attach metadata ke
+    // tiap koin. Sortir SENDIRI dikerjain di mobile UI (client-side, data
+    // udah lengkap di sini), backend cuma nempelin datanya.
+    const metadata = await getMarketMetadata(results.map(r => r.symbol));
+    const resultsWithMeta = results.map(r => ({ ...r, marketMeta: metadata.get(r.symbol) ?? null }));
+
+    res.json({ coins: resultsWithMeta, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

@@ -627,6 +627,158 @@ function calcROC(closes: number[], period = 12): number {
   return ((current - past) / past) * 100;
 }
 
+// ─── 12 indikator tambahan buat Journal Trading (request user) ────────────────
+
+/** Williams %R — mirip Stochastic tapi skalanya -100 sampai 0. */
+function calcWilliamsR(highs: number[], lows: number[], closes: number[], period = 14): number {
+  const n = closes.length;
+  if (n < period) return -50;
+  const win = n - period;
+  const highest = Math.max(...highs.slice(win));
+  const lowest = Math.min(...lows.slice(win));
+  if (highest === lowest) return -50;
+  return ((highest - closes[n - 1]!) / (highest - lowest)) * -100;
+}
+
+/** Momentum Indicator — selisih harga sekarang vs N candle lalu (mentah, bukan %). */
+function calcMomentum(closes: number[], period = 10): number {
+  const n = closes.length;
+  if (n < period + 1) return 0;
+  return closes[n - 1]! - closes[n - 1 - period]!;
+}
+
+/** Awesome Oscillator (Bill Williams) — SMA(5) - SMA(34) dari midpoint (H+L)/2. */
+function calcAwesomeOscillator(highs: number[], lows: number[]): number {
+  const n = highs.length;
+  if (n < 34) return 0;
+  const midpoints = highs.map((h, i) => (h + lows[i]!) / 2);
+  const sma5 = midpoints.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const sma34 = midpoints.slice(-34).reduce((a, b) => a + b, 0) / 34;
+  return sma5 - sma34;
+}
+
+/** Chaikin Money Flow — rata-rata Money Flow Volume selama period, dinormalisasi volume. */
+function calcChaikinMoneyFlow(highs: number[], lows: number[], closes: number[], volumes: number[], period = 20): number {
+  const n = closes.length;
+  if (n < period) return 0;
+  let mfVolSum = 0, volSum = 0;
+  for (let i = n - period; i < n; i++) {
+    const range = highs[i]! - lows[i]!;
+    const mfMultiplier = range > 0 ? ((closes[i]! - lows[i]!) - (highs[i]! - closes[i]!)) / range : 0;
+    mfVolSum += mfMultiplier * volumes[i]!;
+    volSum += volumes[i]!;
+  }
+  return volSum > 0 ? mfVolSum / volSum : 0;
+}
+
+/** OBV (On Balance Volume) — akumulasi volume searah pergerakan harga. Return nilai kumulatif mentah. */
+function calcOBV(closes: number[], volumes: number[]): number {
+  let obv = 0;
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i]! > closes[i - 1]!) obv += volumes[i]!;
+    else if (closes[i]! < closes[i - 1]!) obv -= volumes[i]!;
+  }
+  return obv;
+}
+
+/** ATR Squeeze — rasio ATR sekarang vs rata-rata ATR N candle lalu. <1 = volatilitas menyempit (squeeze), >1 = melebar. */
+function calcATRSqueeze(highs: number[], lows: number[], closes: number[], period = 14, lookback = 20): number {
+  const n = closes.length;
+  if (n < period + lookback) return 1;
+  const atrSeries: number[] = [];
+  for (let end = period + 1; end <= n; end++) {
+    atrSeries.push(calcATR(highs.slice(0, end), lows.slice(0, end), closes.slice(0, end)));
+  }
+  const currentATR = atrSeries[atrSeries.length - 1]!;
+  const avgATR = atrSeries.slice(-lookback).reduce((a, b) => a + b, 0) / Math.min(lookback, atrSeries.length);
+  return avgATR > 0 ? currentATR / avgATR : 1;
+}
+
+interface KeltnerChannels { upper: number; middle: number; lower: number; }
+/** Keltner Channels — EMA(20) tengah, ± ATR×multiplier. */
+function calcKeltnerChannels(highs: number[], lows: number[], closes: number[], period = 20, multiplier = 2): KeltnerChannels {
+  const middle = calcEMASeries(closes, period)[closes.length - 1] ?? closes[closes.length - 1] ?? 0;
+  const atr = calcATR(highs, lows, closes);
+  return { upper: middle + atr * multiplier, middle, lower: middle - atr * multiplier };
+}
+
+interface BollingerBandsResult { upper: number; middle: number; lower: number; bandwidth: number; }
+/** Bollinger Bands — SMA(20) ± 2×stdev. bandwidth = lebar band relatif ke middle (%), buat baca squeeze/expansion. */
+function calcBollingerBands(closes: number[], period = 20, stdMult = 2): BollingerBandsResult {
+  const n = closes.length;
+  if (n < period) {
+    const last = closes[n - 1] ?? 0;
+    return { upper: last, middle: last, lower: last, bandwidth: 0 };
+  }
+  const win = closes.slice(-period);
+  const mean = win.reduce((a, b) => a + b, 0) / period;
+  const variance = win.reduce((a, b) => a + (b - mean) ** 2, 0) / period;
+  const std = Math.sqrt(variance);
+  const upper = mean + stdMult * std;
+  const lower = mean - stdMult * std;
+  return { upper, middle: mean, lower, bandwidth: mean > 0 ? ((upper - lower) / mean) * 100 : 0 };
+}
+
+/** Trix — rate of change dari triple-smoothed EMA. Filter noise, baca momentum jangka menengah. */
+function calcTrix(closes: number[], period = 15): number {
+  if (closes.length < period * 3 + 1) return 0;
+  const ema1 = calcEMASeries(closes, period);
+  const ema2 = calcEMASeries(ema1, period);
+  const ema3 = calcEMASeries(ema2, period);
+  const n = ema3.length;
+  if (n < 2 || ema3[n - 2] === 0) return 0;
+  return ((ema3[n - 1]! - ema3[n - 2]!) / ema3[n - 2]!) * 100;
+}
+
+interface ElderRayResult { bullPower: number; bearPower: number; }
+/** Elder Ray Index — bull/bear power relatif ke EMA(13). */
+function calcElderRay(highs: number[], lows: number[], closes: number[], period = 13): ElderRayResult {
+  const ema = calcEMASeries(closes, period);
+  const emaLast = ema[ema.length - 1] ?? closes[closes.length - 1] ?? 0;
+  const n = highs.length;
+  return { bullPower: highs[n - 1]! - emaLast, bearPower: lows[n - 1]! - emaLast };
+}
+
+/** VWAP — anchor dari awal hari UTC (00:00), sesuai standar VWAP harian. */
+function calcVWAP(highs: number[], lows: number[], closes: number[], volumes: number[], times: number[]): number {
+  const n = closes.length;
+  if (n === 0) return 0;
+  const lastTime = times[n - 1]!;
+  const dayStart = Math.floor(lastTime / 86400000) * 86400000; // UTC 00:00 hari yang sama
+  let pvSum = 0, volSum = 0;
+  for (let i = 0; i < n; i++) {
+    if (times[i]! < dayStart) continue;
+    const typical = (highs[i]! + lows[i]! + closes[i]!) / 3;
+    pvSum += typical * volumes[i]!;
+    volSum += volumes[i]!;
+  }
+  if (volSum === 0) return closes[n - 1]!; // belum ada candle di hari ini (baru mulai) — fallback harga sekarang
+  return pvSum / volSum;
+}
+
+/** CVD (Cumulative Volume Delta) — akumulasi taker buy - taker sell, dari takerBuyVolumes yang udah ada di KlineData. */
+function calcCVD(volumes: number[], takerBuyVolumes: number[]): number {
+  let cvd = 0;
+  for (let i = 0; i < volumes.length; i++) {
+    const takerBuy = takerBuyVolumes[i] ?? 0;
+    const takerSell = volumes[i]! - takerBuy;
+    cvd += takerBuy - takerSell;
+  }
+  return cvd;
+}
+
+/** Open Interest — BEDA dari indikator lain (butuh fetch API terpisah, bukan dari OHLCV candle). */
+async function fetchOpenInterest(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/openInterest?symbol=${symbol}`);
+    if (!res.ok) return null;
+    const data = await res.json() as { openInterest: string };
+    return parseFloat(data.openInterest);
+  } catch {
+    return null;
+  }
+}
+
 export interface TFIndicatorSnapshot {
   rsi: number;
   atr: number;
@@ -638,6 +790,20 @@ export interface TFIndicatorSnapshot {
   mfi: number; // Money Flow Index — RSI yang mempertimbangin volume
   cci: number; // Commodity Channel Index — deviasi statistik dari rata-rata
   roc: number; // Rate of Change (%) — kecepatan gerak harga mentah
+  // FIX (request user, 12 indikator tambahan buat Journal Trading):
+  williamsR: number; // -100 sampai 0, mirip Stochastic
+  momentum: number; // selisih harga mentah vs N candle lalu
+  awesomeOscillator: number; // SMA(5)-SMA(34) dari midpoint
+  chaikinMoneyFlow: number; // -1 sampai 1, versi lain dari money flow
+  obv: number; // On Balance Volume — kumulatif mentah, TREN yang penting (bukan angka absolut)
+  atrSqueeze: number; // rasio ATR sekarang vs rata2 — <1 squeeze, >1 expansion
+  keltnerUpper: number; keltnerMiddle: number; keltnerLower: number;
+  bbUpper: number; bbMiddle: number; bbLower: number; bbBandwidth: number; // Bollinger Bands + bandwidth%
+  trix: number; // rate of change triple-smoothed EMA
+  elderBullPower: number; elderBearPower: number; // Elder Ray Index
+  vwap: number; // anchor UTC 00:00 (VWAP harian standar)
+  cvd: number; // Cumulative Volume Delta — kumulatif mentah dari data candle yang di-fetch
+  openInterest: number | null; // BEDA dari yang lain — fetch API terpisah, bisa null kalau gagal
 }
 
 export interface TechnicalSnapshot {
@@ -646,19 +812,28 @@ export interface TechnicalSnapshot {
 }
 
 /**
- * Snapshot RSI+ATR+ADX+Stochastic di TF struktur DAN eksekusi — buat Menu
- * Journal Trading (request user). PURE INFORMASIONAL: dipanggil di titik
- * return sinyal SUKSES (siap_entry/ready/in_zone/dll) di semua menu, TAPI
- * hasil hitungannya CUMA ditempel ke response, GAK PERNAH dipake buat
- * nge-gate/nge-block sinyal — logic entry asli tiap menu sama sekali gak
- * berubah.
+ * Snapshot RSI+ATR+ADX+Stochastic+dst di TF struktur DAN eksekusi — buat Menu
+ * Journal Trading (request user, DIPERLUAS dari 10 jadi 22 indikator: +Williams
+ * %R, Momentum, Awesome Oscillator, Chaikin Money Flow, OBV, ATR Squeeze,
+ * Keltner Channels, Bollinger Bands, Trix, Elder Ray, VWAP, CVD, Open
+ * Interest). PURE INFORMASIONAL: dipanggil di titik return sinyal SUKSES
+ * (siap_entry/ready/in_zone/dll) di semua menu, TAPI hasil hitungannya CUMA
+ * ditempel ke response, GAK PERNAH dipake buat nge-gate/nge-block sinyal —
+ * logic entry asli tiap menu sama sekali gak berubah.
+ * FIX: sekarang ASYNC (Open Interest butuh 1 fetch API terpisah, request
+ * user "tetap tambahin walau nambah 1 API call") — semua caller WAJIB pakai
+ * await.
  */
-function buildTechnicalSnapshot(struktur: KlineData, eksekusi: KlineData): TechnicalSnapshot {
+async function buildTechnicalSnapshot(struktur: KlineData, eksekusi: KlineData, symbol: string): Promise<TechnicalSnapshot> {
+  const openInterest = await fetchOpenInterest(symbol); // 1x doang, dipake struktur+eksekusi (OI gak ada per-TF, itu 1 angka buat symbol)
   const build = (k: KlineData): TFIndicatorSnapshot => {
     const atr = calcATR(k.highs, k.lows, k.closes);
     const price = k.closes[k.closes.length - 1] ?? 0;
     const { k: stochK, d: stochD } = calcStochastic(k.highs, k.lows, k.closes);
     const macdResult = calcMACD(k.closes);
+    const keltner = calcKeltnerChannels(k.highs, k.lows, k.closes);
+    const bb = calcBollingerBands(k.closes);
+    const elder = calcElderRay(k.highs, k.lows, k.closes);
     return {
       rsi: calcRSI(k.closes, 14),
       atr,
@@ -669,6 +844,19 @@ function buildTechnicalSnapshot(struktur: KlineData, eksekusi: KlineData): Techn
       mfi: calcMFI(k.highs, k.lows, k.closes, k.volumes),
       cci: calcCCI(k.highs, k.lows, k.closes),
       roc: calcROC(k.closes),
+      williamsR: calcWilliamsR(k.highs, k.lows, k.closes),
+      momentum: calcMomentum(k.closes),
+      awesomeOscillator: calcAwesomeOscillator(k.highs, k.lows),
+      chaikinMoneyFlow: calcChaikinMoneyFlow(k.highs, k.lows, k.closes, k.volumes),
+      obv: calcOBV(k.closes, k.volumes),
+      atrSqueeze: calcATRSqueeze(k.highs, k.lows, k.closes),
+      keltnerUpper: keltner.upper, keltnerMiddle: keltner.middle, keltnerLower: keltner.lower,
+      bbUpper: bb.upper, bbMiddle: bb.middle, bbLower: bb.lower, bbBandwidth: bb.bandwidth,
+      trix: calcTrix(k.closes),
+      elderBullPower: elder.bullPower, elderBearPower: elder.bearPower,
+      vwap: calcVWAP(k.highs, k.lows, k.closes, k.volumes, k.times),
+      cvd: calcCVD(k.volumes, k.takerBuyVolumes),
+      openInterest,
     };
   };
   return { struktur: build(struktur), eksekusi: build(eksekusi) };
@@ -2315,7 +2503,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const filterResults = [
       `✅ Zona S&R terdeteksi (${resistanceLevels.length} resistance, ${supportLevels.length} support), ATR M30 ${atrM30Pct.toFixed(2)}%`,
       `✅ ${picked.note}`,
-      `✅ Indikator H4 gak overbought/oversold lawan arah — RSI ${exhaustionCheck.rsi.toFixed(1)}, StochRSI ${exhaustionCheck.stochRsi.toFixed(1)}`,
+      `✅ Indikator H4 gak overbought/oversold/hollow — RSI ${exhaustionCheck.rsi.toFixed(1)}, StochRSI ${exhaustionCheck.stochRsi.toFixed(1)}, CCI ${exhaustionCheck.cci.toFixed(0)}, MFI ${exhaustionCheck.mfi.toFixed(1)}`,
     ];
 
     const btcCheck = await checkBtcAlignment(picked.bias, symbol, '30m', 100); // TF struktur (M30)
@@ -2335,13 +2523,14 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       { timeframe: 'M5', label: 'Eksekusi', detail: `Zona edge ${picked.zoneEdgeLower.toFixed(4)}–${picked.zoneEdgeUpper.toFixed(4)}`, status: 'confirm' },
     ];
 
+    const technicalSnapshot = await buildTechnicalSnapshot(m30, m5, symbol);
     return {
       status, symbol, bias: picked.bias, mode: 'structural', currentPrice, timestamp,
       score, maxScore, filterResults, tfBreakdown,
       zoneEdgeUpper: picked.zoneEdgeUpper, zoneEdgeLower: picked.zoneEdgeLower, candlesSinceBreakout: picked.candlesSinceBreakout,
       entryPrice: picked.entryPrice, stopLoss: picked.stopLoss, takeProfit1: picked.takeProfit1, rr1: picked.rr1,
       atr15MPct: atrM30Pct,
-      technicalSnapshot: buildTechnicalSnapshot(m30, m5),
+      technicalSnapshot,
       marketStructureV2: picked.marketStructureV2,
       btcAligned: btcCheck.aligned, btcBias: btcCheck.btcBias,
       message: `${status === 'in_zone' ? 'SIAP ENTRY' : 'SIAP BREAKOUT'} — ${picked.note}`,
@@ -2499,7 +2688,7 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
     if (structGate15M.structureNote) filterResults.push(structGate15M.structureNote);
 
     filterResults.push(`✅ Breakout ${bias === 'bullish' ? 'bullish' : 'bearish'} dari zona ${foundBreakout.zoneLevel.toFixed(4)}, ${candlesSinceBreakout} candle lalu`);
-    filterResults.push(`✅ Indikator H4 gak overbought/oversold lawan arah — RSI ${exhaustionCheck15M.rsi.toFixed(1)}, StochRSI ${exhaustionCheck15M.stochRsi.toFixed(1)}`);
+    filterResults.push(`✅ Indikator H4 gak overbought/oversold/hollow — RSI ${exhaustionCheck15M.rsi.toFixed(1)}, StochRSI ${exhaustionCheck15M.stochRsi.toFixed(1)}, CCI ${exhaustionCheck15M.cci.toFixed(0)}, MFI ${exhaustionCheck15M.mfi.toFixed(1)}`);
 
     // ── Entry, SL, TP — dihitung dari sini karena zona (edgeUpper/edgeLower)
     // udah FIXED begitu breakout kedeteksi. Dipake buat status 'approaching'
@@ -2531,13 +2720,14 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
           score, maxScore, filterResults, atr15MPct,
         };
       }
+      const technicalSnapshotApproaching = await buildTechnicalSnapshot(m15, m15, symbol);
       return {
         status: 'approaching', symbol, bias, currentPrice, timestamp, mode: 'scalping15m',
         zoneEdgeUpper: foundBreakout.edgeUpper, zoneEdgeLower: foundBreakout.edgeLower, candlesSinceBreakout,
         entryPrice, stopLoss, takeProfit1, rr1: 2,
         message: `SIAP BREAKOUT — breakout ${bias} udah terjadi ${candlesSinceBreakout} candle lalu, nunggu harga retest ke zona ${foundBreakout.zoneLevel.toFixed(4)} (entry di bawah proyeksi limit order)`,
         score, maxScore, filterResults, atr15MPct,
-        technicalSnapshot: buildTechnicalSnapshot(m15, m15),
+        technicalSnapshot: technicalSnapshotApproaching,
       };
     }
 
@@ -2631,12 +2821,13 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       ? `⚠️ Momentum masih akselerasi pas retest (range ${(momentumTrend.rangeRatio * 100).toFixed(0)}%, vol ${(momentumTrend.volRatio * 100).toFixed(0)}%) — pullback masih kenceng, waspada`
       : `ℹ️ Momentum netral pas retest`);
 
+    const technicalSnapshotInZone = await buildTechnicalSnapshot(m15, m15, symbol);
     return {
       status: 'in_zone', symbol, bias, mode: 'scalping15m', currentPrice, timestamp, score, maxScore,
       zoneEdgeUpper: foundBreakout.edgeUpper, zoneEdgeLower: foundBreakout.edgeLower, candlesSinceBreakout,
       entryPrice, stopLoss, takeProfit1, rr1: 2,
       filterResults, tfBreakdown, atr15MPct,
-      technicalSnapshot: buildTechnicalSnapshot(m15, m15),
+      technicalSnapshot: technicalSnapshotInZone,
       marketStructureV2: structGate15M.structV2,
       btcAligned: btcCheck.aligned, btcBias: btcCheck.btcBias,
       message: `SIAP RETEST — zona ${foundBreakout.zoneLevel.toFixed(4)}, confirmations ${confirmCount}/2 lolos (pullback volume wajib + minimal 1 tambahan)`,
@@ -2778,8 +2969,24 @@ interface IndicatorExhaustionCheck {
   stochRsi: number;
   macdHistogram: number;
   volRatio: number;
+  cci: number;
+  mfi: number;
+  roc: number;
 }
 
+/**
+ * FIX (request user, berdasarkan DATA LIVE Journal 175 sinyal — BUKAN
+ * backtest simulasi lagi): analisa Journal nunjukin pola KONSISTEN di
+ * SEMUA skill:
+ * - CCI ekstrem (|CCI|≥100) muncul di 50-62% kasus LOSE (Skill 15M 50%,
+ *   Structural 62%, Counter Scalping 54%)
+ * - MFI pas LOSE jauh lebih tinggi dari WIN (53.9 vs 44.5 struktur, 51.8
+ *   vs 45.5 eksekusi) — indikasi "hollow move" (harga gerak, volume gak dukung)
+ * - MACD histogram pas WIN jelas lebih kuat dari LOSE (0.2 vs ~0)
+ * - ROC pas WIN jelas lebih tajam dari LOSE (4.2%/3.8% vs 3.5%/2.9%)
+ * Threshold CCI/MFI/ROC di bawah diambil dari pola data live ini (bukan
+ * dugaan/riset backtest historis).
+ */
 function checkIndicatorExhaustion(highs: number[], lows: number[], closes: number[], volumes: number[], bias: 'bullish' | 'bearish'): IndicatorExhaustionCheck {
   const rsi = calcRSI(closes, 14);
   const stochRsi = calcStochRSI(closes);
@@ -2787,28 +2994,39 @@ function checkIndicatorExhaustion(highs: number[], lows: number[], closes: numbe
   const volMA20 = volumes.length >= 21 ? volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20 : 0;
   const lastVol = volumes[volumes.length - 1] ?? 0;
   const volRatio = volMA20 > 0 ? lastVol / volMA20 : 1;
+  const cci = calcCCI(highs, lows, closes);
+  const mfi = calcMFI(highs, lows, closes, volumes);
+  const roc = calcROC(closes);
 
   let exhaustionCount = 0;
   if (bias === 'bullish') {
-    // BUY tapi overbought — 4 indikator dicek searah "overbought"
+    // BUY tapi overbought — dicek searah "overbought"
     if (rsi >= 70) exhaustionCount++;
     if (stochRsi >= 80) exhaustionCount++;
     if (macd.histogram < 0) exhaustionCount++; // momentum udah mulai melemah
     if (volRatio < 0.8) exhaustionCount++; // volume ngedrop, kurang dukungan buat lanjut naik
+    if (cci >= 100) exhaustionCount++; // CCI ekstrem — data live: 50-62% korelasi ke LOSE
+    if (mfi >= 60) exhaustionCount++; // MFI tinggi — data live: indikasi hollow move
+    if (roc < 1.0) exhaustionCount++; // momentum harga lemah — data live: WIN rata2 ROC 3.8-4.2%, LOSE 2.9-3.5%
   } else {
-    // SELL tapi oversold — 4 indikator dicek searah "oversold"
+    // SELL tapi oversold — dicek searah "oversold"
     if (rsi <= 30) exhaustionCount++;
     if (stochRsi <= 20) exhaustionCount++;
     if (macd.histogram > 0) exhaustionCount++;
     if (volRatio < 0.8) exhaustionCount++;
+    if (cci <= -100) exhaustionCount++;
+    if (mfi <= 40) exhaustionCount++;
+    if (roc > -1.0) exhaustionCount++;
   }
 
-  const blocked = exhaustionCount >= 3;
+  // Threshold block naik dari 3/4 jadi 4/7 (mayoritas, konsisten proporsinya
+  // sama basis lama ~75% dari total indikator) — sekarang 7 indikator dicek.
+  const blocked = exhaustionCount >= 4;
   const reason = blocked
-    ? `Market udah ${bias === 'bullish' ? 'overbought' : 'oversold'} (${exhaustionCount}/4 indikator: RSI ${rsi.toFixed(1)}, StochRSI ${stochRsi.toFixed(1)}, MACD hist ${macd.histogram.toFixed(4)}, vol ${(volRatio*100).toFixed(0)}% MA20) — resiko rebound lawan arah`
+    ? `Market udah ${bias === 'bullish' ? 'overbought/hollow' : 'oversold/hollow'} (${exhaustionCount}/7 indikator: RSI ${rsi.toFixed(1)}, StochRSI ${stochRsi.toFixed(1)}, MACD hist ${macd.histogram.toFixed(4)}, vol ${(volRatio*100).toFixed(0)}% MA20, CCI ${cci.toFixed(0)}, MFI ${mfi.toFixed(1)}, ROC ${roc.toFixed(2)}%) — resiko rebound/hollow move lawan arah`
     : undefined;
 
-  return { blocked, reason, rsi, stochRsi, macdHistogram: macd.histogram, volRatio };
+  return { blocked, reason, rsi, stochRsi, macdHistogram: macd.histogram, volRatio, cci, mfi, roc };
 }
 
 /**
@@ -4703,6 +4921,15 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       };
     }
 
+    // FIX (request user, data live Journal — Counter Scalping paling lemah
+    // WR 26%, CCI ekstrem muncul di 54% LOSE): filter indikator sekarang
+    // dicek juga di sini, pakai data H1 yang udah di-fetch (Counter Scalping
+    // cuma 1 TF, beda dari Menu Scalping yang punya H4 terpisah).
+    const exhaustionCheck = checkIndicatorExhaustion(h1.highs, h1.lows, h1.closes, h1.volumes, bias);
+    if (exhaustionCheck.blocked) {
+      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: exhaustionCheck.reason!, maxScore };
+    }
+
     // Entry di level breakout genuine (belum retest) — lihat comment
     // findFreshBreakoutLevel di atas buat detail syarat & catatan backtest.
     const freshLevel = findFreshBreakoutLevel(h1, bias);
@@ -4734,6 +4961,7 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       `RSI(14): ${score.rsiValue.toFixed(1)} (score ${score.rsiScore})`,
       `MACD: ${score.macdScore > 0 ? 'bullish cross' : score.macdScore < 0 ? 'bearish cross' : 'netral'}`,
       `Bollinger: score ${score.bollingerScore}`,
+      `✅ Indikator gak overbought/oversold/hollow — CCI ${exhaustionCheck.cci.toFixed(0)}, MFI ${exhaustionCheck.mfi.toFixed(1)}`,
       `✅ Level breakout fresh terdeteksi (belum pernah retest): ${entryPrice.toFixed(6)}`,
       atPullback
         ? `✅ Harga udah di level breakout (${entryPrice.toFixed(6)})`
@@ -4747,11 +4975,12 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
     }
     filterResults.push(btcCheck.message || '✅ BTC lagi ranging — netral, tetep lolos');
 
+    const technicalSnapshotCounter = await buildTechnicalSnapshot(h1, h1, symbol);
     return {
       status: atPullback ? 'siap_retest' : 'approaching', symbol, bias, currentPrice, timestamp,
       maxScore, filterResults,
       entryPrice, orderType: 'limit', stopLoss, takeProfit1, rr1: 2,
-      technicalSnapshot: buildTechnicalSnapshot(h1, h1),
+      technicalSnapshot: technicalSnapshotCounter,
       btcAligned: btcCheck.aligned, btcBias: btcCheck.btcBias,
       message: `${atPullback ? 'SIAP ENTRY' : 'MENDEKATI'} (${bias === 'bullish' ? 'BUY' : 'SELL'}) — Multi-Factor Score ${score.composite.toFixed(3)}, entry di level breakout fresh`,
     };

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { analyzeCounterStructural, getRecentPerformance } from '../lib/smc';
-import { getUniverse } from './screener';
+import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
 
@@ -51,7 +51,12 @@ router.get('/breakout-entry/scan', async (req, res) => {
       const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
       return ao - bo;
     });
-    res.json({ coins: results, fetchedAt: Date.now() });
+
+    // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
+    const metadata = await getMarketMetadata(results.map(r => r.symbol));
+    const resultsWithMeta = results.map(r => ({ ...r, marketMeta: metadata.get(r.symbol) ?? null }));
+
+    res.json({ coins: resultsWithMeta, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

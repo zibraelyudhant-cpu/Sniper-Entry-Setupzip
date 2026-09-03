@@ -161,6 +161,40 @@ def calc_volume_ma(volumes: pd.Series, period: int = 20) -> pd.Series:
     return volumes.shift(1).rolling(window=period, min_periods=1).mean()
 
 
+def calc_cci_series(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """CCI — PERSIS calcCCI TS, versi VECTORIZED (rolling window pandas, bukan
+    loop per titik) buat precompute cepat. (typical - SMA) / (0.015 * mean_dev)."""
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    sma = typical.rolling(window=period, min_periods=period).mean()
+    mean_dev = typical.rolling(window=period, min_periods=period).apply(
+        lambda w: (w - w.mean()).abs().mean(), raw=False
+    )
+    cci = (typical - sma) / (0.015 * mean_dev)
+    return cci.fillna(0.0)
+
+
+def calc_mfi_series(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """MFI — PERSIS calcMFI TS, versi VECTORIZED."""
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    raw_flow = typical * df["volume"]
+    typical_diff = typical.diff()
+    pos_flow = raw_flow.where(typical_diff > 0, 0.0)
+    neg_flow = raw_flow.where(typical_diff < 0, 0.0)
+    pos_sum = pos_flow.rolling(window=period, min_periods=period).sum()
+    neg_sum = neg_flow.rolling(window=period, min_periods=period).sum()
+    money_ratio = pos_sum / neg_sum.replace(0, np.nan)
+    mfi = 100 - (100 / (1 + money_ratio))
+    mfi = mfi.where(neg_sum != 0, 100.0)  # PERSIS TS: negFlow===0 -> return 100
+    return mfi.fillna(50.0)
+
+
+def calc_roc_series(closes: pd.Series, period: int = 12) -> pd.Series:
+    """ROC — PERSIS calcROC TS, versi VECTORIZED."""
+    past = closes.shift(period)
+    roc = ((closes - past) / past.replace(0, np.nan)) * 100
+    return roc.fillna(0.0)
+
+
 def precompute_indicator_series(df: pd.DataFrame) -> dict:
     """
     OPTIMASI KRUSIAL (ketemu user, backtest lambat — Skill 15M 33 detik buat
@@ -171,6 +205,8 @@ def precompute_indicator_series(df: pd.DataFrame) -> dict:
     Semua indikator ini CAUSAL (gak butuh data masa depan), jadi precompute
     dari FULL dataset hasilnya IDENTIK sama hitung ulang dari slice — cuma
     beda cara ambil, BUKAN beda logic/angka.
+    FIX (request user, sinkronisasi sama smc.ts — checkIndicatorExhaustion
+    sekarang 7 indikator, bukan 4): tambah CCI, MFI, ROC.
     """
     closes_s = df["close"]
     return {
@@ -179,5 +215,8 @@ def precompute_indicator_series(df: pd.DataFrame) -> dict:
         "atr_wilder": calc_atr_wilder(df, 14).to_numpy(),
         "macd": calc_macd(closes_s).to_numpy(),  # DataFrame -> numpy 2D (macd, signal, histogram)
         "volumes": df["volume"].to_numpy(),
+        "cci": calc_cci_series(df).to_numpy(),
+        "mfi": calc_mfi_series(df).to_numpy(),
+        "roc": calc_roc_series(closes_s).to_numpy(),
     }
 

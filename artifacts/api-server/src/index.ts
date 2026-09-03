@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { checkPendingFollowups } from "./routes/journal-followup";
 
 // FIX BUG KRUSIAL (ketemu user — server MATI TOTAL gara-gara EPIPE dari
 // subprocess Python backtest): tanpa handler ini, SATU error async yang gak
@@ -38,3 +39,23 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 });
+
+// FIX (request user, Menu Journal "AI Agent" — analisa OTOMATIS 1 jam
+// setelah SL/TP kena): background worker POLLING interval, BUKAN 1x jalan
+// doang — cek followup yang PENDING dan udah lewat 1 jam tiap 5 menit.
+// try-catch di dalam interval callback WAJIB ada — kalau checkPendingFollowups
+// throw tanpa ketangkep, uncaughtException handler di atas bakal nangkep juga
+// (safety net kedua), tapi lebih baik ditangani di sini biar log-nya jelas
+// ini emang dari followup worker, bukan error random lain.
+const FOLLOWUP_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 menit
+setInterval(() => {
+  checkPendingFollowups()
+    .then(({ checked, errors }) => {
+      if (checked > 0 || errors > 0) {
+        logger.info({ checked, errors }, 'signal followup check selesai');
+      }
+    })
+    .catch((err) => {
+      logger.error({ err }, 'checkPendingFollowups gagal — worker tetep jalan, coba lagi interval berikutnya');
+    });
+}, FOLLOWUP_CHECK_INTERVAL_MS);
