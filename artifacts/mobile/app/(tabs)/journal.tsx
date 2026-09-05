@@ -18,7 +18,8 @@ import {
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
-  registerFollowup, fetchFollowups, type SignalFollowupResult,
+  registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
+  buildDiagnosticReport, type DiagnosticFinding, type FindingSeverity,
   type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
 
@@ -263,7 +264,7 @@ export default function JournalScreen() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [activeTab, setActiveTab] = useState<'daftar' | 'analisa' | 'ringkasan'>('daftar');
+  const [activeTab, setActiveTab] = useState<'daftar' | 'analisa' | 'ringkasan' | 'diagnosa'>('daftar');
   const [menuFilter, setMenuFilter] = useState<SourceMenu | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
@@ -388,9 +389,9 @@ export default function JournalScreen() {
         <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Rekap lengkap semua sinyal — entry/SL/TP, TF, indikator, evaluasi win-lose</Text>
         <View style={{ marginTop: 12 }}>
           <AnimatedTabSwitcher
-            tabs={[{ key: 'daftar', label: 'DAFTAR' }, { key: 'analisa', label: 'ANALISA' }, { key: 'ringkasan', label: 'RINGKASAN' }]}
+            tabs={[{ key: 'daftar', label: 'DAFTAR' }, { key: 'analisa', label: 'ANALISA' }, { key: 'ringkasan', label: 'RINGKASAN' }, { key: 'diagnosa', label: 'DIAGNOSA' }]}
             active={activeTab}
-            onChange={(k) => setActiveTab(k as 'daftar' | 'analisa' | 'ringkasan')}
+            onChange={(k) => setActiveTab(k as 'daftar' | 'analisa' | 'ringkasan' | 'diagnosa')}
             accentColor={ACCENT}
           />
         </View>
@@ -477,8 +478,10 @@ export default function JournalScreen() {
           <BreakdownSection title="PER KEKUATAN TREND (ADX STRUKTUR)" data={breakdownByAdxRange(entries)} colors={colors} />
           <BreakdownSection title="PER KONDISI RSI EKSEKUSI" data={breakdownByRsiRange(entries)} colors={colors} />
         </ScrollView>
+      ) : activeTab === 'ringkasan' ? (
+        <RingkasanTab entries={entries} colors={colors} followups={followups} />
       ) : (
-        <RingkasanTab entries={entries} colors={colors} />
+        <DiagnosaTab entries={entries} colors={colors} followups={followups} />
       )}
     </View>
   );
@@ -657,7 +660,7 @@ function BaselineControl({ colors }: { colors: ReturnType<typeof useColors> }) {
   );
 }
 
-function RingkasanTab({ entries: allEntries, colors }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors> }) {
+function RingkasanTab({ entries: allEntries, colors, followups }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors>; followups: Map<string, SignalFollowupResult> }) {
   const insets = useSafeAreaInsets();
   const [baseline, setBaseline] = useState<number | null>(null);
 
@@ -673,6 +676,8 @@ function RingkasanTab({ entries: allEntries, colors }: { entries: JournalEntry[]
   const timingOverall = useMemo(() => computeTimingStats(entries), [entries]);
   const timingByMenu = useMemo(() => computeTimingStats(entries, 'menu'), [entries]);
   const timingBySkill = useMemo(() => computeTimingStats(entries, 'skill'), [entries]);
+  // FIX (ketemu user): agregat followup 1-jam — SEBELUMNYA cuma di card per-sinyal
+  const followupAgg = useMemo(() => aggregateFollowups(entries, followups), [entries, followups]);
 
   if (allEntries.length === 0) {
     return (
@@ -759,6 +764,49 @@ function RingkasanTab({ entries: allEntries, colors }: { entries: JournalEntry[]
         </View>
       )}
 
+      {/* FIX (ketemu user — "SL/TP setelah 1 jam FATAL buat nentuin kedepannya"):
+          agregat followup, SEBELUMNYA cuma tampil di card per-sinyal doang */}
+      <View style={{ marginBottom: 12 }}>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.gold, letterSpacing: 0.5, marginBottom: 4 }}>🤖 ANALISA PASCA-TRADE (1 JAM SETELAH SL/TP)</Text>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, lineHeight: 15 }}>
+          Server otomatis cek harga 1 jam setelah tiap sinyal resolve — buat tau apakah LOSE itu karena bacaan struktur SALAH, atau bacaan BENAR tapi SL kepencet duluan. Ini yang paling penting buat nentuin apa yang perlu diperbaiki.
+        </Text>
+        {followupAgg.totalChecked === 0 ? (
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>
+            Belum ada sinyal yang selesai dicek{followupAgg.totalPending > 0 ? ` (${followupAgg.totalPending} masih dipantau server)` : ''}.
+          </Text>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              <View style={{ flex: 1, minWidth: 140, backgroundColor: `${colors.bearish}12`, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: `${colors.bearish}35` }}>
+                <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: colors.bearish }}>{followupAgg.strukturBenarSlPrematur}</Text>
+                <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 12 }}>LOSE tapi arah BENAR{'\n'}(SL prematur)</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 140, backgroundColor: `${colors.bearish}12`, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: `${colors.bearish}35` }}>
+                <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: colors.bearish }}>{followupAgg.strukturSalahKonfirmasi}</Text>
+                <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 12 }}>LOSE karena struktur{'\n'}SALAH BACA</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 140, backgroundColor: `${colors.bullish}12`, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: `${colors.bullish}35` }}>
+                <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: colors.bullish }}>{followupAgg.momentumLanjutRrKonservatif}</Text>
+                <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 12 }}>WIN tapi momentum{'\n'}masih lanjut (RR kecil)</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 140, backgroundColor: `${colors.bullish}12`, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: `${colors.bullish}35` }}>
+                <Text style={{ fontSize: 16, fontFamily: 'Inter_700Bold', color: colors.bullish }}>{followupAgg.momentumHabisRrPas}</Text>
+                <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 12 }}>WIN, momentum habis{'\n'}(RR udah pas)</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8 }}>
+              {followupAgg.totalChecked} selesai dicek{followupAgg.totalPending > 0 ? ` · ${followupAgg.totalPending} masih dipantau` : ''}{followupAgg.noiseGakSignifikan > 0 ? ` · ${followupAgg.noiseGakSignifikan} noise (gerak <0.5x ATR)` : ''}
+            </Text>
+            {followupAgg.insights.map((ins, i) => (
+              <View key={i} style={{ backgroundColor: `${colors.gold}12`, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: `${colors.gold}40`, marginBottom: 6 }}>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.foreground, lineHeight: 16 }}>{ins}</Text>
+              </View>
+            ))}
+          </>
+        )}
+      </View>
+
       <View style={{ marginBottom: 8 }}>
         <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>INDIKATOR — PAS WIN VS PAS LOSE</Text>
         {indicatorResult.comparisons.length === 0 ? (
@@ -778,6 +826,113 @@ function RingkasanTab({ entries: allEntries, colors }: { entries: JournalEntry[]
         )}
       </View>
       </>
+      )}
+    </ScrollView>
+  );
+}
+
+// ─── Tab Diagnosa — analisa terpadu semua data jadi poin-poin siap-eksekusi
+// (request user: "ringkasan terlalu banyak data yang perlu dibaca, sub tab
+// ini menganalisanya dan dibuat detail tapi ringkas") ───────────────────────
+
+const SEVERITY_STYLE: Record<FindingSeverity, { icon: keyof typeof Feather.glyphMap; label: string; color: (c: ReturnType<typeof useColors>) => string }> = {
+  critical: { icon: 'alert-octagon', label: 'KRITIS', color: c => c.bearish },
+  warning: { icon: 'alert-triangle', label: 'PERLU DIPERBAIKI', color: c => c.gold },
+  info: { icon: 'info', label: 'KANDIDAT PENGEMBANGAN', color: c => '#818CF8' },
+  good: { icon: 'check-circle', label: 'SEHAT', color: c => c.bullish },
+};
+
+function FindingCard({ finding, colors, index }: { finding: DiagnosticFinding; colors: ReturnType<typeof useColors>; index: number }) {
+  const style = SEVERITY_STYLE[finding.severity];
+  const color = style.color(colors);
+  return (
+    <AnimatedCard index={index}>
+      <View style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: `${color}45`, marginBottom: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <Feather name={style.icon} size={13} color={color} />
+          <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color, letterSpacing: 0.6 }}>{style.label}</Text>
+          <View style={{ flex: 1 }} />
+          <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>n={finding.sampleSize}</Text>
+        </View>
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: colors.foreground, lineHeight: 19, marginBottom: 8 }}>{finding.title}</Text>
+        <View style={{ backgroundColor: `${colors.mutedForeground}12`, borderRadius: 8, padding: 9, marginBottom: 8 }}>
+          <Text style={{ fontSize: 9, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.4, marginBottom: 3 }}>BUKTI DATA</Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>{finding.evidence}</Text>
+        </View>
+        <View style={{ backgroundColor: `${color}12`, borderRadius: 8, padding: 9, borderLeftWidth: 3, borderLeftColor: color }}>
+          <Text style={{ fontSize: 9, fontFamily: 'Inter_600SemiBold', color, letterSpacing: 0.4, marginBottom: 3 }}>YANG PERLU DIKEMBANGKAN</Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.foreground, lineHeight: 16 }}>{finding.action}</Text>
+        </View>
+      </View>
+    </AnimatedCard>
+  );
+}
+
+function DiagnosaTab({ entries: allEntries, colors, followups }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors>; followups: Map<string, SignalFollowupResult> }) {
+  const insets = useSafeAreaInsets();
+  const [baseline, setBaseline] = useState<number | null>(null);
+
+  useFocusEffect(useCallback(() => {
+    getJournalBaseline().then(setBaseline);
+  }, []));
+
+  const entries = useMemo(() => filterByBaseline(allEntries, baseline), [allEntries, baseline]);
+  const report = useMemo(() => buildDiagnosticReport(entries, followups), [entries, followups]);
+
+  const criticals = report.findings.filter(f => f.severity === 'critical');
+  const warnings = report.findings.filter(f => f.severity === 'warning');
+  const infos = report.findings.filter(f => f.severity === 'info');
+  const goods = report.findings.filter(f => f.severity === 'good');
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
+      {/* Headline — 1 kalimat kondisi sistem */}
+      <View style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.border, marginBottom: 14 }}>
+        <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.6, marginBottom: 6 }}>DIAGNOSA SISTEM</Text>
+        <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.foreground, lineHeight: 20 }}>{report.headline}</Text>
+      </View>
+
+      {report.findings.length === 0 && report.dataGaps.length === 0 && (
+        <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 18 }}>
+          Belum ada temuan — kumpulin lebih banyak data sinyal dulu.
+        </Text>
+      )}
+
+      {criticals.length > 0 && (
+        <>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.bearish, letterSpacing: 0.5, marginBottom: 8 }}>🔴 PRIORITAS UTAMA — PERBAIKI INI DULU</Text>
+          {criticals.map((f, i) => <FindingCard key={'c' + i} finding={f} colors={colors} index={i} />)}
+        </>
+      )}
+
+      {warnings.length > 0 && (
+        <>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.gold, letterSpacing: 0.5, marginTop: 6, marginBottom: 8 }}>🟡 PERLU DIPERBAIKI</Text>
+          {warnings.map((f, i) => <FindingCard key={'w' + i} finding={f} colors={colors} index={i} />)}
+        </>
+      )}
+
+      {infos.length > 0 && (
+        <>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: '#818CF8', letterSpacing: 0.5, marginTop: 6, marginBottom: 8 }}>🔵 KANDIDAT PENGEMBANGAN</Text>
+          {infos.map((f, i) => <FindingCard key={'i' + i} finding={f} colors={colors} index={i} />)}
+        </>
+      )}
+
+      {goods.length > 0 && (
+        <>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.bullish, letterSpacing: 0.5, marginTop: 6, marginBottom: 8 }}>🟢 YANG UDAH SEHAT</Text>
+          {goods.map((f, i) => <FindingCard key={'g' + i} finding={f} colors={colors} index={i} />)}
+        </>
+      )}
+
+      {report.dataGaps.length > 0 && (
+        <View style={{ marginTop: 10, backgroundColor: `${colors.mutedForeground}10`, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.border }}>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 6 }}>⏳ DATA YANG BELUM CUKUP</Text>
+          {report.dataGaps.map((gap, i) => (
+            <Text key={i} style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17, marginBottom: 4 }}>• {gap}</Text>
+          ))}
+        </View>
       )}
     </ScrollView>
   );

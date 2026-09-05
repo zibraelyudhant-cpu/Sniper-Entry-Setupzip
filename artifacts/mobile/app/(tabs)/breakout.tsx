@@ -148,8 +148,11 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   // isFetching (bukan isLoading) — fix bug audit: isLoading React Query cuma
   // true pas fetch PERTAMA kali, jadi tombol SCAN NOW kliatan "gak ngerespon"
   // pas refetch (isLoading tetep false walau lagi proses di background).
+  // FIX (request user, "diem di tab lain 5-10 menit, balik ke Scan malah
+  // auto-refetch"): staleTime Infinity — data scan GAK PERNAH dianggap basi
+  // otomatis, CUMA refresh kalau user PENCET Scan Ulang manual (refetch()).
   const { data, isLoading, isFetching, isError, refetch } = useGetScalpingScan({
-    query: { queryKey: getGetScalpingScanQueryKey(), staleTime: 3 * 60 * 1000 },
+    query: { queryKey: getGetScalpingScanQueryKey(), staleTime: Infinity },
   });
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
@@ -283,19 +286,19 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       {inZone.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.bullish }]}>🎯 BAGUS — Siap Entry Sekarang</Text>
-          {inZone.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
+          {inZone.map((c, i) => <ScanCoinCard key={`${c.symbol}_${c.mode}`} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
       {approaching.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: ACCENT }]}>⚡ MENDEKATI — Siap Pasang Limit</Text>
-          {approaching.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
+          {approaching.map((c, i) => <ScanCoinCard key={`${c.symbol}_${c.mode}`} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
       {waiting.length > 0 && (
         <>
           <Text style={[scanStyles.groupHeader, { color: colors.gold }]}>⏳ WAITING — Harga belum mendekati zona</Text>
-          {waiting.map((c, i) => <ScanCoinCard key={c.symbol} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
+          {waiting.map((c, i) => <ScanCoinCard key={`${c.symbol}_${c.mode}`} coin={c} colors={colors} index={i} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelectCoin(c); }} />)}
         </>
       )}
     </ScrollView>

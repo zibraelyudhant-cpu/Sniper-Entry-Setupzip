@@ -382,6 +382,96 @@ export async function fetchFollowups(journalEntryIds: string[]): Promise<Map<str
   }
 }
 
+/**
+ * FIX (ketemu user — "apakah SL/TP setelah 1 jam udah masuk analisa jurnal?
+ * karena itu FATAL buat nentuin kedepannya"): SEBELUMNYA data followup CUMA
+ * tampil di CARD INDIVIDUAL per sinyal, GAK PERNAH DIAGREGASI jadi pola
+ * menyeluruh. Padahal justru AGREGAT-nya yang berguna buat pengembangan:
+ * "dari SEKIAN lose, berapa % yang ternyata struktur kita BENAR tapi SL
+ * kepencet duluan?" vs "berapa % yang struktur kita emang SALAH BACA?".
+ *
+ * Verdict (dari server, lihat computeFollowupVerdict di routes/journal-followup.ts):
+ * - struktur_benar_sl_prematur   : LOSE tapi market lanjut ke arah bias -> SL kekencengan / entry kecepetan
+ * - struktur_salah_konfirmasi    : LOSE dan market gak lanjut -> bacaan struktur emang salah
+ * - momentum_lanjut_rr_konservatif: WIN tapi momentum masih lanjut -> RR bisa dinaikin
+ * - momentum_habis_rr_pas        : WIN dan momentum udah habis -> RR udah pas
+ * - noise_gak_signifikan         : pergerakan < 0.5x ATR, gak cukup buat disimpulkan
+ */
+export interface FollowupAggregate {
+  totalChecked: number; // yang UDAH selesai dicek server (isPending false)
+  totalPending: number;
+  strukturBenarSlPrematur: number;
+  strukturSalahKonfirmasi: number;
+  momentumLanjutRrKonservatif: number;
+  momentumHabisRrPas: number;
+  noiseGakSignifikan: number;
+  // Insight siap-tampil, dihitung dari proporsi di atas
+  insights: string[];
+}
+
+export function aggregateFollowups(
+  entries: JournalEntry[],
+  followups: Map<string, SignalFollowupResult>,
+): FollowupAggregate {
+  let totalChecked = 0, totalPending = 0;
+  let slPrematur = 0, strukturSalah = 0, rrKonservatif = 0, rrPas = 0, noise = 0;
+
+  for (const e of entries) {
+    const f = followups.get(e.id);
+    if (!f) continue;
+    if (f.isPending) { totalPending++; continue; }
+    totalChecked++;
+    switch (f.verdict) {
+      case 'struktur_benar_sl_prematur': slPrematur++; break;
+      case 'struktur_salah_konfirmasi': strukturSalah++; break;
+      case 'momentum_lanjut_rr_konservatif': rrKonservatif++; break;
+      case 'momentum_habis_rr_pas': rrPas++; break;
+      case 'noise_gak_signifikan': noise++; break;
+      default: break;
+    }
+  }
+
+  const insights: string[] = [];
+  const totalLoseVerdicts = slPrematur + strukturSalah;
+  const totalWinVerdicts = rrKonservatif + rrPas;
+
+  if (totalChecked < 5) {
+    insights.push(`Baru ${totalChecked} sinyal yang selesai dicek 1 jam setelah resolve — belum cukup buat nyimpulin pola. Kumpulin data lagi.`);
+  } else {
+    if (totalLoseVerdicts >= 3) {
+      const pctPrematur = Math.round((slPrematur / totalLoseVerdicts) * 100);
+      if (pctPrematur >= 60) {
+        insights.push(`🔴 PENTING: ${pctPrematur}% dari LOSE (${slPrematur} dari ${totalLoseVerdicts}) itu ternyata ARAH BACAAN KITA BENAR — market lanjut searah bias 1 jam setelah SL kena. Artinya masalahnya BUKAN di analisa struktur, tapi di SL KEKENCENGAN atau ENTRY KECEPETAN. Prioritas perbaikan: perlebar SL atau tunggu konfirmasi lebih matang sebelum entry.`);
+      } else if (pctPrematur <= 40) {
+        insights.push(`🔴 PENTING: ${100 - pctPrematur}% dari LOSE (${strukturSalah} dari ${totalLoseVerdicts}) itu market GAK lanjut ke arah bias — bacaan struktur/arahnya emang salah. Prioritas perbaikan: cara analisa struktur & validasi breakout-nya, BUKAN sekadar setelan SL.`);
+      } else {
+        insights.push(`Dari ${totalLoseVerdicts} LOSE yang udah dicek: ${slPrematur} karena SL prematur (arah benar), ${strukturSalah} karena struktur salah baca — seimbang, perlu perbaikan di DUA sisi (SL/entry timing DAN validasi struktur).`);
+      }
+    }
+    if (totalWinVerdicts >= 3) {
+      const pctKonservatif = Math.round((rrKonservatif / totalWinVerdicts) * 100);
+      if (pctKonservatif >= 60) {
+        insights.push(`💡 ${pctKonservatif}% dari WIN (${rrKonservatif} dari ${totalWinVerdicts}) itu momentum MASIH LANJUT setelah TP kena — RR sekarang kekonservatifan, TP kepotong duluan. Pertimbangkan naikin RR (misal 1:3) buat kondisi serupa.`);
+      } else {
+        insights.push(`RR sekarang udah pas: ${rrPas} dari ${totalWinVerdicts} WIN itu momentum udah habis pas TP kena (TP di titik yang tepat).`);
+      }
+    }
+    if (noise > totalChecked * 0.5) {
+      insights.push(`⚠️ ${noise} dari ${totalChecked} followup hasilnya "noise" (pergerakan <0.5x ATR dalam 1 jam) — market lagi banyak konsolidasi/sideways, sinyal breakout emang kurang cocok di kondisi ini.`);
+    }
+  }
+
+  return {
+    totalChecked, totalPending,
+    strukturBenarSlPrematur: slPrematur,
+    strukturSalahKonfirmasi: strukturSalah,
+    momentumLanjutRrKonservatif: rrKonservatif,
+    momentumHabisRrPas: rrPas,
+    noiseGakSignifikan: noise,
+    insights,
+  };
+}
+
 
 export interface JournalBreakdown {
   label: string;
@@ -626,6 +716,82 @@ export function compareIndicatorsWinLose(entries: JournalEntry[]): { comparisons
       : `⚠️ Sinyal LOSE cenderung entry pas harga gerak LEBIH TAJAM (ROC ${l}% vs ${w}%) — gerakan buru-buru bisa jadi tanda exhaustion/gak sehat.`;
   };
 
+  // FIX (ketemu user: "di menu jurnal ringkasan belum ada data indikator baru
+  // yang udah ditambahin"): 12 indikator baru (Williams %R, Momentum, Awesome
+  // Oscillator, CMF, OBV, ATR Squeeze, Keltner, Bollinger bandwidth, Trix,
+  // Elder Ray, VWAP, CVD, Open Interest) SELAMA INI TERSIMPAN di Journal TAPI
+  // GAK PERNAH DIANALISA di Ringkasan — cuma 8 indikator lama yang dibandingin.
+  const williamsInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < 8) return 'Gak ada pola jelas — Williams %R mirip di win & lose.';
+    if (l >= -20 && diff < -8) return '⚠️ Sinyal LOSE cenderung entry pas Williams %R overbought (≥-20).';
+    if (l <= -80 && diff > 8) return '⚠️ Sinyal LOSE cenderung entry pas Williams %R oversold (≤-80).';
+    return 'Ada beda pola Williams %R antara win & lose, cek detail per sinyal.';
+  };
+  const momentumInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < Math.max(0.0001, Math.abs(l) * 0.15)) return 'Gak ada pola jelas — Momentum mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung entry pas momentum harga LEBIH KUAT.'
+      : '⚠️ Sinyal LOSE justru momentum lebih kuat — bisa jadi tanda entry telat (udah exhaustion).';
+  };
+  const aoInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < Math.max(0.0001, Math.abs(l) * 0.15)) return 'Gak ada pola jelas — Awesome Oscillator mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung entry pas Awesome Oscillator lebih kuat (momentum jangka menengah dukung).'
+      : '⚠️ Sinyal LOSE justru AO lebih kuat — momentum menengah gak jamin menang di skill ini.';
+  };
+  const cmfInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < 0.05) return 'Gak ada pola jelas — Chaikin Money Flow mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung didukung aliran dana (CMF) lebih kuat.'
+      : '⚠️ Sinyal LOSE justru CMF lebih tinggi — aliran dana kuat gak jamin menang, cek apa itu jebakan.';
+  };
+  const atrSqueezeInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < 0.1) return 'Gak ada pola jelas — ATR Squeeze mirip di win & lose.';
+    return diff > 0
+      ? `✅ Sinyal WIN cenderung entry pas volatilitas MELEBAR (${w} vs ${l}) — ekspansi dukung breakout.`
+      : `⚠️ Sinyal LOSE cenderung entry pas volatilitas melebar (${l} vs ${w}) — ekspansi bisa jadi tanda gerakan udah kelewat matang.`;
+  };
+  const bbBandwidthInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < 0.3) return 'Gak ada pola jelas — lebar Bollinger Band mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung entry pas Bollinger MELEBAR (volatilitas ekspansi).'
+      : '⚠️ Sinyal LOSE cenderung entry pas Bollinger lebih lebar — market kegedean gerak bisa nyundul SL.';
+  };
+  const trixInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < 0.02) return 'Gak ada pola jelas — Trix mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung entry pas Trix (momentum tersaring) lebih kuat.'
+      : '⚠️ Sinyal LOSE justru Trix lebih kuat — momentum tersaring gak jamin menang di skill ini.';
+  };
+  const elderInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < Math.max(0.0001, Math.abs(l) * 0.15)) return 'Gak ada pola jelas — Elder Ray mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung entry pas tekanan (Elder Ray) lebih kuat searah bias.'
+      : '⚠️ Sinyal LOSE justru tekanan Elder Ray lebih kuat — cek apa itu tanda exhaustion.';
+  };
+  const vwapDistInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < 0.3) return 'Gak ada pola jelas — jarak harga ke VWAP mirip di win & lose.';
+    return diff > 0
+      ? `⚠️ Sinyal WIN justru entry LEBIH JAUH dari VWAP (${w}% vs ${l}%) — cek apa itu breakout kuat atau kebetulan.`
+      : `✅ Sinyal WIN cenderung entry LEBIH DEKAT ke VWAP (${w}% vs ${l}%) — entry deket harga wajar lebih aman, LOSE cenderung ngejar harga yang udah jauh (${l}%).`;
+  };
+  const cvdInsight = (w: number, l: number) => {
+    const diff = w - l;
+    if (Math.abs(diff) < Math.max(1, Math.abs(l) * 0.15)) return 'Gak ada pola jelas — CVD (tekanan beli-jual kumulatif) mirip di win & lose.';
+    return diff > 0
+      ? '✅ Sinyal WIN cenderung didukung tekanan beli agresif (CVD) lebih kuat.'
+      : '⚠️ Sinyal LOSE justru CVD lebih tinggi — tekanan agresif gak jamin menang, bisa jadi jebakan/distribusi.';
+  };
+
   const comparisons: IndicatorComparison[] = [
     mk('RSI Struktur', '', e => e.technicalSnapshot!.struktur.rsi, rsiInsight),
     mk('RSI Eksekusi', '', e => e.technicalSnapshot!.eksekusi.rsi, rsiInsight),
@@ -643,6 +809,32 @@ export function compareIndicatorsWinLose(entries: JournalEntry[]): { comparisons
     mk('CCI Eksekusi', '', e => Math.abs(e.technicalSnapshot!.eksekusi.cci), cciInsight),
     mk('ROC Struktur', '%', e => Math.abs(e.technicalSnapshot!.struktur.roc), rocInsight),
     mk('ROC Eksekusi', '%', e => Math.abs(e.technicalSnapshot!.eksekusi.roc), rocInsight),
+    // ── 12 indikator baru (FIX: sebelumnya tersimpan tapi gak dianalisa) ──
+    mk('Williams %R Struktur', '', e => e.technicalSnapshot!.struktur.williamsR ?? -50, williamsInsight),
+    mk('Williams %R Eksekusi', '', e => e.technicalSnapshot!.eksekusi.williamsR ?? -50, williamsInsight),
+    mk('Momentum Struktur', '', e => Math.abs(e.technicalSnapshot!.struktur.momentum ?? 0), momentumInsight),
+    mk('Momentum Eksekusi', '', e => Math.abs(e.technicalSnapshot!.eksekusi.momentum ?? 0), momentumInsight),
+    mk('Awesome Osc Struktur', '', e => Math.abs(e.technicalSnapshot!.struktur.awesomeOscillator ?? 0), aoInsight),
+    mk('Awesome Osc Eksekusi', '', e => Math.abs(e.technicalSnapshot!.eksekusi.awesomeOscillator ?? 0), aoInsight),
+    mk('Chaikin Money Flow Struktur', '', e => e.technicalSnapshot!.struktur.chaikinMoneyFlow ?? 0, cmfInsight),
+    mk('Chaikin Money Flow Eksekusi', '', e => e.technicalSnapshot!.eksekusi.chaikinMoneyFlow ?? 0, cmfInsight),
+    mk('ATR Squeeze Struktur', 'x', e => e.technicalSnapshot!.struktur.atrSqueeze ?? 1, atrSqueezeInsight),
+    mk('ATR Squeeze Eksekusi', 'x', e => e.technicalSnapshot!.eksekusi.atrSqueeze ?? 1, atrSqueezeInsight),
+    mk('Bollinger Bandwidth Struktur', '%', e => e.technicalSnapshot!.struktur.bbBandwidth ?? 0, bbBandwidthInsight),
+    mk('Bollinger Bandwidth Eksekusi', '%', e => e.technicalSnapshot!.eksekusi.bbBandwidth ?? 0, bbBandwidthInsight),
+    mk('Trix Struktur', '%', e => Math.abs(e.technicalSnapshot!.struktur.trix ?? 0), trixInsight),
+    mk('Trix Eksekusi', '%', e => Math.abs(e.technicalSnapshot!.eksekusi.trix ?? 0), trixInsight),
+    mk('Elder Bull Power Struktur', '', e => Math.abs(e.technicalSnapshot!.struktur.elderBullPower ?? 0), elderInsight),
+    mk('Elder Bear Power Struktur', '', e => Math.abs(e.technicalSnapshot!.struktur.elderBearPower ?? 0), elderInsight),
+    // VWAP dibandingin sebagai JARAK harga ke VWAP (%) — angka VWAP mentah
+    // gak bisa dibandingin lintas koin (skala harga beda-beda)
+    mk('Jarak ke VWAP Struktur', '%', e => {
+      const s = e.technicalSnapshot!.struktur;
+      const vwap = s.vwap ?? 0;
+      return vwap > 0 ? Math.abs((s.bbMiddle - vwap) / vwap) * 100 : 0;
+    }, vwapDistInsight),
+    mk('CVD Struktur', '', e => Math.abs(e.technicalSnapshot!.struktur.cvd ?? 0), cvdInsight),
+    mk('CVD Eksekusi', '', e => Math.abs(e.technicalSnapshot!.eksekusi.cvd ?? 0), cvdInsight),
   ];
 
   return { comparisons, sampleWin: wins.length, sampleLose: loses.length };
@@ -744,6 +936,25 @@ export function buildLoseConditionProfiles(entries: JournalEntry[], groupBy: 'me
     checkExtreme(`CCI ${strukturTag}`, e => Math.abs(e.technicalSnapshot!.struktur.cci), v => v >= 100, 'ekstrem (|CCI|≥100)');
     checkExtreme(`MACD histogram ${eksekusiTag}`, e => Math.abs(e.technicalSnapshot!.eksekusi.macd), v => v < 0.0001, 'nyaris flat (momentum lemah)');
     checkExtreme(`ROC ${eksekusiTag}`, e => Math.abs(e.technicalSnapshot!.eksekusi.roc), v => v < 0.15, 'nyaris flat (harga lambat gerak)');
+    // FIX (ketemu user: indikator baru tersimpan tapi gak dianalisa) — 12
+    // indikator tambahan sekarang ikut dicek buat profil kondisi LOSE
+    checkExtreme(`Williams %R ${eksekusiTag}`, e => e.technicalSnapshot!.eksekusi.williamsR ?? -50, v => v >= -20, 'overbought (≥-20)');
+    checkExtreme(`Williams %R ${eksekusiTag}`, e => e.technicalSnapshot!.eksekusi.williamsR ?? -50, v => v <= -80, 'oversold (≤-80)');
+    checkExtreme(`Williams %R ${strukturTag}`, e => e.technicalSnapshot!.struktur.williamsR ?? -50, v => v >= -20, 'overbought (≥-20)');
+    checkExtreme(`Williams %R ${strukturTag}`, e => e.technicalSnapshot!.struktur.williamsR ?? -50, v => v <= -80, 'oversold (≤-80)');
+    checkExtreme(`Chaikin Money Flow ${strukturTag}`, e => e.technicalSnapshot!.struktur.chaikinMoneyFlow ?? 0, v => v >= 0.2, 'aliran dana beli KUAT (≥0.2)');
+    checkExtreme(`Chaikin Money Flow ${strukturTag}`, e => e.technicalSnapshot!.struktur.chaikinMoneyFlow ?? 0, v => v <= -0.2, 'aliran dana jual KUAT (≤-0.2)');
+    checkExtreme(`ATR Squeeze ${strukturTag}`, e => e.technicalSnapshot!.struktur.atrSqueeze ?? 1, v => v < 0.8, 'volatilitas MENYEMPIT (squeeze <0.8x)');
+    checkExtreme(`ATR Squeeze ${strukturTag}`, e => e.technicalSnapshot!.struktur.atrSqueeze ?? 1, v => v > 1.5, 'volatilitas MELEBAR ekstrem (>1.5x)');
+    checkExtreme(`Bollinger bandwidth ${strukturTag}`, e => e.technicalSnapshot!.struktur.bbBandwidth ?? 0, v => v > 8, 'band MELEBAR ekstrem (>8%, market kegedean gerak)');
+    checkExtreme(`Awesome Oscillator ${strukturTag}`, e => Math.abs(e.technicalSnapshot!.struktur.awesomeOscillator ?? 0), v => v < 0.0001, 'nyaris flat (momentum menengah lemah)');
+    checkExtreme(`Trix ${strukturTag}`, e => Math.abs(e.technicalSnapshot!.struktur.trix ?? 0), v => v < 0.01, 'nyaris flat (momentum tersaring lemah)');
+    // Jarak harga ke VWAP — entry kejauhan dari harga wajar itu tanda "ngejar harga"
+    checkExtreme(`Jarak ke VWAP ${strukturTag}`, e => {
+      const s = e.technicalSnapshot!.struktur;
+      const vwap = s.vwap ?? 0;
+      return vwap > 0 ? Math.abs((s.bbMiddle - vwap) / vwap) * 100 : 0;
+    }, v => v > 2, 'harga JAUH dari VWAP (>2%, kemungkinan ngejar harga)');
 
     const biasNote = buyPct > sellPct ? `mayoritas BUY/LONG (${buyPct}%)` : sellPct > buyPct ? `mayoritas SELL/SHORT (${sellPct}%)` : 'seimbang antara BUY & SELL';
     let btcNote = '';
@@ -928,4 +1139,248 @@ export async function setJournalBaseline(ts: number | null): Promise<void> {
 export function filterByBaseline(entries: JournalEntry[], baseline: number | null): JournalEntry[] {
   if (baseline === null) return entries;
   return entries.filter(e => e.savedAt >= baseline);
+}
+// ─── Diagnosa Terpadu (request user: sub tab baru yang analisa SEMUA data
+// jadi poin-poin ringkas siap-eksekusi, bukan tumpukan angka mentah) ────────
+
+export type FindingSeverity = 'critical' | 'warning' | 'info' | 'good';
+
+export interface DiagnosticFinding {
+  severity: FindingSeverity;
+  title: string;        // 1 baris, langsung ke inti masalahnya
+  evidence: string;     // angka konkret pendukung — biar bukan klaim kosong
+  action: string;       // APA yang harus diubah/dikembangin
+  sampleSize: number;   // biar user tau ini kesimpulan dari data banyak atau dikit
+}
+
+export interface DiagnosticReport {
+  headline: string;              // 1 kalimat: kondisi sistem sekarang
+  overallWinRate: number;
+  totalResolved: number;
+  findings: DiagnosticFinding[]; // udah terurut: critical -> warning -> info -> good
+  dataGaps: string[];            // data yang BELUM cukup buat disimpulin
+}
+
+const SEVERITY_ORDER: Record<FindingSeverity, number> = { critical: 0, warning: 1, info: 2, good: 3 };
+
+/**
+ * Gabungin SEMUA sumber analisa (win rate, followup 1-jam, timing, indikator
+ * win-vs-lose, profil lose, breakdown per menu/skill) jadi DAFTAR TEMUAN
+ * TERPRIORITAS. Beda dari tab Ringkasan yang nampilin SEMUA angka mentah —
+ * ini SIMPULIN: apa yang salah, buktinya apa, dan apa yang harus diubah.
+ *
+ * Prinsipnya: setiap finding WAJIB punya (1) angka bukti konkret, (2) sample
+ * size — biar user bisa nilai sendiri seberapa kuat kesimpulannya, bukan
+ * disodorin klaim tanpa dasar.
+ */
+export function buildDiagnosticReport(
+  entries: JournalEntry[],
+  followups: Map<string, SignalFollowupResult>,
+): DiagnosticReport {
+  const findings: DiagnosticFinding[] = [];
+  const dataGaps: string[] = [];
+
+  const resolved = entries.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2' || e.status === 'lose');
+  const wins = resolved.filter(e => e.status !== 'lose');
+  const loses = resolved.filter(e => e.status === 'lose');
+  const totalResolved = resolved.length;
+  const overallWinRate = totalResolved > 0 ? Math.round((wins.length / totalResolved) * 100) : 0;
+
+  if (totalResolved < 10) {
+    return {
+      headline: `Baru ${totalResolved} sinyal selesai — belum cukup buat didiagnosa. Kumpulin minimal 10-20 dulu.`,
+      overallWinRate, totalResolved, findings: [],
+      dataGaps: ['Butuh minimal 10 sinyal selesai (win/lose) buat mulai analisa pola.'],
+    };
+  }
+
+  // ── 1. Win rate vs breakeven RR ──────────────────────────────────────────
+  // RR 1:2 butuh WR >33% buat breakeven (belum termasuk fee). Ini paling
+  // fundamental — kalau di bawah ini, sistem RUGI walau "kelihatan wajar".
+  const rrValues = resolved.map(e => e.rr1).filter((v): v is number => typeof v === 'number' && v > 0);
+  const avgRR = rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : 2;
+  const breakevenWR = Math.round((1 / (1 + avgRR)) * 100);
+  if (overallWinRate < breakevenWR) {
+    findings.push({
+      severity: 'critical',
+      title: `Win rate ${overallWinRate}% ADA DI BAWAH breakeven (${breakevenWR}%) buat RR 1:${avgRR.toFixed(1)}`,
+      evidence: `${wins.length} menang dari ${totalResolved} sinyal. Dengan RR 1:${avgRR.toFixed(1)}, minimal butuh ${breakevenWR}% cuma buat balik modal (belum potong fee).`,
+      action: `Ini masalah paling fundamental — sistem lagi rugi secara matematis. Yang perlu diperbaiki: geometri SL/TP (jarak SL vs TP relatif ATR) ATAU kualitas sinyal (filter entry). Cek temuan di bawah buat tau yang mana.`,
+      sampleSize: totalResolved,
+    });
+  } else if (overallWinRate < breakevenWR + 10) {
+    findings.push({
+      severity: 'warning',
+      title: `Win rate ${overallWinRate}% cuma tipis di atas breakeven (${breakevenWR}%)`,
+      evidence: `${wins.length} menang dari ${totalResolved} sinyal. Margin aman cuma ${overallWinRate - breakevenWR} poin — sekali kena losing streak bisa langsung minus.`,
+      action: `Perlu ditingkatkan biar ada bantalan. Fokus ke temuan lain di bawah.`,
+      sampleSize: totalResolved,
+    });
+  } else {
+    findings.push({
+      severity: 'good',
+      title: `Win rate ${overallWinRate}% di atas breakeven (${breakevenWR}%) — sistem profitable secara matematis`,
+      evidence: `${wins.length} menang dari ${totalResolved} sinyal, RR rata-rata 1:${avgRR.toFixed(1)}.`,
+      action: `Pertahankan. Fokus optimasi ke temuan lain buat naikin margin.`,
+      sampleSize: totalResolved,
+    });
+  }
+
+  // ── 2. Followup 1-jam: akar masalah LOSE (paling actionable) ────────────
+  const agg = aggregateFollowups(entries, followups);
+  const loseVerdicts = agg.strukturBenarSlPrematur + agg.strukturSalahKonfirmasi;
+  if (loseVerdicts >= 5) {
+    const pctPrematur = Math.round((agg.strukturBenarSlPrematur / loseVerdicts) * 100);
+    if (pctPrematur >= 60) {
+      findings.push({
+        severity: 'critical',
+        title: `${pctPrematur}% LOSE ternyata ARAH BACAAN BENAR — SL kepencet duluan`,
+        evidence: `${agg.strukturBenarSlPrematur} dari ${loseVerdicts} LOSE: 1 jam setelah SL kena, market LANJUT searah bias awal. Artinya analisa struktur udah bener, cuma posisi keburu ketutup.`,
+        action: `PRIORITAS UTAMA: perlebar SL (jarak SL sekarang kekencengan relatif volatilitas), ATAU tunda entry sampai konfirmasi lebih matang. JANGAN utak-atik filter indikator — itu bukan masalahnya.`,
+        sampleSize: loseVerdicts,
+      });
+    } else if (pctPrematur <= 40) {
+      findings.push({
+        severity: 'critical',
+        title: `${100 - pctPrematur}% LOSE karena bacaan struktur SALAH`,
+        evidence: `${agg.strukturSalahKonfirmasi} dari ${loseVerdicts} LOSE: 1 jam setelah SL, market TIDAK lanjut ke arah bias — arahnya emang salah dari awal.`,
+        action: `PRIORITAS UTAMA: perbaiki cara analisa struktur & validasi breakout (bukan setelan SL). Perketat syarat konfirmasi breakout, atau tambah filter arah yang lebih kuat.`,
+        sampleSize: loseVerdicts,
+      });
+    } else {
+      findings.push({
+        severity: 'warning',
+        title: `Penyebab LOSE terbagi rata: ${agg.strukturBenarSlPrematur} SL prematur, ${agg.strukturSalahKonfirmasi} struktur salah`,
+        evidence: `Dari ${loseVerdicts} LOSE yang udah dicek 1 jam setelahnya.`,
+        action: `Perlu perbaikan di DUA sisi: (1) perlebar SL/tunda entry, (2) perketat validasi struktur.`,
+        sampleSize: loseVerdicts,
+      });
+    }
+  } else {
+    dataGaps.push(`Analisa pasca-trade 1-jam baru ${loseVerdicts} LOSE yang selesai dicek (butuh ≥5). Ini data PALING PENTING buat tau akar masalah — biarkan server ngumpulin lagi.`);
+  }
+
+  // ── 3. RR kekonservatifan (dari followup WIN) ───────────────────────────
+  const winVerdicts = agg.momentumLanjutRrKonservatif + agg.momentumHabisRrPas;
+  if (winVerdicts >= 5) {
+    const pctKonservatif = Math.round((agg.momentumLanjutRrKonservatif / winVerdicts) * 100);
+    if (pctKonservatif >= 60) {
+      findings.push({
+        severity: 'info',
+        title: `${pctKonservatif}% WIN masih punya momentum sisa saat TP kena — RR bisa dinaikin`,
+        evidence: `${agg.momentumLanjutRrKonservatif} dari ${winVerdicts} WIN: 1 jam setelah TP, market masih lanjut searah. Profit ketinggalan di meja.`,
+        action: `Pertimbangkan naikin RR (1:2 → 1:3) atau pakai trailing TP buat kondisi serupa.`,
+        sampleSize: winVerdicts,
+      });
+    }
+  }
+
+  // ── 4. Timing: SL jauh lebih cepat dari TP = geometri timpang ───────────
+  const timing = computeTimingStats(entries)[0];
+  if (timing && timing.avgHoursToSl !== null && timing.avgHoursToTp !== null && timing.sampleSlHit >= 5 && timing.sampleTpHit >= 5) {
+    const ratio = timing.avgHoursToTp / timing.avgHoursToSl;
+    if (ratio >= 2) {
+      findings.push({
+        severity: 'warning',
+        title: `TP butuh ${ratio.toFixed(1)}x lebih lama dari SL — target profit kejauhan`,
+        evidence: `SL kena rata-rata ${timing.avgHoursToSl.toFixed(1)} jam (${timing.sampleSlHit} sinyal), TP ${timing.avgHoursToTp.toFixed(1)} jam (${timing.sampleTpHit} sinyal).`,
+        action: `Ini tanda jarak TP terlalu jauh relatif SL dalam satuan volatilitas. Harga lebih sering nyentuh yang deket duluan. Perbaikan: perlebar SL (bukan perkecil TP, biar RR tetap).`,
+        sampleSize: timing.sampleSlHit + timing.sampleTpHit,
+      });
+    }
+  } else {
+    dataGaps.push('Data timing (kapan SL/TP kena) belum cukup — butuh ≥5 sinyal kena SL dan ≥5 kena TP.');
+  }
+
+  // ── 5. Menu/skill terlemah ──────────────────────────────────────────────
+  const bySkill = breakdownBySkill(entries).filter(b => b.win + b.lose >= 8);
+  if (bySkill.length >= 2) {
+    const sorted = [...bySkill].sort((a, b) => a.winRate - b.winRate);
+    const worst = sorted[0]!;
+    const best = sorted[sorted.length - 1]!;
+    if (best.winRate - worst.winRate >= 15) {
+      findings.push({
+        severity: 'warning',
+        title: `Skill "${worst.label}" jauh tertinggal (${worst.winRate}%) dibanding "${best.label}" (${best.winRate}%)`,
+        evidence: `${worst.label}: ${worst.win}W/${worst.lose}L. ${best.label}: ${best.win}W/${best.lose}L. Selisih ${best.winRate - worst.winRate} poin.`,
+        action: `Evaluasi ulang skill "${worst.label}" — atau matikan sementara dan fokus ke yang lebih kuat sambil dikembangkan.`,
+        sampleSize: worst.win + worst.lose,
+      });
+    }
+  }
+
+  // ── 6. Bias arah (BUY vs SELL) ──────────────────────────────────────────
+  const byBias = breakdownByBias(entries).filter(b => b.win + b.lose >= 8);
+  if (byBias.length === 2) {
+    const [a, b] = byBias;
+    if (a && b && Math.abs(a.winRate - b.winRate) >= 20) {
+      const weak = a.winRate < b.winRate ? a : b;
+      const strong = a.winRate < b.winRate ? b : a;
+      findings.push({
+        severity: 'warning',
+        title: `Sinyal ${weak.label} jauh lebih sering rugi (${weak.winRate}%) dibanding ${strong.label} (${strong.winRate}%)`,
+        evidence: `${weak.label}: ${weak.win}W/${weak.lose}L. ${strong.label}: ${strong.win}W/${strong.lose}L.`,
+        action: `Cek apakah kondisi market periode ini emang trending satu arah. Kalau iya, pertimbangkan filter arah yang ngikutin bias market besar.`,
+        sampleSize: weak.win + weak.lose,
+      });
+    }
+  }
+
+  // ── 7. Indikator dengan beda paling mencolok win vs lose ────────────────
+  const indicatorRes = compareIndicatorsWinLose(entries);
+  if (indicatorRes.sampleWin >= 5 && indicatorRes.sampleLose >= 5) {
+    // Cari yang selisihnya paling besar relatif ke skalanya sendiri
+    const scored = indicatorRes.comparisons
+      .map(c => {
+        const scale = Math.max(Math.abs(c.winAvg), Math.abs(c.loseAvg), 0.0001);
+        return { c, relDiff: Math.abs(c.winAvg - c.loseAvg) / scale };
+      })
+      .filter(x => x.relDiff >= 0.25) // minimal beda 25% relatif — biar bukan noise
+      .sort((a, b) => b.relDiff - a.relDiff)
+      .slice(0, 3);
+    for (const { c, relDiff } of scored) {
+      findings.push({
+        severity: 'info',
+        title: `${c.label}: beda mencolok antara WIN (${c.winAvg}${c.unit}) vs LOSE (${c.loseAvg}${c.unit})`,
+        evidence: `Selisih ${Math.round(relDiff * 100)}% relatif. Dari ${indicatorRes.sampleWin} WIN dan ${indicatorRes.sampleLose} LOSE.`,
+        action: `Kandidat filter baru: coba saring sinyal berdasarkan ${c.label}. Test dulu sebelum dijadiin hard filter.`,
+        sampleSize: indicatorRes.sampleWin + indicatorRes.sampleLose,
+      });
+    }
+    if (scored.length === 0) {
+      findings.push({
+        severity: 'info',
+        title: `Gak ada indikator tunggal yang jelas bedain WIN vs LOSE`,
+        evidence: `Dari ${indicatorRes.comparisons.length} indikator yang dibandingin (${indicatorRes.sampleWin} WIN, ${indicatorRes.sampleLose} LOSE), gak ada yang selisihnya >25%.`,
+        action: `Artinya masalahnya kemungkinan BUKAN di pemilihan indikator — lebih ke struktur SL/TP atau timing entry. Fokus ke temuan critical di atas.`,
+        sampleSize: indicatorRes.sampleWin + indicatorRes.sampleLose,
+      });
+    }
+  } else {
+    dataGaps.push(`Perbandingan indikator butuh ≥5 WIN dan ≥5 LOSE yang punya data snapshot (sekarang ${indicatorRes.sampleWin} WIN, ${indicatorRes.sampleLose} LOSE).`);
+  }
+
+  // ── 8. Sinyal yang gak pernah kehit entry ───────────────────────────────
+  const pending = entries.filter(e => e.status === 'pending');
+  const neverHit = pending.filter(e => !e.entryHitAt);
+  if (entries.length >= 20 && neverHit.length / entries.length >= 0.4) {
+    findings.push({
+      severity: 'warning',
+      title: `${Math.round((neverHit.length / entries.length) * 100)}% sinyal gak pernah kena entry`,
+      evidence: `${neverHit.length} dari ${entries.length} sinyal masih nunggu harga nyampe ke entry price (limit order gak pernah kesentuh).`,
+      action: `Entry price kejauhan dari harga saat sinyal muncul. Pertimbangkan entry lebih dekat ke harga pasar, atau perpendek jarak retest yang ditunggu.`,
+      sampleSize: entries.length,
+    });
+  }
+
+  findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+
+  const criticalCount = findings.filter(f => f.severity === 'critical').length;
+  const headline = criticalCount > 0
+    ? `${criticalCount} masalah KRITIS ketemu — win rate ${overallWinRate}% dari ${totalResolved} sinyal. Baca temuan merah dulu.`
+    : findings.some(f => f.severity === 'warning')
+    ? `Gak ada masalah kritis, tapi ada beberapa yang perlu diperbaiki — win rate ${overallWinRate}% dari ${totalResolved} sinyal.`
+    : `Sistem dalam kondisi sehat — win rate ${overallWinRate}% dari ${totalResolved} sinyal.`;
+
+  return { headline, overallWinRate, totalResolved, findings, dataGaps };
 }

@@ -201,7 +201,10 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 
 function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: BreakoutTradingResult) => void }) {
   const insets = useSafeAreaInsets();
-  const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({ query: { staleTime: 3 * 60 * 1000 } });
+  // FIX (request user, "diem di tab lain 5-10 menit, balik ke Scan malah
+  // auto-refetch"): staleTime Infinity — data scan GAK PERNAH dianggap basi
+  // otomatis, CUMA refresh kalau user PENCET Scan Ulang manual (refetch()).
+  const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({ query: { staleTime: Infinity } });
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('default');

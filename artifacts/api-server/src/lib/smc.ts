@@ -2327,6 +2327,46 @@ function calcMomentumInfo(highs: number[], lows: number[], closes: number[], loo
   return { velocityRatio, atrExpansion, direction, classification, message };
 }
 
+// ─── Volume Breakout Threshold — adaptif per likuiditas (request user) ─────
+// Crypto sekarang volatilitas tinggi + banyak manipulasi (wash trading, fake
+// breakout) — butuh rasio volume LEBIH TINGGI dari basis lama (1.4x) buat
+// validasi breakout genuine, TERUTAMA di koin likuiditas rendah (lebih gampang
+// "digoreng" volume-nya). Proxy likuiditas pakai VOLUME 24H (quoteVolume) —
+// Binance gak nyediain market cap langsung (dibahas & disepakati skip
+// sebelumnya), volume 24h itu proxy paling praktis yang UDAH ADA datanya.
+const volume24hCache = new Map<string, { value: number; ts: number }>();
+const VOLUME_24H_CACHE_MS = 5 * 60 * 1000;
+const HIGH_LIQUIDITY_THRESHOLD_USDT = 500_000_000; // >500 Juta USDT/24h = "high-cap-like" (BTC/ETH dkk)
+
+async function fetch24hVolume(symbol: string): Promise<number> {
+  const cached = volume24hCache.get(symbol);
+  if (cached && Date.now() - cached.ts < VOLUME_24H_CACHE_MS) return cached.value;
+  try {
+    const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr?symbol=${symbol}`);
+    if (!res.ok) return cached?.value ?? 0;
+    const data = await res.json() as { quoteVolume: string };
+    const value = parseFloat(data.quoteVolume);
+    volume24hCache.set(symbol, { value, ts: Date.now() });
+    return value;
+  } catch {
+    return cached?.value ?? 0; // fail-safe — kalau gagal fetch, treat sebagai "belum tau" (caller pakai default konservatif)
+  }
+}
+
+/**
+ * FIX (request user): threshold volume breakout ADAPTIF per likuiditas.
+ * baseHighCap = threshold buat koin likuid (>500jt USDT/24h volume) —
+ * Skill 15M 1.5x, Structural 1.8x. Koin likuiditas rendah butuh rasio LEBIH
+ * TINGGI (dinaikin ~1.6x dari base, taruh di tengah rentang 2-4x yang diminta:
+ * 1.5*1.67=2.5x, 1.8*1.67=3.0x) — lebih gampang "digoreng" volume-nya, butuh
+ * konfirmasi lebih kuat biar bukan fake breakout/manipulasi.
+ */
+async function getVolumeBreakoutThreshold(symbol: string, baseHighCap: number): Promise<number> {
+  const volume24h = await fetch24hVolume(symbol);
+  if (volume24h >= HIGH_LIQUIDITY_THRESHOLD_USDT) return baseHighCap;
+  return baseHighCap * 1.67; // 1.5->2.505, 1.8->3.006, sesuai rentang 2-4x yang diminta user
+}
+
 // ─── BTC Correlation Filter ─────────────────────────────────────────────────
 // BTC dump/pump sering nyeret SEMUA altcoin ikut (cascading liquidation cross-margin,
 // panic sell/FOMO, market maker re-hedge) — ini efek makro, BUKAN soal analisa
@@ -2482,7 +2522,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: 'Gak ada zona S/R yang numpuk sama Fibonacci retracement', maxScore, atr15MPct: atrM30Pct };
     }
 
-    const picked = tryZoneBreakoutRetest(m30, m5, currentPrice, resistanceLevels, supportLevels, zoneWidth, atrM30, 'M30');
+    const picked = await tryZoneBreakoutRetest(m30, m5, currentPrice, resistanceLevels, supportLevels, zoneWidth, atrM30, 'M30', symbol);
     if (!picked.ok) {
       // 'waiting'/'expired' dipertahanin apa adanya (BUKAN di-remap ke no_setup)
       // biar konsisten sama Scalping15M — route scan Menu 4 include ketiga status
@@ -2507,11 +2547,23 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     ];
 
     const btcCheck = await checkBtcAlignment(picked.bias, symbol, '30m', 100); // TF struktur (M30)
+    // FIX (request user): BTC Correlation SEKARANG SOFT FILTER doang —
+    // GAK NGE-BLOCK sinyal lagi walaupun BTC lawan arah. Cuma nempel WARNING
+    // di filterResults biar user TETEP TAU kondisi BTC pas ambil keputusan
+    // sendiri, tapi keputusan FINAL diserahin ke user.
     if (btcCheck.btcBias !== 'ranging' && !btcCheck.aligned) {
-      filterResults.push(btcCheck.message);
-      return { status: 'no_setup', symbol, bias: picked.bias, currentPrice, timestamp, mode: 'structural', message: `BTC lawan arah (${btcCheck.btcBias}) — wajib searah kalau BTC punya bias jelas`, maxScore, filterResults, atr15MPct: atrM30Pct };
+      filterResults.push(`⚠️ ${btcCheck.message} (soft warning — sinyal tetep lolos, pertimbangin sendiri)`);
+    } else {
+      filterResults.push(btcCheck.message || '✅ BTC lagi ranging — netral');
     }
-    filterResults.push(btcCheck.message || '✅ BTC lagi ranging — netral, tetep lolos');
+
+    // FIX (request user): filter S&R+overbought BERTINGKAT (H1->H4->D1) —
+    // SOFT WARNING (bukan block), cek apakah harga lagi deket zona S&R KUAT
+    // DIPERKUAT overbought/oversold di TF manapun.
+    const srConfluence = await checkMultiTFSRConfluence(symbol, picked.bias);
+    if (srConfluence.danger && srConfluence.detail) {
+      filterResults.push(`⚠️ Harga deket zona S&R KUAT (${srConfluence.detail.zoneTouches}x touches) di ${srConfluence.dangerTf}, DIPERKUAT RSI ${srConfluence.detail.rsi.toFixed(1)} (${picked.bias === 'bullish' ? 'overbought' : 'oversold'}) — jarak ${srConfluence.detail.distanceAtrRatio?.toFixed(2)}x ATR, potensi resiko reversal (soft warning — sinyal tetep lolos)`);
+    }
 
     const status: ScalpingResult['status'] = picked.status === 'approaching' ? 'approaching' : 'in_zone';
     // score: gak ada lagi sistem "nambah 1 per faktor" kayak versi lama (basis
@@ -2639,11 +2691,21 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       return win.length > 0 ? win.reduce((a, b) => a + b, 0) / win.length : 0;
     };
 
+    // FIX (request user): threshold volume breakout NAIK dari 1.4x jadi 1.5x
+    // (base, high-cap) — crypto sekarang volatilitas tinggi + banyak
+    // manipulasi (wash trading, fake breakout), butuh konfirmasi volume
+    // lebih kuat. Koin likuiditas rendah (<500jt USDT/24h) otomatis dinaikin
+    // ke ~2.5x (lebih gampang "digoreng" volume-nya).
+    const volumeThreshold15M = await getVolumeBreakoutThreshold(symbol, 1.5);
+
     // Cari breakout dalam retest window (24 candle terakhir = ~6 jam)
     const retestWindowMax = 24;
     let foundBreakout: { direction: 'bullish' | 'bearish'; zoneLevel: number; edgeUpper: number; edgeLower: number; breakoutPrice: number; breakoutIdx: number } | null = null;
 
-    for (let idx = Math.max(1, n15 - retestWindowMax); idx < n15; idx++) {
+    // FIX (request user, "tunggu close candle sebelum entry"): sama kayak
+    // Structural, window scan BERHENTI di 'n15 - 1' — breakout cuma
+    // terdeteksi dari candle yang PASTI udah closed.
+    for (let idx = Math.max(1, n15 - retestWindowMax); idx < n15 - 1; idx++) {
       const closeAt = m15.closes[idx]!;
       const volAt = m15.volumes[idx]!;
       const volMA = volMA20At(idx);
@@ -2651,21 +2713,21 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       for (const level of resistanceLevels) {
         const edgeUpper = level + zoneWidth / 2;
         const edgeLower = level - zoneWidth / 2;
-        if (closeAt > edgeUpper && volAt > 1.4 * volMA) {
+        if (closeAt > edgeUpper && volAt > volumeThreshold15M * volMA) {
           foundBreakout = { direction: 'bullish', zoneLevel: level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx };
         }
       }
       for (const level of supportLevels) {
         const edgeUpper = level + zoneWidth / 2;
         const edgeLower = level - zoneWidth / 2;
-        if (closeAt < edgeLower && volAt > 1.4 * volMA) {
+        if (closeAt < edgeLower && volAt > volumeThreshold15M * volMA) {
           foundBreakout = { direction: 'bearish', zoneLevel: level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx };
         }
       }
     }
 
     if (!foundBreakout) {
-      return { status: 'waiting', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'Belum ada breakout valid dalam retest window (24 candle terakhir)', maxScore, atr15MPct };
+      return { status: 'waiting', symbol, currentPrice, timestamp, mode: 'scalping15m', message: `Belum ada breakout valid dalam retest window (24 candle terakhir, threshold volume ${volumeThreshold15M.toFixed(2)}x MA20)`, maxScore, atr15MPct };
     }
     const bias = foundBreakout.direction;
     const candlesSinceBreakout = n15 - 1 - foundBreakout.breakoutIdx;
@@ -2745,12 +2807,15 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
 
     const lastVol = m15.volumes[n15 - 1]!;
     const lastVolMA = volMA20At(n15 - 1);
-    const pullbackVolumeOk = lastVolMA > 0 ? lastVol < lastVolMA : false;
-    if (!pullbackVolumeOk) {
+    // FIX (request user): retest volume MENURUN LALU STABIL, bukan cuma cek
+    // 1 candle terakhir doang — lihat comment checkVolumeDecliningStable.
+    const breakoutVolume15M = m15.volumes[foundBreakout.breakoutIdx]!;
+    const declineCheck15M = checkVolumeDecliningStable(m15.volumes, foundBreakout.breakoutIdx, n15 - 1, breakoutVolume15M);
+    if (!declineCheck15M.ok) {
       return {
         status: 'no_setup', symbol, bias, currentPrice, timestamp, mode: 'scalping15m',
         zoneEdgeUpper: foundBreakout.edgeUpper, zoneEdgeLower: foundBreakout.edgeLower, candlesSinceBreakout,
-        message: 'Pullback volume masih tinggi (belum nunjukin koreksi lemah) — syarat wajib belum lolos',
+        message: declineCheck15M.reason ?? 'Pullback volume masih tinggi (belum nunjukin koreksi lemah) — syarat wajib belum lolos',
         score, maxScore, filterResults, atr15MPct,
       };
     }
@@ -2789,15 +2854,23 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       };
     }
 
-    // BTC Correlation — BALIK JADI HARD FILTER (request user, konsisten di semua menu).
+    // FIX (request user): BTC Correlation SEKARANG SOFT FILTER doang — GAK
+    // NGE-BLOCK sinyal lagi walaupun BTC lawan arah. Cuma nempel WARNING di
+    // filterResults biar user TETEP TAU kondisi BTC pas ambil keputusan
+    // sendiri, tapi keputusan FINAL diserahin ke user.
     const btcCheck = await checkBtcAlignment(bias, symbol, '15m', 100); // TF struktur (M15), konsisten sama fetch utama
     if (btcCheck.btcBias !== 'ranging' && !btcCheck.aligned) {
-      filterResults.push(btcCheck.message);
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, mode: 'scalping15m', message: `BTC lawan arah (${btcCheck.btcBias}) — wajib searah kalau BTC punya bias jelas`, score, maxScore, filterResults, atr15MPct };
-    }
-    if (btcCheck.message) {
+      filterResults.push(`⚠️ ${btcCheck.message} (soft warning — sinyal tetep lolos, pertimbangin sendiri)`);
+    } else if (btcCheck.message) {
       filterResults.push(btcCheck.message);
       score++;
+    }
+
+    // FIX (request user): filter S&R+overbought BERTINGKAT (H1->H4->D1) —
+    // SOFT WARNING (bukan block).
+    const srConfluence15M = await checkMultiTFSRConfluence(symbol, bias);
+    if (srConfluence15M.danger && srConfluence15M.detail) {
+      filterResults.push(`⚠️ Harga deket zona S&R KUAT (${srConfluence15M.detail.zoneTouches}x touches) di ${srConfluence15M.dangerTf}, DIPERKUAT RSI ${srConfluence15M.detail.rsi.toFixed(1)} (${bias === 'bullish' ? 'overbought' : 'oversold'}) — jarak ${srConfluence15M.detail.distanceAtrRatio?.toFixed(2)}x ATR, potensi resiko reversal (soft warning — sinyal tetep lolos)`);
     }
 
     // Validasi risk final — entry/SL/TP udah dihitung di atas (dipake juga buat
@@ -3056,6 +3129,80 @@ function detectZonesWithHits(htf: KlineData, atrHtf: number): { resistanceLevels
     return clusters.map(c => ({ price: c.reduce((a, b) => a + b, 0) / c.length, hits: c.length }));
   };
   return { resistanceLevels: mergeWithHits(swingH), supportLevels: mergeWithHits(swingL), zoneWidth };
+}
+
+/**
+ * FIX (request user): cek apakah harga SEKARANG lagi di AREA S&R KUAT
+ * (touches>=2, reuse detectZonesWithHits) DAN DIPERKUAT sama kondisi
+ * overbought/oversold di TF YANG SAMA — BEDA dari checkIndicatorExhaustion
+ * (yang cuma cek indikator doang, TANPA peduli posisi harga relatif ke S&R).
+ * Logikanya: 'zona S&R kuat + indikator ekstrem BARENGAN' itu kombinasi
+ * yang lebih SPESIFIK nunjukin resiko reversal — bukan cuma RSI tinggi
+ * doang (yang backtest kita buktikan SERING kali malah nunjukin momentum
+ * masih kuat, bukan bahaya).
+ * minTouches=2 (konsisten basis detectZonesForExtreme/detectZonesWithHits).
+ */
+interface SRExtremeConfluenceResult {
+  danger: boolean;
+  nearZonePrice?: number;
+  zoneTouches?: number;
+  distanceAtrRatio?: number; // seberapa deket harga ke zona, dalam satuan ATR
+  rsi: number;
+}
+function checkSRExtremeConfluence(htf: KlineData, bias: 'bullish' | 'bearish', proximityAtrRatio = 0.5): SRExtremeConfluenceResult {
+  const atr = calcATR(htf.highs, htf.lows, htf.closes);
+  const currentPrice = htf.closes[htf.closes.length - 1] ?? 0;
+  const rsi = calcRSI(htf.closes, 14);
+  if (atr <= 0 || currentPrice <= 0) return { danger: false, rsi };
+
+  const { resistanceLevels, supportLevels } = detectZonesWithHits(htf, atr);
+  // Buat BUY: bahaya kalau harga DEKET RESISTANCE KUAT + RSI overbought
+  // (mau breakout tapi nabrak dinding kuat pas momentum udah jenuh).
+  // Buat SELL: bahaya kalau harga DEKET SUPPORT KUAT + RSI oversold.
+  const relevantZones = bias === 'bullish' ? resistanceLevels : supportLevels;
+  const isExtreme = bias === 'bullish' ? rsi >= 70 : rsi <= 30;
+
+  if (!isExtreme) return { danger: false, rsi };
+
+  for (const zone of relevantZones) {
+    if (zone.hits < 2) continue; // zona LEMAH (cuma numpuk 1x) — bukan target confluence ini
+    const distance = Math.abs(currentPrice - zone.price);
+    const distanceAtrRatio = distance / atr;
+    if (distanceAtrRatio <= proximityAtrRatio) {
+      return { danger: true, nearZonePrice: zone.price, zoneTouches: zone.hits, distanceAtrRatio, rsi };
+    }
+  }
+  return { danger: false, rsi };
+}
+
+/**
+ * FIX (request user): filter BERTINGKAT — cek H1 dulu, kalau AMAN lanjut
+ * H4, kalau AMAN lagi lanjut D1. SALAH SATU level nunjukin 'danger'
+ * (S&R kuat + overbought/oversold bareng) itu udah cukup buat WARNING
+ * (BUKAN hard block — konsisten sama filosofi "kasih tau, keputusan akhir
+ * di user" yang sekarang dipake juga di BTC Correlation).
+ */
+interface MultiTFConfluenceResult {
+  danger: boolean;
+  dangerTf?: 'H1' | 'H4' | 'D1';
+  detail?: SRExtremeConfluenceResult;
+}
+async function checkMultiTFSRConfluence(symbol: string, bias: 'bullish' | 'bearish'): Promise<MultiTFConfluenceResult> {
+  const tfConfigs: { tf: 'H1' | 'H4' | 'D1'; interval: string; limit: number }[] = [
+    { tf: 'H1', interval: '1h', limit: 150 },
+    { tf: 'H4', interval: '4h', limit: 150 },
+    { tf: 'D1', interval: '1d', limit: 150 },
+  ];
+  for (const cfg of tfConfigs) {
+    try {
+      const klines = await fetchKlines(symbol, cfg.interval, cfg.limit);
+      const result = checkSRExtremeConfluence(klines, bias);
+      if (result.danger) return { danger: true, dangerTf: cfg.tf, detail: result };
+    } catch {
+      continue; // fail-safe — 1 TF gagal fetch, lanjut cek TF berikutnya, jangan gagalin seluruh check
+    }
+  }
+  return { danger: false };
 }
 
 type ZoneEventOk = {
@@ -3388,11 +3535,43 @@ function tryBreakoutAnticipation(
  * user: "ubah total pakai basis 15M"). Bias ditentuin dari arah breakout yang
  * KETEMU (bukan pre-determined dari ZigZag) — sama persis kayak Skill 15M asli.
  */
-function tryZoneBreakoutRetest(
+/**
+ * FIX (request user): "gunakan retest: entry pada pullback ke level breakout
+ * dengan volume yang MENURUN LALU STABIL" — BEDA dari cek sebelumnya yang
+ * cuma liat 1 candle terakhir (lastVol < lastVolMA). Sekarang cek POLA dari
+ * beberapa candle SEJAK breakout: (1) volume rata-rata pullback HARUS lebih
+ * rendah dari volume breakout candle itu sendiri (trending turun), (2)
+ * volume candle-candle pullback GAK BOLEH fluktuasi liar (coefficient of
+ * variation rendah) — "stabil", bukan naik-turun brutal yang nunjukin
+ * ketidakpastian/manipulasi.
+ */
+function checkVolumeDecliningStable(volumes: number[], breakoutIdx: number, currentIdx: number, breakoutVolume: number): { ok: boolean; reason?: string } {
+  const pullbackVols = volumes.slice(breakoutIdx + 1, currentIdx + 1);
+  if (pullbackVols.length === 0) return { ok: false, reason: 'Belum ada candle pullback buat dicek' };
+
+  const avgPullbackVol = pullbackVols.reduce((a, b) => a + b, 0) / pullbackVols.length;
+  const declining = avgPullbackVol < breakoutVolume;
+  if (!declining) return { ok: false, reason: 'Volume pullback rata-rata masih >= volume breakout (belum nunjukin koreksi mereda)' };
+
+  if (pullbackVols.length >= 2) {
+    const mean = avgPullbackVol;
+    const variance = pullbackVols.reduce((a, b) => a + (b - mean) ** 2, 0) / pullbackVols.length;
+    const stdev = Math.sqrt(variance);
+    const coefficientOfVariation = mean > 0 ? stdev / mean : 1;
+    // CoV > 0.6 dianggap fluktuasi liar (gak stabil) — threshold longgar
+    // sengaja (retest 2-3 candle doang, wajar ada variasi dikit)
+    if (coefficientOfVariation > 0.6) {
+      return { ok: false, reason: `Volume pullback fluktuasi liar (CoV ${coefficientOfVariation.toFixed(2)}) — belum stabil` };
+    }
+  }
+  return { ok: true };
+}
+
+async function tryZoneBreakoutRetest(
   htf: KlineData, ltf: KlineData, currentPrice: number,
   resistanceLevels: number[], supportLevels: number[], zoneWidth: number, atrHtf: number,
-  tf: TFLabelV2
-): ZoneEventOk | ZoneEventFail {
+  tf: TFLabelV2, symbol: string
+): Promise<ZoneEventOk | ZoneEventFail> {
   const n = htf.closes.length;
   const volMA20At = (idx: number) => {
     const start = Math.max(0, idx - 20);
@@ -3400,10 +3579,22 @@ function tryZoneBreakoutRetest(
     return win.length > 0 ? win.reduce((a, b) => a + b, 0) / win.length : 0;
   };
 
+  // FIX (request user): threshold volume breakout NAIK dari 1.4x jadi 1.8x
+  // (base, high-cap) — crypto sekarang volatilitas tinggi + banyak manipulasi
+  // (wash trading, fake breakout), butuh konfirmasi volume lebih kuat.
+  // Koin likuiditas rendah (<500jt USDT/24h) otomatis dinaikin ke ~3.0x.
+  const volumeThreshold = await getVolumeBreakoutThreshold(symbol, 1.8);
+
+  // FIX (request user, "tunggu close candle sebelum entry"): candle PALING
+  // TERAKHIR dari Binance API bisa aja MASIH BERJALAN (belum closed) — window
+  // scan breakout BERHENTI di 'n - 1' (bukan 'n'), jadi breakout CUMA
+  // terdeteksi dari candle yang PASTI udah closed. currentPrice/entry-trigger
+  // (in_zone check di bawah) TETAP pakai harga live — itu emang perlu
+  // real-time buat tau harga SEKARANG udah retest ke zona apa belum.
   const retestWindowMax = 24;
   let found: { direction: 'bullish' | 'bearish'; level: number; edgeUpper: number; edgeLower: number; breakoutPrice: number; breakoutIdx: number } | null = null;
 
-  for (let idx = Math.max(1, n - retestWindowMax); idx < n; idx++) {
+  for (let idx = Math.max(1, n - retestWindowMax); idx < n - 1; idx++) {
     const closeAt = htf.closes[idx]!;
     const volAt = htf.volumes[idx]!;
     const volMA = volMA20At(idx);
@@ -3411,16 +3602,16 @@ function tryZoneBreakoutRetest(
     for (const level of resistanceLevels) {
       const edgeUpper = level + zoneWidth / 2;
       const edgeLower = level - zoneWidth / 2;
-      if (closeAt > edgeUpper && volAt > 1.4 * volMA) found = { direction: 'bullish', level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx };
+      if (closeAt > edgeUpper && volAt > volumeThreshold * volMA) found = { direction: 'bullish', level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx };
     }
     for (const level of supportLevels) {
       const edgeUpper = level + zoneWidth / 2;
       const edgeLower = level - zoneWidth / 2;
-      if (closeAt < edgeLower && volAt > 1.4 * volMA) found = { direction: 'bearish', level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx };
+      if (closeAt < edgeLower && volAt > volumeThreshold * volMA) found = { direction: 'bearish', level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx };
     }
   }
 
-  if (!found) return { ok: false, status: 'waiting', reason: `Belum ada breakout valid dalam ${retestWindowMax} candle terakhir` };
+  if (!found) return { ok: false, status: 'waiting', reason: `Belum ada breakout valid dalam ${retestWindowMax} candle terakhir (threshold volume ${volumeThreshold.toFixed(2)}x MA20)` };
 
   const bias = found.direction;
 
@@ -3462,8 +3653,11 @@ function tryZoneBreakoutRetest(
 
   const lastVol = htf.volumes[n - 1]!;
   const lastVolMA = volMA20At(n - 1);
-  const pullbackVolumeOk = lastVolMA > 0 ? lastVol < lastVolMA : false;
-  if (!pullbackVolumeOk) return { ok: false, status: 'expired', reason: 'Pullback volume masih tinggi (belum nunjukin koreksi lemah)' };
+  // FIX (request user): retest volume MENURUN LALU STABIL, bukan cuma cek
+  // 1 candle terakhir doang — lihat comment checkVolumeDecliningStable.
+  const breakoutVolume = htf.volumes[found.breakoutIdx]!;
+  const declineCheck = checkVolumeDecliningStable(htf.volumes, found.breakoutIdx, n - 1, breakoutVolume);
+  if (!declineCheck.ok) return { ok: false, status: 'expired', reason: declineCheck.reason ?? 'Pullback volume masih tinggi (belum nunjukin koreksi lemah)' };
 
   let confirmCount = 0;
   const rejectionVolumeOk = lastVolMA > 0 && lastVol >= 1.2 * lastVolMA;
@@ -4968,12 +5162,23 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
         : `⏳ Nunggu retrace ke level breakout ${entryPrice.toFixed(6)} (harga sekarang ${currentPrice.toFixed(6)}, gap ${(priceGap*100).toFixed(2)}%)`,
     ];
 
+    // FIX (request user): BTC Correlation SEKARANG SOFT FILTER doang — GAK
+    // NGE-BLOCK sinyal lagi walaupun BTC lawan arah. Cuma nempel WARNING di
+    // filterResults biar user TETEP TAU kondisi BTC pas ambil keputusan
+    // sendiri, tapi keputusan FINAL diserahin ke user.
     const btcCheck = await checkBtcAlignment(bias, symbol, '1h', 720);
     if (btcCheck.btcBias !== 'ranging' && !btcCheck.aligned) {
-      filterResults.push(btcCheck.message);
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, message: `BTC lawan arah (${btcCheck.btcBias}) — wajib searah kalau BTC punya bias jelas`, maxScore, filterResults };
+      filterResults.push(`⚠️ ${btcCheck.message} (soft warning — sinyal tetep lolos, pertimbangin sendiri)`);
+    } else {
+      filterResults.push(btcCheck.message || '✅ BTC lagi ranging — netral');
     }
-    filterResults.push(btcCheck.message || '✅ BTC lagi ranging — netral, tetep lolos');
+
+    // FIX (request user): filter S&R+overbought BERTINGKAT (H1->H4->D1) —
+    // SOFT WARNING (bukan block).
+    const srConfluenceCounter = await checkMultiTFSRConfluence(symbol, bias);
+    if (srConfluenceCounter.danger && srConfluenceCounter.detail) {
+      filterResults.push(`⚠️ Harga deket zona S&R KUAT (${srConfluenceCounter.detail.zoneTouches}x touches) di ${srConfluenceCounter.dangerTf}, DIPERKUAT RSI ${srConfluenceCounter.detail.rsi.toFixed(1)} (${bias === 'bullish' ? 'overbought' : 'oversold'}) — jarak ${srConfluenceCounter.detail.distanceAtrRatio?.toFixed(2)}x ATR, potensi resiko reversal (soft warning — sinyal tetep lolos)`);
+    }
 
     const technicalSnapshotCounter = await buildTechnicalSnapshot(h1, h1, symbol);
     return {

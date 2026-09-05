@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 
@@ -25,16 +25,26 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'fundingRate', label: 'Funding Rate' },
 ];
 
+// FIX BUG KRUSIAL (ketemu user — "klik Volume berhasil, abis itu klik yang
+// lain gak bisa semua"): SEBELUMNYA ini dibungkus <ScrollView horizontal>,
+// yang berarti NESTED SCROLL (ScrollView horizontal DI DALAM ScrollView
+// vertikal parent-nya). Nested scroll gesture itu KNOWN ISSUE di React
+// Native Web/Expo — abis scroll/tap PERTAMA, gesture recognizer sering
+// "salah klaim" sentuhan berikutnya sebagai SCROLL bukan TAP, jadi onPress
+// gak ke-trigger lagi. FIX: ganti jadi View biasa + flexWrap — cuma 4 opsi
+// pendek, GAK PERLU scroll horizontal sama sekali, jadi masalah nested-
+// scroll-conflict-nya HILANG TOTAL (bukan di-patch, tapi dihindarin).
 export function SortSelector({ value, onChange }: { value: SortKey; onChange: (key: SortKey) => void }) {
   const colors = useColors();
   return (
-    <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+    <View style={styles.row}>
       {SORT_OPTIONS.map(opt => {
         const active = value === opt.key;
         return (
           <Pressable
             key={opt.key}
             onPress={() => onChange(opt.key)}
+            hitSlop={4}
             style={[styles.chip, { backgroundColor: active ? colors.foreground : colors.card, borderColor: active ? colors.foreground : colors.border }]}
           >
             {opt.key !== 'default' && <Feather name="arrow-down" size={10} color={active ? colors.background : colors.mutedForeground} />}
@@ -42,7 +52,7 @@ export function SortSelector({ value, onChange }: { value: SortKey; onChange: (k
           </Pressable>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -72,7 +82,7 @@ export function applySorting<T>(items: T[], sortKey: SortKey, getMeta: (item: T)
 }
 
 const styles = StyleSheet.create({
-  row: { gap: 6, paddingBottom: 8 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1,

@@ -75,8 +75,18 @@ interface MultiTFDetailResult {
 
 // ─── Fetch hooks ────────────────────────────────────────────────────────────
 
+// FIX (request user, "diem di tab lain 5-10 menit, balik ke Scan malah
+// auto-refetch"): SEBELUMNYA useEffect([fetchData]) jalan TIAP KALI komponen
+// di-mount ulang (tab switching di app ini itu conditional-render, BUKAN
+// hidden/persistent tabs — komponen BENERAN unmount/mount ulang) — jadi
+// SELALU refetch, GAK PEDULI berapa lama nunggu. Module-level cache (di
+// LUAR komponen, hidup selama APP-nya idup, bukan cuma selama komponen
+// mount) — data CUMA ilang kalau app di-reload total, BUKAN kalau pindah
+// tab doang. Refresh CUMA lewat refetch() manual (tombol Scan Ulang).
+let multiTFScanCache: { coins: MultiTFScanCoin[] } | null = null;
+
 function useMultiTFScan() {
-  const [data, setData] = useState<{ coins: MultiTFScanCoin[] } | null>(null);
+  const [data, setData] = useState<{ coins: MultiTFScanCoin[] } | null>(multiTFScanCache);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
 
@@ -86,7 +96,9 @@ function useMultiTFScan() {
     try {
       const res = await fetch('/api/multi-tf-scan');
       if (!res.ok) throw new Error('fetch failed');
-      setData(await res.json());
+      const json = await res.json();
+      multiTFScanCache = json;
+      setData(json);
     } catch {
       setIsError(true);
     } finally {
@@ -94,7 +106,12 @@ function useMultiTFScan() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Cuma fetch kalau BELUM PERNAH ada data (cache kosong) — bukan tiap
+  // kali komponen di-mount ulang.
+  useEffect(() => {
+    if (multiTFScanCache === null) fetchData();
+  }, [fetchData]);
+
   return { data, isLoading, isError, refetch: fetchData };
 }
 
