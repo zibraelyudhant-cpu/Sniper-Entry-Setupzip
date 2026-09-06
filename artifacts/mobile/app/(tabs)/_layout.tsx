@@ -15,7 +15,7 @@ function NativeTabLayout() {
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: 'arrow.triangle.2.circlepath', selected: 'arrow.triangle.2.circlepath' }} />
-        <Label>Counter Scalping</Label>
+        <Label>Sniper Breakout</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="breakout">
         <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
@@ -84,7 +84,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Counter Scalping',
+          title: 'Sniper Breakout',
           tabBarActiveTintColor: MENU_COLORS.breakout,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>

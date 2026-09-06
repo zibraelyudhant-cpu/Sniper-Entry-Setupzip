@@ -44,7 +44,10 @@ interface TFBreakdownItem {
 }
 
 interface BreakoutTradingResult {
-  status: 'siap_retest' | 'approaching' | 'waiting' | 'no_setup' | 'error';
+  // FIX (request user, Sniper Breakout): status 'siap_breakout' = stop order
+  // siap dipasang (nunggu harga NEMBUS). 'expired' = harga udah lewat level,
+  // jangan dikejar. 'siap_retest' dipertahanin buat kompat data lama.
+  status: 'siap_breakout' | 'siap_retest' | 'approaching' | 'waiting' | 'expired' | 'no_setup' | 'error';
   symbol: string;
   bias?: 'bullish' | 'bearish';
   recentPerformance?: RecentPerformance;
@@ -106,7 +109,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const base = coin.symbol.replace('USDT', '');
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
-  const isSiapRetest = coin.status === 'siap_retest';
+  const isSiapRetest = coin.status === 'siap_retest' || coin.status === 'siap_breakout';
   const isPantau = coin.status === 'waiting';
   const statusColor = isSiapRetest ? colors.gold : isPantau ? '#F87171' : '#818CF8';
 
@@ -221,14 +224,14 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     const entries: JournalEntry[] = eligible.map(c => ({
       id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
       symbol: c.symbol, bias: c.bias!,
-      sourceMenu: 'Counter Scalping', sourceSkill: 'Multi-Factor Score',
+      sourceMenu: 'Sniper Breakout', sourceSkill: 'Sniper Breakout (M1+M5+M15)',
       entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0, takeProfit2: c.takeProfit2,
       currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
       tfStruktur: 'H1', tfEksekusi: 'M5',
       technicalSnapshot: c.technicalSnapshot,
       orderType: c.orderType,
       btcAligned: c.btcAligned, btcBias: c.btcBias,
-      signalStatus: c.status === 'siap_retest' ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
+      signalStatus: (c.status === 'siap_retest' || c.status === 'siap_breakout') ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
       timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
     }));
     // journalSaveMany otomatis dedup (symbol+bias+skill+entryPrice) -- entry
@@ -243,7 +246,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Multi-Factor Score — SuperTrend+RSI+MACD+Bollinger</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — M1 trigger + M5 validasi + M15 level</Text>
       </View>
     );
   }
@@ -262,7 +265,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date(data.fetchedAt ?? Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
-  const inZone      = applySorting(coins.filter(c => c.status === 'siap_retest'), sortKey, c => c.marketMeta);
+  const inZone      = applySorting(coins.filter(c => c.status === 'siap_retest' || c.status === 'siap_breakout'), sortKey, c => c.marketMeta);
   const ready       = applySorting(coins.filter(c => c.status === 'approaching'), sortKey, c => c.marketMeta);
   const pantau      = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, c => c.marketMeta);
 
@@ -396,7 +399,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
   const data = liveMode ? liveData : pinnedData;
 
   useEffect(() => {
-    if (onSignalReady) onSignalReady(data?.status === 'approaching' || data?.status === 'siap_retest' ? data : null);
+    if (onSignalReady) onSignalReady(data?.status === 'approaching' || data?.status === 'siap_retest' || data?.status === 'siap_breakout' ? data : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -422,7 +425,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Counter Scalping', sourceSkill: 'Multi-Factor Score',
+      sourceMenu: 'Sniper Breakout', sourceSkill: 'Sniper Breakout (M1+M5+M15)',
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: 'H1', tfEksekusi: 'M5',
@@ -469,7 +472,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
       {!querySymbol ? (
         <View style={styles.emptyState}>
           <Feather name="trending-up" size={40} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Counter Scalping Scanner</Text>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Sniper Breakout Scanner</Text>
           <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair buat analisa level S/R + OI/funding rate</Text>
         </View>
       ) : (liveMode && isLoading) ? (
@@ -536,7 +539,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
 
           {/* Simpan ke Journal — SATU-SATUNYA cara nyimpen sinyal sekarang
               (request user: Log per-menu diganti Ringkasan dari Journal) */}
-          {(data.status === 'approaching' || data.status === 'siap_retest') && (
+          {(data.status === 'approaching' || data.status === 'siap_retest' || data.status === 'siap_breakout') && (
             <Pressable onPress={handleSaveJournal} disabled={savingJournal}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, margin: 12, marginTop: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: ACCENT, opacity: pressed || savingJournal ? 0.8 : 1 }]}>
               <Feather name="book-open" size={15} color={colors.primaryForeground} />
@@ -685,8 +688,8 @@ export default function BreakoutEntryScreen() {
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Counter Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Multi-Factor Score (H1) — SuperTrend+RSI+MACD+Bollinger, threshold 0.15</Text>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M1 trigger + M5 validasi + M15 level — entry pakai buy/sell STOP</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -711,7 +714,7 @@ export default function BreakoutEntryScreen() {
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
         ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} pinnedData={pinnedCoin} />
-        : <MenuJournalSummary sourceMenu="Counter Scalping" accentColor={ACCENT} />
+        : <MenuJournalSummary sourceMenu="Sniper Breakout" accentColor={ACCENT} />
       }
     </View>
   );

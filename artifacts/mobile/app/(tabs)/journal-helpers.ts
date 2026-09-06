@@ -37,7 +37,12 @@ export interface JournalTechnicalSnapshot {
 export type JournalStatus = 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';
 
 export const SOURCE_MENUS = [
-  'Counter Scalping', 'Scalping',
+  // FIX (request user): 'Counter Scalping' di-rename jadi 'Sniper Breakout'
+  // (logic diganti total: Multi-Factor Score + limit retest -> M1/M5/M15
+  // breakout pakai stop order). Nama LAMA SENGAJA DIPERTAHANIN di type ini
+  // biar entry Journal yang UDAH TERSIMPAN gak rusak/ilang dari tampilan —
+  // kalau mau bersih total, pakai tombol Reset Data di tab Ringkasan.
+  'Sniper Breakout', 'Scalping', 'Counter Scalping',
 ] as const;
 export type SourceMenu = typeof SOURCE_MENUS[number];
 
@@ -1383,4 +1388,116 @@ export function buildDiagnosticReport(
     : `Sistem dalam kondisi sehat — win rate ${overallWinRate}% dari ${totalResolved} sinyal.`;
 
   return { headline, overallWinRate, totalResolved, findings, dataGaps };
+}
+
+/**
+ * HAPUS PERMANEN semua data Journal (request user: "tombol reset data biar
+ * kalau ada perubahan menu, data lama gak kecampur data baru").
+ *
+ * BEDA dari baseline: baseline cuma NYEMBUNYIIN data lama dari analisa (masih
+ * kesimpen, bisa dibalikin kapan aja). Ini GENUINELY NGEHAPUS — gak ada undo.
+ * Baseline ikut di-reset juga biar bersih total.
+ *
+ * CATATAN: data followup di SERVER (tabel signal_followups) TIDAK ikut
+ * kehapus — itu kesimpen terpisah di database, dan entry-nya bakal
+ * "yatim" (gak ada JournalEntry yang ngacu ke situ). Gak masalah secara
+ * fungsional: fetchFollowups cuma ambil followup buat id yang MASIH ADA di
+ * Journal, jadi sisa data lama di server otomatis ke-abaikan.
+ */
+export async function journalDeleteAll(): Promise<void> {
+  await AsyncStorage.multiRemove([JOURNAL_KEY, BASELINE_KEY]);
+}
+
+// ─── Data siap-pakai buat chart tab Diagnosa ────────────────────────────────
+
+export interface DailyWinRatePoint {
+  label: string;   // 'Sen', 'Sel', dst
+  winRate: number;
+  count: number;   // jumlah sinyal resolve hari itu — buat bar volume
+}
+
+/**
+ * Win rate per hari buat chart tren. Cuma ngitung sinyal yang UDAH RESOLVE
+ * (win/lose) — pending gak dihitung karena belum ada hasilnya.
+ */
+export function buildDailyWinRateTrend(entries: JournalEntry[], days = 7): DailyWinRatePoint[] {
+  const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+  const now = new Date();
+  const points: DailyWinRatePoint[] = [];
+
+  for (let i = days - 1; i >= 0; i--) {
+    const dayStart = new Date(now);
+    dayStart.setDate(now.getDate() - i);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayStart.getDate() + 1);
+
+    const dayEntries = entries.filter(e => {
+      const t = e.resolvedAt ?? e.evaluatedAt;
+      if (!t) return false;
+      if (e.status !== 'win_tp1' && e.status !== 'win_tp2' && e.status !== 'lose') return false;
+      return t >= dayStart.getTime() && t < dayEnd.getTime();
+    });
+
+    const wins = dayEntries.filter(e => e.status !== 'lose').length;
+    points.push({
+      label: dayNames[dayStart.getDay()] ?? '',
+      winRate: dayEntries.length > 0 ? Math.round((wins / dayEntries.length) * 100) : 0,
+      count: dayEntries.length,
+    });
+  }
+  return points;
+}
+
+export interface HeatmapData {
+  columns: string[];
+  rows: { label: string; cells: { pct: number; caption?: string }[] }[];
+}
+
+/**
+ * Matriks "seberapa sering kondisi X muncul saat LOSE", dipecah per skill.
+ * Dipake buat heatmap di tab Diagnosa — biar kelihatan kondisi mana yang
+ * dominan di skill mana (misal CCI ekstrem dominan di Structural tapi gak
+ * di Counter → kandidat filter khusus per-skill, bukan global).
+ */
+export function buildLoseConditionHeatmap(entries: JournalEntry[]): HeatmapData {
+  const withSnapshot = entries.filter(e => e.status === 'lose' && e.technicalSnapshot);
+  if (withSnapshot.length === 0) return { columns: [], rows: [] };
+
+  // Kolom = skill yang punya minimal 5 lose (biar persentasenya gak nyesatin)
+  const skillGroups = new Map<string, JournalEntry[]>();
+  for (const e of withSnapshot) {
+    const key = e.sourceSkill || e.sourceMenu;
+    if (!skillGroups.has(key)) skillGroups.set(key, []);
+    skillGroups.get(key)!.push(e);
+  }
+  const columns = [...skillGroups.entries()]
+    .filter(([, list]) => list.length >= 5)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 3);
+
+  if (columns.length === 0) return { columns: [], rows: [] };
+
+  const conditions: { label: string; test: (e: JournalEntry) => boolean }[] = [
+    { label: 'CCI ekstrem', test: e => Math.abs(e.technicalSnapshot!.struktur.cci) >= 100 },
+    { label: 'MACD flat', test: e => Math.abs(e.technicalSnapshot!.eksekusi.macd) < 0.0001 },
+    { label: 'MFI tinggi', test: e => e.technicalSnapshot!.struktur.mfi >= 60 },
+    { label: 'RSI ekstrem', test: e => { const r = e.technicalSnapshot!.struktur.rsi; return r >= 70 || r <= 30; } },
+    { label: 'ATR melebar', test: e => (e.technicalSnapshot!.struktur.atrSqueeze ?? 1) > 1.3 },
+  ];
+
+  const rows = conditions.map(cond => ({
+    label: cond.label,
+    cells: columns.map(([, list]) => {
+      const hits = list.filter(cond.test).length;
+      return {
+        pct: Math.round((hits / list.length) * 100),
+        caption: `${hits} dari ${list.length}`,
+      };
+    }),
+  }))
+  // Buang baris yang semua kolomnya 0 — gak informatif
+  .filter(r => r.cells.some(c => c.pct > 0));
+
+  return { columns: columns.map(([label]) => label), rows };
 }

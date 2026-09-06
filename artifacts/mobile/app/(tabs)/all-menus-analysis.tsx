@@ -263,7 +263,7 @@ export default function AllMenusAnalysisScreen() {
           <Feather name="layers" size={36} color={colors.mutedForeground} />
           <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginTop: 10, textAlign: 'center' }}>Cari 1 koin buat liat semua hasil</Text>
           <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 4, textAlign: 'center', paddingHorizontal: 32 }}>
-            Counter Scalping, Scalping (2 skill) + Multi-TF breakdown
+            Sniper Breakout, Scalping (2 skill) + Multi-TF breakdown
           </Text>
         </View>
       ) : (
@@ -272,7 +272,7 @@ export default function AllMenusAnalysisScreen() {
           <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 12 }}>{data.timestamp}</Text>
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.breakout }]}>🔄 COUNTER SCALPING</Text>
-          <MenuResultCard title="Multi-Factor Score" subtitle="H1, SuperTrend+RSI+MACD+Bollinger (threshold 0.15)" result={data.breakoutCounterStructural} colors={colors} index={0} />
+          <MenuResultCard title="Sniper Breakout" subtitle="M1 trigger + M5 validasi + M15 level — entry buy/sell STOP" result={data.breakoutCounterStructural} colors={colors} index={0} />
 
           <Text style={[styles.groupHeader, { color: MENU_COLORS.scalping, marginTop: 8 }]}>⚡ SCALPING</Text>
           <MenuResultCard title="Structural" subtitle="M30→M5, breakout+retest" result={data.scalpingStructural} colors={colors} index={1} />

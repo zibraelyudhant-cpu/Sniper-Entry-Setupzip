@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  ActivityIndicator, Platform, Pressable, ScrollView,
+  ActivityIndicator, Dimensions, Platform, Pressable, ScrollView,
   StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,17 +9,18 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
+import { DonutChart, StackedBar, HorizontalBarChart, DivergingBar, TimingBar, StatTile, Sparkline, LoseConditionHeatmap, TrendChart, SlTpDistanceDiagram } from '@/components/JournalCharts';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import {
   type JournalEntry, type SourceMenu,
-  journalLoadAll, journalDelete, journalEvaluate, journalUpdate, journalUpdateMany,
+  journalLoadAll, journalDelete, journalDeleteAll, journalEvaluate, journalUpdate, journalUpdateMany,
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
   registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
-  buildDiagnosticReport, type DiagnosticFinding, type FindingSeverity,
+  buildDiagnosticReport, buildDailyWinRateTrend, buildLoseConditionHeatmap, type DiagnosticFinding, type FindingSeverity,
   type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
 
@@ -33,7 +34,8 @@ function formatPrice(v: number): string {
 }
 
 const MENU_FILTER_COLORS: Record<SourceMenu, string> = {
-  'Counter Scalping': MENU_COLORS.breakout,
+  'Sniper Breakout': MENU_COLORS.breakout,
+  'Counter Scalping': MENU_COLORS.breakout, // nama lama — kompat data Journal lama
   'Scalping': MENU_COLORS.scalping,
 };
 
@@ -406,7 +408,7 @@ export default function JournalScreen() {
           <Feather name="book-open" size={40} color={colors.mutedForeground} />
           <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: colors.foreground, textAlign: 'center' }}>Journal masih kosong</Text>
           <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, textAlign: 'center', lineHeight: 20 }}>
-            Simpan sinyal ke Journal dari tab Analisa di menu manapun (Counter Scalping, Scalping) — tombol "Simpan ke Journal" ada di bawah kartu Entry/SL/TP.
+            Simpan sinyal ke Journal dari tab Analisa di menu manapun (Sniper Breakout, Scalping) — tombol "Simpan ke Journal" ada di bawah kartu Entry/SL/TP.
           </Text>
         </View>
       ) : activeTab === 'daftar' ? (
@@ -479,7 +481,7 @@ export default function JournalScreen() {
           <BreakdownSection title="PER KONDISI RSI EKSEKUSI" data={breakdownByRsiRange(entries)} colors={colors} />
         </ScrollView>
       ) : activeTab === 'ringkasan' ? (
-        <RingkasanTab entries={entries} colors={colors} followups={followups} />
+        <RingkasanTab entries={entries} colors={colors} followups={followups} onDeleted={() => load(true)} />
       ) : (
         <DiagnosaTab entries={entries} colors={colors} followups={followups} />
       )}
@@ -518,21 +520,28 @@ function VerdictRow({ item, colors }: { item: SimpleVerdict; colors: ReturnType<
 }
 
 function IndicatorCompareRow({ item, colors }: { item: IndicatorComparison; colors: ReturnType<typeof useColors> }) {
-  const winHigher = item.winAvg > item.loseAvg;
+  // Seberapa besar bedanya, relatif ke skalanya sendiri — dipake buat highlight
+  // indikator yang genuinely diskriminatif (bukan noise)
+  const scale = Math.max(Math.abs(item.winAvg), Math.abs(item.loseAvg), 0.0001);
+  const relDiff = Math.abs(item.winAvg - item.loseAvg) / scale;
+  const isSignificant = relDiff >= 0.25;
+
   return (
-    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 10, marginBottom: 8 }}>
-      <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: colors.foreground, marginBottom: 6 }}>{item.label}</Text>
-      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 6 }}>
-        <View style={{ flex: 1, alignItems: 'center', backgroundColor: `${colors.bullish}12`, borderRadius: 8, paddingVertical: 6 }}>
-          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.bullish }}>PAS WIN</Text>
-          <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: colors.bullish, marginTop: 2 }}>{item.winAvg}{item.unit}</Text>
-        </View>
-        <View style={{ flex: 1, alignItems: 'center', backgroundColor: `${colors.bearish}12`, borderRadius: 8, paddingVertical: 6 }}>
-          <Text style={{ fontSize: 8, fontFamily: 'Inter_600SemiBold', color: colors.bearish }}>PAS LOSE</Text>
-          <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: colors.bearish, marginTop: 2 }}>{item.loseAvg}{item.unit}</Text>
-        </View>
+    <View style={{
+      borderRadius: 10, borderWidth: 1,
+      borderColor: isSignificant ? `${colors.gold}50` : colors.border,
+      backgroundColor: colors.card, padding: 10, marginBottom: 8,
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: colors.foreground, flex: 1 }}>{item.label}</Text>
+        {isSignificant && (
+          <View style={{ backgroundColor: `${colors.gold}20`, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>
+            <Text style={{ fontSize: 8, fontFamily: 'Inter_700Bold', color: colors.gold }}>BEDA {Math.round(relDiff * 100)}%</Text>
+          </View>
+        )}
       </View>
-      <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15 }}>{item.insight}</Text>
+      <DivergingBar winValue={item.winAvg} loseValue={item.loseAvg} unit={item.unit} />
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginTop: 8 }}>{item.insight}</Text>
     </View>
   );
 }
@@ -596,7 +605,7 @@ function TimingCard({ stat, colors }: { stat: TimingStats; colors: ReturnType<ty
   );
 }
 
-function BaselineControl({ colors }: { colors: ReturnType<typeof useColors> }) {
+function BaselineControl({ colors, onDeleted }: { colors: ReturnType<typeof useColors>; onDeleted: () => void }) {
   const [baseline, setBaseline] = useState<number | null>(null);
   const [showPresets, setShowPresets] = useState(false);
 
@@ -656,11 +665,80 @@ function BaselineControl({ colors }: { colors: ReturnType<typeof useColors> }) {
           ))}
         </View>
       )}
+
+      <ResetDataControl colors={colors} onDeleted={onDeleted} />
     </View>
   );
 }
 
-function RingkasanTab({ entries: allEntries, colors, followups }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors>; followups: Map<string, SignalFollowupResult> }) {
+/**
+ * Tombol HAPUS PERMANEN semua data Journal (request user). Konfirmasi 2
+ * LANGKAH karena ini GAK BISA DIBALIKIN — sekali kepencet, semua histori
+ * sinyal (termasuk data indikator buat riset) hilang total.
+ */
+function ResetDataControl({ colors, onDeleted }: { colors: ReturnType<typeof useColors>; onDeleted: () => void }) {
+  const [confirmStep, setConfirmStep] = useState<0 | 1>(0);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    await journalDeleteAll();
+    setDeleting(false);
+    setConfirmStep(0);
+    onDeleted(); // trigger reload di parent — biar semua tab ikut kosong
+  };
+
+  return (
+    <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Feather name="trash-2" size={11} color={colors.bearish} />
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.bearish, letterSpacing: 0.5 }}>RESET DATA — HAPUS PERMANEN</Text>
+      </View>
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, lineHeight: 15 }}>
+        Hapus SEMUA sinyal tersimpan biar mulai dari nol pas ganti formula. Bedanya sama Baseline: ini GAK BISA DIBALIKIN — data indikator buat riset ikut hilang. Kalau cuma mau fokus ke data baru tanpa buang yang lama, pakai Baseline aja di atas.
+      </Text>
+
+      {confirmStep === 0 ? (
+        <Pressable
+          onPress={() => setConfirmStep(1)}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: `${colors.bearish}50`, paddingVertical: 10 }}
+        >
+          <Feather name="trash-2" size={13} color={colors.bearish} />
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.bearish }}>Hapus Semua Data Journal</Text>
+        </Pressable>
+      ) : (
+        <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.bearish, backgroundColor: `${colors.bearish}12`, padding: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginBottom: 10 }}>
+            <Feather name="alert-triangle" size={15} color={colors.bearish} style={{ marginTop: 1 }} />
+            <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: colors.foreground, flex: 1, lineHeight: 16 }}>
+              Yakin? Semua histori sinyal bakal hilang permanen dan gak bisa dibalikin.
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable
+              onPress={() => setConfirmStep(0)}
+              disabled={deleting}
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
+            >
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>Batal</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleDelete}
+              disabled={deleting}
+              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 8, backgroundColor: colors.bearish, opacity: deleting ? 0.7 : 1 }}
+            >
+              {deleting && <ActivityIndicator size={11} color="#fff" />}
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' }}>{deleting ? 'Menghapus...' : 'Ya, Hapus Semua'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function RingkasanTab({ entries: allEntries, colors, followups, onDeleted }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors>; followups: Map<string, SignalFollowupResult>; onDeleted: () => void }) {
   const insets = useSafeAreaInsets();
   const [baseline, setBaseline] = useState<number | null>(null);
 
@@ -689,7 +767,7 @@ function RingkasanTab({ entries: allEntries, colors, followups }: { entries: Jou
 
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
-      <BaselineControl colors={colors} />
+      <BaselineControl colors={colors} onDeleted={onDeleted} />
 
       {entries.length === 0 ? (
         <View style={{ alignItems: 'center', padding: 24 }}>
@@ -884,13 +962,116 @@ function DiagnosaTab({ entries: allEntries, colors, followups }: { entries: Jour
   const infos = report.findings.filter(f => f.severity === 'info');
   const goods = report.findings.filter(f => f.severity === 'good');
 
+  // Turunan buat visual header
+  const resolvedEntries = entries.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2' || e.status === 'lose');
+  const diagWins = resolvedEntries.filter(e => e.status !== 'lose').length;
+  const diagLoses = resolvedEntries.filter(e => e.status === 'lose').length;
+  const rrList = resolvedEntries.map(e => e.rr1).filter((v): v is number => typeof v === 'number' && v > 0);
+  const avgRRDiag = rrList.length > 0 ? rrList.reduce((a, b) => a + b, 0) / rrList.length : null;
+  const breakevenTarget = avgRRDiag !== null ? Math.round((1 / (1 + avgRRDiag)) * 100) : null;
+  const wrColor = breakevenTarget === null
+    ? colors.mutedForeground
+    : report.overallWinRate >= breakevenTarget + 10
+    ? colors.bullish
+    : report.overallWinRate >= breakevenTarget
+    ? colors.gold
+    : colors.bearish;
+
+  // Data chart
+  const trendPoints = useMemo(() => buildDailyWinRateTrend(entries), [entries]);
+  const heatmap = useMemo(() => buildLoseConditionHeatmap(entries), [entries]);
+  const withData = trendPoints.filter(p => p.count > 0);
+  const trendDelta = withData.length >= 2
+    ? (withData[withData.length - 1]!.winRate - withData[0]!.winRate)
+    : null;
+  const chartWidth = Dimensions.get('window').width - 64; // padding luar + padding card
+
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
-      {/* Headline — 1 kalimat kondisi sistem */}
+      {/* Headline + visual ringkas — win rate donut, breakdown, tren */}
       <View style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.border, marginBottom: 14 }}>
-        <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.6, marginBottom: 6 }}>DIAGNOSA SISTEM</Text>
-        <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.foreground, lineHeight: 20 }}>{report.headline}</Text>
+        <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.6, marginBottom: 10 }}>DIAGNOSA SISTEM</Text>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+          <DonutChart
+            percentage={report.overallWinRate}
+            size={104}
+            color={wrColor}
+            label={`${report.overallWinRate}%`}
+            sublabel="win rate"
+          />
+          <View style={{ flex: 1, gap: 6 }}>
+            <StatTile value={diagWins} label="MENANG" color={colors.bullish} />
+            <StatTile value={diagLoses} label="KALAH" color={colors.bearish} />
+            {breakevenTarget !== null && (
+              <StatTile
+                value={`${breakevenTarget}%`}
+                label="BREAKEVEN"
+                color={colors.mutedForeground}
+                sublabel={report.overallWinRate >= breakevenTarget ? 'terlampaui' : 'belum tercapai'}
+              />
+            )}
+          </View>
+        </View>
+
+        <StackedBar
+          segments={[
+            { value: diagWins, color: colors.bullish },
+            { value: diagLoses, color: colors.bearish },
+          ]}
+        />
+
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, lineHeight: 20, marginTop: 12 }}>{report.headline}</Text>
       </View>
+
+      {/* Tren win rate harian — dengan grid, bar volume, garis breakeven */}
+      {trendPoints.some(p => p.count > 0) && (
+        <View style={{ backgroundColor: colors.card, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+            <View>
+              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>Tren win rate harian</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 3 }}>7 hari terakhir · {report.totalResolved} sinyal</Text>
+            </View>
+            {trendDelta !== null && (
+              <View style={{ alignItems: 'flex-end' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
+                  <Text style={{ fontSize: 22, fontFamily: 'Inter_700Bold', color: wrColor }}>{report.overallWinRate}</Text>
+                  <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: wrColor }}>%</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
+                  <Feather name={trendDelta >= 0 ? 'trending-up' : 'trending-down'} size={12} color={trendDelta >= 0 ? colors.bullish : colors.bearish} />
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: trendDelta >= 0 ? colors.bullish : colors.bearish }}>{Math.abs(trendDelta)} poin</Text>
+                </View>
+              </View>
+            )}
+          </View>
+          <TrendChart points={trendPoints} breakevenPct={breakevenTarget ?? 33} width={chartWidth} />
+          <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View style={{ width: 10, height: 2, borderRadius: 1, backgroundColor: colors.primary }} />
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>win rate</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: colors.border }} />
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>jumlah sinyal</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View style={{ width: 10, height: 1, backgroundColor: colors.gold }} />
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>breakeven</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Sebaran temuan per tingkat keparahan — visual sekilas */}
+      {report.findings.length > 0 && (
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
+          {criticals.length > 0 && <StatTile value={criticals.length} label="KRITIS" color={colors.bearish} />}
+          {warnings.length > 0 && <StatTile value={warnings.length} label="PERBAIKI" color={colors.gold} />}
+          {infos.length > 0 && <StatTile value={infos.length} label="KANDIDAT" color="#818CF8" />}
+          {goods.length > 0 && <StatTile value={goods.length} label="SEHAT" color={colors.bullish} />}
+        </View>
+      )}
 
       {report.findings.length === 0 && report.dataGaps.length === 0 && (
         <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 18 }}>
@@ -923,6 +1104,22 @@ function DiagnosaTab({ entries: allEntries, colors, followups }: { entries: Jour
         <>
           <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.bullish, letterSpacing: 0.5, marginTop: 6, marginBottom: 8 }}>🟢 YANG UDAH SEHAT</Text>
           {goods.map((f, i) => <FindingCard key={'g' + i} finding={f} colors={colors} index={i} />)}
+        </>
+      )}
+
+      {/* Peta kondisi saat lose — heatmap per skill */}
+      {heatmap.rows.length > 0 && (
+        <>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 10 }}>
+            <View style={{ width: 3, height: 15, borderRadius: 2, backgroundColor: colors.highlight }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground }}>Peta kondisi saat lose</Text>
+          </View>
+          <View style={{ backgroundColor: colors.card, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 12 }}>
+            <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 4 }}>
+              Seberapa sering muncul bareng saat lose
+            </Text>
+            <LoseConditionHeatmap rows={heatmap.rows} columns={heatmap.columns} />
+          </View>
         </>
       )}
 

@@ -41,12 +41,15 @@ router.get('/breakout-entry/scan', async (req, res) => {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status === 'approaching' || val.status === 'siap_retest' || val.status === 'waiting')
+          // FIX (request user, Sniper Breakout): status utama sekarang
+          // 'siap_breakout' (stop order siap dipasang). 'siap_retest'
+          // dipertahanin buat kompat kalau ada response lama ke-cache.
+          if (val.status === 'siap_breakout' || val.status === 'approaching' || val.status === 'siap_retest' || val.status === 'waiting')
             results.push(val);
         }
       }
     }
-    const order: Record<string, number> = { siap_retest: 0, approaching: 1 };
+    const order: Record<string, number> = { siap_breakout: 0, siap_retest: 0, approaching: 1, waiting: 2 };
     results.sort((a, b) => {
       const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
       return ao - bo;
