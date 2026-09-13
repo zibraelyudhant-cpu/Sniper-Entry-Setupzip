@@ -364,9 +364,9 @@ const MARKET_METADATA_CACHE_MS = 3 * 60 * 1000; // lebih pendek dari universe ca
 let fundingRateCache: { data: Map<string, number>; ts: number } | null = null;
 const FUNDING_RATE_CACHE_MS = 5 * 60 * 1000; // funding rate update tiap 8 jam di Binance, 5 menit cache cukup aman
 
-export async function getUniverse(): Promise<string[]> {
+export async function getUniverse(limit = 150): Promise<string[]> {
   if (universeCache && Date.now() - universeCache.ts < UNIVERSE_CACHE_MS) {
-    return universeCache.symbols;
+    return universeCache.symbols.slice(0, limit);
   }
 
   // Retry max 2x dengan timeout 8 detik
@@ -385,9 +385,13 @@ export async function getUniverse(): Promise<string[]> {
       }
       const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = await tickersRes.json();
       const filtered = allTickers.filter(t => cryptoSymbols.has(t.symbol));
+      // REVISI (request user, Sniper Breakout & Scalping naik ke 250 koin):
+      // cache internal disimpan sampai 300 (headroom di atas limit terbesar
+      // yang dipake caller manapun), biar getUniverse(limit) tinggal SLICE
+      // dari cache yang sama -- gak perlu fetch/cache terpisah per limit.
       const symbols = filtered
         .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-        .slice(0, 150) // Dinaikkan dari 50 (request user, lebih banyak sinyal tanpa turunin threshold — SEMUA menu termasuk Menu 4 pakai fungsi shared ini, TIDAK ada logic analyze yang disentuh)
+        .slice(0, 300)
         .map(t => t.symbol);
       universeCache = { symbols, ts: Date.now() };
 
@@ -400,11 +404,11 @@ export async function getUniverse(): Promise<string[]> {
       }
       marketMetadataCache = { data: metaMap, ts: Date.now() };
 
-      return symbols;
+      return symbols.slice(0, limit);
     } catch (err) {
       if (attempt < 1) { await new Promise(r => setTimeout(r, 1000)); continue; }
       // Kalau cache lama masih ada, pakai itu daripada throw
-      if (universeCache) return universeCache.symbols;
+      if (universeCache) return universeCache.symbols.slice(0, limit);
       throw err;
     }
   }

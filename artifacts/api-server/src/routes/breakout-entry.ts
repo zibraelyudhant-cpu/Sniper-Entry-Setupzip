@@ -29,7 +29,8 @@ router.get('/breakout-entry', async (req, res) => {
 // (1x fetch per koin, BUKAN 2x lagi kayak sebelumnya pas masih 2 skill)
 router.get('/breakout-entry/scan', async (req, res) => {
   try {
-    const universe = await getUniverse();
+    // REVISI (request user): naik dari default 150 jadi 250 koin
+    const universe = await getUniverse(250);
     const results: Array<Awaited<ReturnType<typeof analyzeCounterStructural>>> = [];
     const batchSize = 3; // 1 skill doang sekarang, bisa sedikit lebih agresif dari batchSize=2 (2 skill)
     for (let i = 0; i < universe.length; i += batchSize) {

@@ -60,7 +60,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isScalping15M ? '⏱ 15M' : '🏗 Structural'}</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isScalping15M ? '⏱ 15M' : '🧲 Money Magnet'}</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
@@ -169,14 +169,14 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
-      const skillLabel = c.mode === 'scalping15m' ? 'Skill 15M' : 'Structural';
+      const skillLabel = c.mode === 'scalping15m' ? 'Skill 15M' : 'Money Magnet';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
         sourceMenu: 'Scalping', sourceSkill: skillLabel,
         entryPrice: c.entryPrice!, stopLoss: c.stopLoss!, takeProfit1: c.takeProfit1!,
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
-        tfStruktur: c.mode === 'scalping15m' ? '15M' : 'M30', tfEksekusi: c.mode === 'scalping15m' ? '15M' : 'M5',
+        tfStruktur: c.mode === 'scalping15m' ? '15M' : 'H4', tfEksekusi: c.mode === 'scalping15m' ? '15M' : 'M30',
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         orderType: 'limit',
         btcAligned: c.btcAligned, btcBias: c.btcBias,
@@ -197,7 +197,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Structural (M30→M5) & Scalping 15M (M15)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Money Magnet (H4→M30) & Scalping 15M (M15)</Text>
       </View>
     );
   }
@@ -374,16 +374,16 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = data.mode === 'scalping15m' ? 'Skill 15M' : 'Structural';
+    const skillLabel = data.mode === 'scalping15m' ? 'Skill 15M' : 'Money Magnet';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
       sourceMenu: 'Scalping', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: data.mode === 'scalping15m' ? '15M' : 'M30', tfEksekusi: data.mode === 'scalping15m' ? '15M' : 'M5',
+      tfStruktur: data.mode === 'scalping15m' ? '15M' : 'H4', tfEksekusi: data.mode === 'scalping15m' ? '15M' : 'M30',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      orderType: 'limit', // Structural & Skill 15M dua-duanya basis breakout+retest, selalu LIMIT
+      orderType: 'limit', // Money Magnet & Skill 15M dua-duanya pasang LIMIT order di zona retest/magnet
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -395,7 +395,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Structural (M30->M5) vs Scalping 15M (M15, breakout+retest zona) */}
+      {/* Mode Switcher — Money Magnet (H4->M30) vs Scalping 15M (M15, breakout+retest zona) */}
       <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {(['structural', 'scalping15m'] as const).map((m) => {
@@ -407,7 +407,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
                 style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
               >
                 <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'structural' ? 'Structural' : 'Scalping 15M'}
+                  {m === 'structural' ? 'Money Magnet' : 'Scalping 15M'}
                 </Text>
               </Pressable>
             );
@@ -415,7 +415,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
         </View>
         {data?.recommendedMode && mode && data.recommendedMode !== mode && (
           <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-            💡 Classifier rekomendasiin "{data.recommendedMode === 'structural' ? 'Structural' : 'Scalping 15M'}" buat koin ini
+            💡 Classifier rekomendasiin "{data.recommendedMode === 'structural' ? 'Money Magnet' : 'Scalping 15M'}" buat koin ini
           </Text>
         )}
       </View>
@@ -451,7 +451,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa breakout+retest — Structural (M30→M5) atau Scalping 15M (M15)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Money Magnet (H4→M30) atau Scalping 15M (M15, breakout+retest)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -513,7 +513,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
           </View>
           </AnimatedCard>
 
-          {/* Zona breakout+retest — dipake dua-duanya (Structural & Scalping 15M) */}
+          {/* Zona breakout+retest — dipake dua-duanya (Money Magnet & Scalping 15M) */}
           {data.zoneEdgeUpper !== undefined && (
             <AnimatedCard index={2}>
             <View style={[styles.section, { backgroundColor: 'rgba(167,139,250,0.06)', borderColor: 'rgba(167,139,250,0.22)' }]}>
@@ -587,7 +587,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — edge zona breakout+retest
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — {data.mode === 'scalping15m' ? 'edge zona breakout+retest' : `magnet zone (${data.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'})`}
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -694,7 +694,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Structural (M30→M5) & Scalping 15M (M15)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Money Magnet (H4→M30) & Scalping 15M (M15)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

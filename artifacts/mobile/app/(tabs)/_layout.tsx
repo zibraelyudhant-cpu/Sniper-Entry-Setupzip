@@ -85,6 +85,11 @@ function ClassicTabLayout() {
         name="index"
         options={{
           title: 'Sniper Breakout',
+          // FIX (request user, "otomatis scan pas buka app"): lazy=false
+          // biar tab ini ke-MOUNT langsung pas app kebuka (bukan nunggu
+          // di-tap), jadi ScanTab di dalemnya (default activeTab='scan')
+          // langsung mulai fetch tanpa perlu user pindah tab dulu.
+          lazy: false,
           tabBarActiveTintColor: MENU_COLORS.breakout,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
@@ -101,6 +106,11 @@ function ClassicTabLayout() {
         name="breakout"
         options={{
           title: 'Scalping',
+          // FIX (request user): sama kayak di atas -- 'breakout' ini file
+          // Scalping (Structural+Skill15M), TANPA lazy=false dia baru
+          // ke-mount pas user pertama kali tap tab 'Scalping', jadi scan-nya
+          // ketunda sampe segitu. Sekarang langsung jalan bareng app dibuka.
+          lazy: false,
           tabBarActiveTintColor: MENU_COLORS.scalping,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>

@@ -224,10 +224,10 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     const entries: JournalEntry[] = eligible.map(c => ({
       id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
       symbol: c.symbol, bias: c.bias!,
-      sourceMenu: 'Sniper Breakout', sourceSkill: 'Sniper Breakout (M1+M5+M15)',
+      sourceMenu: 'Sniper Breakout', sourceSkill: 'Sniper Breakout (Anticipation H1+M15)',
       entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0, takeProfit2: c.takeProfit2,
       currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
-      tfStruktur: 'H1', tfEksekusi: 'M5',
+      tfStruktur: 'H1', tfEksekusi: 'M15',
       technicalSnapshot: c.technicalSnapshot,
       orderType: c.orderType,
       btcAligned: c.btcAligned, btcBias: c.btcBias,
@@ -246,7 +246,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — M1 trigger + M5 validasi + M15 level</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — H1 trend scoring + M15 S&R confluence</Text>
       </View>
     );
   }
@@ -425,10 +425,10 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Sniper Breakout', sourceSkill: 'Sniper Breakout (M1+M5+M15)',
+      sourceMenu: 'Sniper Breakout', sourceSkill: 'Sniper Breakout (Anticipation H1+M15)',
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: 'H1', tfEksekusi: 'M5',
+      tfStruktur: 'H1', tfEksekusi: 'M15',
       technicalSnapshot: data.technicalSnapshot,
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
@@ -689,7 +689,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M1 trigger + M5 validasi + M15 level — entry pakai buy/sell STOP</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H1 trend scoring (RSI/EMA/MACD/ADX) + M15 S&R confluence — entry pakai buy/sell STOP</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

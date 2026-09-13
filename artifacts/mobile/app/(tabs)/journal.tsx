@@ -897,7 +897,7 @@ function RingkasanTab({ entries: allEntries, colors, followups, onDeleted }: { e
               Dari {indicatorResult.sampleWin} sinyal WIN dan {indicatorResult.sampleLose} sinyal LOSE yang punya data indikator.
             </Text>
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, fontStyle: 'italic', lineHeight: 13 }}>
-              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Structural H1→M5 vs Counter Structural H1→M5). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
+              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Money Magnet H4→M30 vs Sniper Breakout H1→M15). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
             </Text>
             {indicatorResult.comparisons.map((c, i) => <IndicatorCompareRow key={c.label + i} item={c} colors={colors} />)}
           </>

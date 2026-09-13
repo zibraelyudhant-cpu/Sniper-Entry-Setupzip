@@ -40,7 +40,8 @@ router.get('/breakout', async (req, res) => {
 // dapet kesempatan dianalisa, gak tergantung classifier volume M15 vs MA20.
 router.get('/breakout/scan', async (req, res) => {
   try {
-    const universe = await getUniverse();
+    // REVISI (request user): naik dari default 150 jadi 250 koin
+    const universe = await getUniverse(250);
     const results: Array<Awaited<ReturnType<typeof analyzeScalpingEntry>> & { mode: string }> = [];
     const batchSize = 2; // FIX (ketemu user, kena rate limit Binance): batch 4 kombinasi 150 koin x 2 skill itu TERLALU AGRESIF (~32 request simultan tiap 300ms). Diturunkan ke 2 + delay diperpanjang jadi 500ms.
     for (let i = 0; i < universe.length; i += batchSize) {

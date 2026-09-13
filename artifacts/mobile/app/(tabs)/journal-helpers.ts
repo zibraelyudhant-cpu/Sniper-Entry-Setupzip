@@ -59,7 +59,7 @@ export interface JournalEntry {
 
   // Dari menu/skill mana
   sourceMenu: SourceMenu;
-  sourceSkill: string; // e.g. 'Counter Structural', 'Sniper', 'CVD+OI Confluence', 'Structural', 'Skill 15M', 'Quant', 'Momentum Hunter (Retest)'
+  sourceSkill: string; // e.g. 'Sniper Breakout (Anticipation H1+M15)', 'Money Magnet', 'Skill 15M'
 
   // Harga & level
   entryPrice: number;
@@ -127,23 +127,33 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
   }
 }
 
+/**
+ * REVISI (request user): dedup sekarang berbasis symbol+bias+sourceSkill+
+ * orderType (buy/sell DAN stop/limit) -- entryPrice SENGAJA DIHAPUS dari
+ * kunci (harga beda tetep dianggap duplikat). Skill beda TETEP dianggap
+ * sinyal terpisah (Structural & Skill 15M kasih sinyal buat koin yang sama
+ * = bukan duplikat). Dedup ini CUMA berlaku ke sinyal yang kesimpen dalam
+ * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
+ * (dianggap kejadian baru, bukan re-save yang gak sengaja).
+ */
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType'>): string {
+  const orderType = e.orderType ?? 'limit';
+  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}`;
+}
+
+const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export async function journalSave(entry: JournalEntry): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
+  const cutoff = Date.now() - DEDUP_WINDOW_MS;
+  const key = signalDedupKey(entry);
+  const isDuplicate = all.some(e => e.savedAt >= cutoff && signalDedupKey(e) === key);
+  if (isDuplicate) return all; // udah ada sinyal identik (koin+bias+skill+orderType) dalam 24 jam terakhir
   // Max 300 entri (jauh lebih besar dari log per-menu yang 100, karena ini
   // agregat SEMUA menu dan tujuannya emang buat analisa jangka panjang).
   const updated = [entry, ...all].slice(0, 300);
   try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
   return updated;
-}
-
-/**
- * Bikin "kunci" identitas sinyal buat dedup — symbol+bias+sourceSkill+entryPrice
- * (dibulatin 6 desimal biar toleran floating-point noise). SENGAJA gak ikutin
- * timestamp/savedAt, given TUJUANNYA emang nangkep 'sinyal yang PERSIS SAMA'
- * biarpun di-scan ulang di waktu beda.
- */
-function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'entryPrice'>): string {
-  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${e.entryPrice.toFixed(6)}`;
 }
 
 /**
@@ -154,17 +164,19 @@ function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' 
  * FIX (request user, "pastikan gak ada yang terduplikat"): filter 2 lapis
  * sebelum nyimpen — (1) dalam batch yang mau disimpen sendiri (misal 2 skill
  * kebetulan kasih sinyal sama), (2) terhadap entry yang UDAH ADA di storage
- * (misal user klik tombol ini 2x abis refresh scan, sinyalnya masih persis
- * sama). Return jumlah yang GENUINELY baru disimpen (dipake buat notif UI).
+ * DALAM 24 JAM TERAKHIR (request user — lewat 24 jam, sinyal "sama" boleh
+ * disimpen lagi, dianggap kejadian baru bukan re-save). Return jumlah yang
+ * GENUINELY baru disimpen (dipake buat notif UI).
  */
 export async function journalSaveMany(entries: JournalEntry[]): Promise<{ all: JournalEntry[]; savedCount: number; skippedCount: number }> {
   const all = await journalLoadAll();
-  const existingKeys = new Set(all.map(signalDedupKey));
+  const cutoff = Date.now() - DEDUP_WINDOW_MS;
+  const existingKeys = new Set(all.filter(e => e.savedAt >= cutoff).map(signalDedupKey));
   const seenInBatch = new Set<string>();
   const deduped: JournalEntry[] = [];
   for (const e of entries) {
     const key = signalDedupKey(e);
-    if (existingKeys.has(key) || seenInBatch.has(key)) continue; // udah ada di storage ATAU duplikat sesama batch ini
+    if (existingKeys.has(key) || seenInBatch.has(key)) continue; // udah ada di storage (24 jam terakhir) ATAU duplikat sesama batch ini
     seenInBatch.add(key);
     deduped.push(e);
   }

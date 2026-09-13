@@ -21,7 +21,7 @@ const PERIOD_CANDLES: Record<string, number> = { '1m': 720, '3m': 2160, '6m': 43
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // GANTI TOTAL (request user, "sekalian diperbarui" — backend sekarang Python
-// vectorized, REPLIKASI PERSIS 3 skill live: Structural, Skill 15M, Counter
+// vectorized, REPLIKASI PERSIS 3 skill live: Money Magnet, Skill 15M, Counter
 // Scalping). Struktur hasil lebih SEDERHANA dari versi lama (gak ada
 // breakdown "with/without ChoCH/pattern/dst" — itu basis sistem LAMA yang
 // udah ditinggalkan jauh sebelum sesi ini).
@@ -152,7 +152,7 @@ const PERIODS = [
 ];
 
 const MENUS = [
-  { label: 'Structural', value: 'structural' as const },
+  { label: 'Money Magnet', value: 'structural' as const },
   { label: 'Skill 15M', value: 'scalping15m' as const },
   { label: 'Counter Scalping', value: 'counter_scalping' as const },
   { label: 'Semua', value: 'both' as const },
@@ -305,7 +305,7 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
             </View>
 
             {result.structuralResult && (
-              <MenuResult title="Scalping — Structural (M30)" result={result.structuralResult} colors={colors} />
+              <MenuResult title="Scalping — Money Magnet (H4→M30)" result={result.structuralResult} colors={colors} />
             )}
             {result.scalping15mResult && (
               <MenuResult title="Scalping — Skill 15M" result={result.scalping15mResult} colors={colors} />
