@@ -25,42 +25,84 @@ router.get('/breakout-entry', async (req, res) => {
   }
 });
 
-// GET /api/breakout-entry/scan — CUMA 1 skill sekarang, scan lebih ringan
-// (1x fetch per koin, BUKAN 2x lagi kayak sebelumnya pas masih 2 skill)
-router.get('/breakout-entry/scan', async (req, res) => {
+// ═══════════════════════════════════════════════════════════════════════════
+// PROGRESSIVE SCAN STATE (request user, sama kayak Scalping — "hasil muncul
+// progresif, gak nunggu 300 koin kelar semua"). Lihat breakout.ts buat
+// penjelasan lengkap kenapa polling (bukan SSE/EventSource — gak native-
+// compatible di React Native).
+// ═══════════════════════════════════════════════════════════════════════════
+type SniperScanState = {
+  results: Array<Awaited<ReturnType<typeof analyzeCounterStructural>> & { marketMeta?: unknown }>;
+  scanned: number;
+  total: number;
+  status: 'idle' | 'running' | 'complete' | 'error';
+  errorMessage?: string;
+  fetchedAt: number;
+};
+let sniperScanState: SniperScanState = { results: [], scanned: 0, total: 0, status: 'idle', fetchedAt: 0 };
+let sniperScanRunning = false;
+
+async function runSniperScan(): Promise<void> {
+  if (sniperScanRunning) return;
+  sniperScanRunning = true;
+  sniperScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now() };
   try {
-    // REVISI (request user): naik dari default 150 jadi 250 koin
-    const universe = await getUniverse(250);
-    const results: Array<Awaited<ReturnType<typeof analyzeCounterStructural>>> = [];
+    const universe = await getUniverse(300);
+    sniperScanState.total = universe.length;
     const batchSize = 3; // 1 skill doang sekarang, bisa sedikit lebih agresif dari batchSize=2 (2 skill)
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
         batch.map((s) => analyzeCounterStructural(s))
       );
-      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 500));
+      sniperScanState.scanned += batch.length;
+      const newValid: typeof sniperScanState.results = [];
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          // FIX (request user, Sniper Breakout): status utama sekarang
-          // 'siap_breakout' (stop order siap dipasang). 'siap_retest'
-          // dipertahanin buat kompat kalau ada response lama ke-cache.
           if (val.status === 'siap_breakout' || val.status === 'approaching' || val.status === 'siap_retest' || val.status === 'waiting')
-            results.push(val);
+            newValid.push(val);
         }
       }
+      if (newValid.length > 0) {
+        const metadata = await getMarketMetadata(newValid.map(r => r.symbol));
+        for (const r of newValid) (r as any).marketMeta = metadata.get(r.symbol) ?? null;
+      }
+      sniperScanState.results.push(...newValid);
+      const order: Record<string, number> = { siap_breakout: 0, siap_retest: 0, approaching: 1, waiting: 2 };
+      sniperScanState.results.sort((a, b) => {
+        const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
+        return ao - bo;
+      });
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 500));
     }
-    const order: Record<string, number> = { siap_breakout: 0, siap_retest: 0, approaching: 1, waiting: 2 };
-    results.sort((a, b) => {
-      const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
-      return ao - bo;
+    sniperScanState.status = 'complete';
+    sniperScanState.fetchedAt = Date.now();
+  } catch (err) {
+    sniperScanState.status = 'error';
+    sniperScanState.errorMessage = err instanceof Error ? err.message : 'Unknown error';
+  } finally {
+    sniperScanRunning = false;
+  }
+}
+
+// GET /api/breakout-entry/scan — REVISI (request user, "progresif + notif
+// complete"): POLLING-BASED, sama pola kayak breakout.ts. ?fresh=true maksa
+// mulai scan baru (tombol Refresh manual).
+router.get('/breakout-entry/scan', async (req, res) => {
+  try {
+    const forceFresh = req.query['fresh'] === 'true';
+    if (sniperScanState.status === 'idle' || (forceFresh && !sniperScanRunning)) {
+      runSniperScan(); // fire-and-forget, SENGAJA gak di-await
+    }
+    res.json({
+      coins: sniperScanState.results,
+      scanned: sniperScanState.scanned,
+      total: sniperScanState.total,
+      status: sniperScanState.status,
+      errorMessage: sniperScanState.errorMessage,
+      fetchedAt: sniperScanState.fetchedAt,
     });
-
-    // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
-    const metadata = await getMarketMetadata(results.map(r => r.symbol));
-    const resultsWithMeta = results.map(r => ({ ...r, marketMeta: metadata.get(r.symbol) ?? null }));
-
-    res.json({ coins: resultsWithMeta, fetchedAt: Date.now() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

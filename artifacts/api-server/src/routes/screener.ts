@@ -385,13 +385,13 @@ export async function getUniverse(limit = 150): Promise<string[]> {
       }
       const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = await tickersRes.json();
       const filtered = allTickers.filter(t => cryptoSymbols.has(t.symbol));
-      // REVISI (request user, Sniper Breakout & Scalping naik ke 250 koin):
-      // cache internal disimpan sampai 300 (headroom di atas limit terbesar
+      // REVISI (request user, Sniper Breakout & Scalping naik ke 300 koin):
+      // cache internal dinaikkan ke 350 (headroom di atas limit terbesar
       // yang dipake caller manapun), biar getUniverse(limit) tinggal SLICE
       // dari cache yang sama -- gak perlu fetch/cache terpisah per limit.
       const symbols = filtered
         .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-        .slice(0, 300)
+        .slice(0, 350)
         .map(t => t.symbol);
       universeCache = { symbols, ts: Date.now() };
 

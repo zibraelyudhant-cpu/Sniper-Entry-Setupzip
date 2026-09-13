@@ -1125,6 +1125,29 @@ function findLastSwingLowWithIndex(lows: number[]): { price: number; index: numb
   return null;
 }
 
+/**
+ * Sama kayak findLastSwingHighWithIndex/LowWithIndex, TAPI cari swing point
+ * KEDUA (yang terbentuk SEBELUM swing paling fresh) -- dibutuhin Money
+ * Magnet buat skenario "1 candle dump/pump nembus 2 level sekaligus"
+ * (request user, contoh CCUSDT).
+ */
+function findSecondLastSwingHighWithIndex(highs: number[], excludeIndex: number): { price: number; index: number } | null {
+  for (let i = excludeIndex - 1; i >= 2; i--) {
+    if (highs[i]! > highs[i - 1]! && highs[i]! > highs[i - 2]! && highs[i]! > highs[i + 1]! && highs[i]! > highs[i + 2]!) {
+      return { price: highs[i]!, index: i };
+    }
+  }
+  return null;
+}
+function findSecondLastSwingLowWithIndex(lows: number[], excludeIndex: number): { price: number; index: number } | null {
+  for (let i = excludeIndex - 1; i >= 2; i--) {
+    if (lows[i]! < lows[i - 1]! && lows[i]! < lows[i - 2]! && lows[i]! < lows[i + 1]! && lows[i]! < lows[i + 2]!) {
+      return { price: lows[i]!, index: i };
+    }
+  }
+  return null;
+}
+
 export type TFLabelV2 = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H2' | 'H4' | 'D1';
 
 const MSV2_BASE_CANDLE_COUNT: Record<TFLabelV2, number> = {
@@ -2627,6 +2650,7 @@ export interface ScalpingResult {
   stochSlowAtRetest?: { k: number; d: number }; // Stochastic Slow (5,3,3) di candle retest -- BONUS doang, gak block
   magnetLevelUsed?: 'broken_level' | 'ema26'; // level mana yang dipilih jadi entry (paling deket ke harga)
   magnetConfluencePct?: number; // jarak % antara broken level vs EMA26 M30
+  moneyMagnetVariant?: 'standard' | 'dual_level'; // 'dual_level' = 1 candle nembus 2 SNR sekaligus (entry di SNR2, SL di SNR1) -- ditampilkan Journal sebagai "Money Magnet 2"
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2721,6 +2745,15 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const swingLowIdxAbs = swingSlice + freshLowFound.index;
     const touchTolFresh = calcATR(m30.highs, m30.lows, m30.closes) * 0.1; // toleransi kecil buat "sentuh"
 
+    // SNR KEDUA (request user, skenario "1 candle dump/pump nembus 2 level
+    // sekaligus", contoh CCUSDT) -- swing point SEBELUM yang fresh. Kalau
+    // 1 candle breakout nembus KEDUANYA (SNR1 fresh DAN SNR2 di belakangnya)
+    // sekaligus, entry pindah ke SNR2, SL ke SNR1 (bukan pure ATR lagi).
+    const secondHighFound = findSecondLastSwingHighWithIndex(highsSliced, freshHighFound.index);
+    const secondLowFound = findSecondLastSwingLowWithIndex(lowsSliced, freshLowFound.index);
+    const secondSwingHigh = secondHighFound?.price;
+    const secondSwingLow = secondLowFound?.price;
+
     // Cek FRESHNESS: dari candle SETELAH swing terbentuk sampai SEBELUM
     // breakout, harga gak boleh balik deket ke level itu lagi (kalau udah
     // disentuh ulang, berarti bukan breakout pertama kali -- level basi)
@@ -2742,6 +2775,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       breakoutIdx: number; retestIdx: number; brokenLevel: number;
       magnetLevelUsed: 'broken_level' | 'ema26'; entryLevel: number;
       confluencePct: number; forceIndexValue: number; stochSlow: { k: number; d: number };
+      variant: 'standard' | 'dual_level'; slOverride?: number;
     };
     let found: MoneyMagnetFound | null = null;
 
@@ -2755,7 +2789,19 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       if (!bearishBreakout && !bullishBreakout) continue;
 
       const bias = bearishBreakout ? 'bearish' : 'bullish';
-      const brokenLevel = bearishBreakout ? freshSwingLow : freshSwingHigh;
+      const snr1Level = bearishBreakout ? freshSwingLow : freshSwingHigh;
+
+      // DETEKSI DUAL-LEVEL (request user): candle breakoutIdx yang SAMA
+      // JUGA nembus SNR2 (literally 1 candle, closeB doang yang dicek --
+      // sesuai konfirmasi user "literally 1 candle")
+      const snr2Level = bearishBreakout ? secondSwingLow : secondSwingHigh;
+      const dualLevelBreak = snr2Level !== undefined && (bearishBreakout ? closeB < snr2Level : closeB > snr2Level);
+
+      // Kalau dual-level: brokenLevel (buat retest/confluence/entry) jadi
+      // SNR2, SL nanti dipatok ke SNR1 (bukan ATR). Kalau enggak: normal,
+      // brokenLevel = SNR1 (fresh), SL nanti pure ATR M30 (gak berubah).
+      const brokenLevel = dualLevelBreak ? snr2Level! : snr1Level;
+      const variant: 'standard' | 'dual_level' = dualLevelBreak ? 'dual_level' : 'standard';
 
       // "Harga lanjut" -- minimal 1 candle setelah breakout masih searah,
       // sebelum retest dimulai
@@ -2797,7 +2843,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
         const magnetLevelUsed: 'broken_level' | 'ema26' = distBroken <= distEma ? 'broken_level' : 'ema26';
         const entryLevel = magnetLevelUsed === 'broken_level' ? brokenLevel : ema26AtRetest;
 
-        found = { breakoutIdx, retestIdx, brokenLevel, magnetLevelUsed, entryLevel, confluencePct, forceIndexValue: fiVal, stochSlow };
+        found = { breakoutIdx, retestIdx, brokenLevel, magnetLevelUsed, entryLevel, confluencePct, forceIndexValue: fiVal, stochSlow, variant, slOverride: dualLevelBreak ? snr1Level : undefined };
         break;
       }
       if (found) break;
@@ -2812,7 +2858,11 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     }
 
     const bias = biasH4;
-    filterResults.push(`✅ Breakout M30 valid — level fresh ${found.brokenLevel.toFixed(6)} tembus searah H4 (belum pernah disentuh ulang sejak kebentuk), harga lanjut ${bias}`);
+    if (found.variant === 'dual_level') {
+      filterResults.push(`✅ DUAL-LEVEL BREAK terdeteksi — 1 candle nembus SNR1 (fresh, ${found.slOverride!.toFixed(6)}) DAN SNR2 (${found.brokenLevel.toFixed(6)}) sekaligus → entry pindah ke SNR2, SL dipatok ke SNR1`);
+    } else {
+      filterResults.push(`✅ Breakout M30 valid — level fresh ${found.brokenLevel.toFixed(6)} tembus searah H4 (belum pernah disentuh ulang sejak kebentuk), harga lanjut ${bias}`);
+    }
     filterResults.push(`✅ Retest ke magnet zone — broken level & EMA26 confluence ${found.confluencePct.toFixed(2)}% (≤0.5%), Force Index ${found.forceIndexValue > 0 ? 'positif' : 'negatif'} (${found.forceIndexValue.toFixed(2)})`);
     filterResults.push(`ℹ️ Stochastic Slow (bonus, gak block): %K=${found.stochSlow.k.toFixed(1)}, %D=${found.stochSlow.d.toFixed(1)}${bias === 'bearish' ? (found.stochSlow.k > 70 ? ' — overbought, mendukung' : ' — belum overbought') : (found.stochSlow.k < 30 ? ' — oversold, mendukung' : ' — belum oversold')}`);
     filterResults.push(`✅ Entry level dipilih: ${found.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'} (paling deket ke harga sekarang)`);
@@ -2820,22 +2870,42 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     // ═══ FASE 4: ENTRY SETUP ════════════════════════════════════════════════
     const dirMult = bias === 'bullish' ? 1 : -1;
     const entryPrice = found.entryLevel;
-    // SL: PURE dari ATR M30 (request user, gak dibandingin sama swing lagi)
-    const stopLoss = entryPrice - atrM30 * 1.0 * dirMult;
+
+    // FIX BUG (sama kayak yang ketemu user di Skill 15M): validasi entry
+    // masih masuk akal dibanding harga SEKARANG -- BUY LIMIT harus di BAWAH
+    // harga sekarang (nunggu dip), SELL LIMIT harus di ATAS harga sekarang
+    // (nunggu bounce). Kalau kebalik (harga udah gerak jauh sejak breakout
+    // historis), order bakal langsung ke-fill kayak market order.
+    const entryStillValid = bias === 'bullish' ? entryPrice <= currentPrice : entryPrice >= currentPrice;
+    if (!entryStillValid) {
+      return {
+        status: 'waiting', symbol, currentPrice, timestamp, mode: 'structural',
+        message: `Breakout+retest udah basi — harga sekarang (${currentPrice.toFixed(6)}) udah ${bias === 'bullish' ? 'di bawah' : 'di atas'} level entry (${entryPrice.toFixed(6)}), kalau dipasang sekarang order bakal langsung ke-fill kayak market order`,
+        maxScore, filterResults,
+      };
+    }
+
+    // REVISI (request user, skenario dual-level): kalau variant='dual_level',
+    // SL PENGECUALIAN dipatok LITERAL ke SNR1 (bukan ATR). Kalau standard,
+    // SL tetap PURE ATR M30 kayak biasa.
+    const stopLoss = found.variant === 'dual_level' ? found.slOverride! : entryPrice - atrM30 * 1.0 * dirMult;
     const risk = Math.abs(entryPrice - stopLoss);
     const takeProfit1 = entryPrice + risk * 2 * dirMult;
     const rr1 = 2;
 
-    filterResults.push(`✅ SL pure ATR M30 (1.0x) @ ${stopLoss.toFixed(6)}, TP RR 1:${rr1} @ ${takeProfit1.toFixed(6)}`);
+    filterResults.push(found.variant === 'dual_level'
+      ? `✅ SL di SNR1 (pengecualian) @ ${stopLoss.toFixed(6)}, TP RR 1:${rr1} @ ${takeProfit1.toFixed(6)}`
+      : `✅ SL pure ATR M30 (1.0x) @ ${stopLoss.toFixed(6)}, TP RR 1:${rr1} @ ${takeProfit1.toFixed(6)}`);
 
     return {
       status: 'in_zone', symbol, bias, currentPrice, timestamp, mode: 'structural',
       maxScore, filterResults,
       entryPrice, stopLoss, takeProfit1, rr1,
+      moneyMagnetVariant: found.variant,
       h4CrossCount, forceIndexValue: found.forceIndexValue, stochSlowAtRetest: found.stochSlow,
       magnetLevelUsed: found.magnetLevelUsed, magnetConfluencePct: Math.round(found.confluencePct * 1000) / 1000,
       atr15MPct: (atrM30 / currentPrice) * 100,
-      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} (${found.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'}) — H4 ${bias} fresh (${h4CrossCount}x crossing), Force Index ${found.forceIndexValue > 0 ? 'positif' : 'negatif'}, RR 1:${rr1}.`,
+      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} (${found.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'})${found.variant === 'dual_level' ? ' [Money Magnet 2 -- dual-level break]' : ''} — H4 ${bias} fresh (${h4CrossCount}x crossing), Force Index ${found.forceIndexValue > 0 ? 'positif' : 'negatif'}, RR 1:${rr1}.`,
     };
   } catch (err) {
     return {
@@ -3057,6 +3127,26 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
     const dirMult = bias === 'bullish' ? 1 : -1;
     // Bullish: limit di BAWAH level (level - 0.5%). Bearish: limit di ATAS level (level + 0.5%)
     const entryPrice = level * (1 - 0.005 * dirMult);
+
+    // FIX BUG (ketemu user, "sell limit tapi harganya di bawah harga
+    // sekarang"): scan retest bisa nemu kejadian SAMPAI 21 candle lalu, tapi
+    // TANPA cek ini, kode langsung ngajuin entry dari data historis itu
+    // TANPA mastiin levelnya masih masuk akal dibanding harga SEKARANG
+    // (real-time). Kalau di antara retest lampau itu sampai sekarang harga
+    // udah bergerak jauh (misal rally abis retest), entry yang dihitung
+    // bisa ke-lewatan -- BUY LIMIT harus di BAWAH harga sekarang (nunggu
+    // dip), SELL LIMIT harus di ATAS harga sekarang (nunggu bounce). Kalau
+    // kebalik, order itu bakal LANGSUNG ke-fill kayak market order pas
+    // dipasang -- BUKAN nunggu retest lagi, dan RR-nya jadi gak relevan.
+    const entryStillValid = bias === 'bullish' ? entryPrice <= currentPrice : entryPrice >= currentPrice;
+    if (!entryStillValid) {
+      return {
+        status: 'waiting', symbol, currentPrice, timestamp, mode: 'scalping15m',
+        message: `Retest ${candlesSinceBreakout} candle lalu udah basi — harga sekarang (${currentPrice.toFixed(6)}) udah ${bias === 'bullish' ? 'di bawah' : 'di atas'} level entry (${entryPrice.toFixed(6)}), kalau dipasang sekarang order bakal langsung ke-fill kayak market order, bukan nunggu retest`,
+        maxScore, filterResults, atr15MPct: (atrM15 / currentPrice) * 100,
+      };
+    }
+
     const oppositeLevel = bias === 'bullish' ? support : resistance;
     const stopLoss = oppositeLevel * (1 - 0.01 * dirMult);
     // REVISI (request user): TP diganti jadi RR 1:2 (sebelumnya persen tetap

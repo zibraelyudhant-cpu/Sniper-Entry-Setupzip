@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -207,7 +207,32 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   // FIX (request user, "diem di tab lain 5-10 menit, balik ke Scan malah
   // auto-refetch"): staleTime Infinity — data scan GAK PERNAH dianggap basi
   // otomatis, CUMA refresh kalau user PENCET Scan Ulang manual (refetch()).
-  const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({ query: { staleTime: Infinity } });
+  // REVISI (request user, "hasil progresif + notif complete"): sekarang
+  // POLLING -- refetchInterval jalan tiap 1.5 detik SELAMA status masih
+  // 'running'/'idle', otomatis STOP polling begitu 'complete'/'error'.
+  // staleTime Infinity DIHAPUS karena sekarang emang justru MAU
+  // auto-refresh (bukan cache statis lagi).
+  const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({
+    query: {
+      refetchInterval: (query) => {
+        const s = (query.state.data as any)?.status;
+        return s === 'running' || s === 'idle' || s === undefined ? 1500 : false;
+      },
+    },
+  });
+  const scanStatus = (data as any)?.status as 'idle' | 'running' | 'complete' | 'error' | undefined;
+  const scannedCount = (data as any)?.scanned ?? 0;
+  const totalCount = (data as any)?.total ?? 0;
+  const [showCompleteNotif, setShowCompleteNotif] = useState(false);
+  const prevScanStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (prevScanStatusRef.current === 'running' && scanStatus === 'complete') {
+      setShowCompleteNotif(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTimeout(() => setShowCompleteNotif(false), 3000);
+    }
+    prevScanStatusRef.current = scanStatus;
+  }, [scanStatus]);
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('default');
@@ -270,6 +295,16 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const pantau      = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, c => c.marketMeta);
 
   if (coins.length === 0) {
+    if (scanStatus === 'running' || scanStatus === 'idle') {
+      return (
+        <View style={scanStyles.center}>
+          <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
+          <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — H4 trend scoring + M15 S&R confluence'}
+          </Text>
+        </View>
+      );
+    }
     return (
       <View style={scanStyles.center}>
         <Feather name="trending-up" size={36} color={colors.mutedForeground} />
@@ -289,6 +324,19 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }}
       showsVerticalScrollIndicator={false}
     >
+      {showCompleteNotif && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${colors.bullish}18`, borderWidth: 1, borderColor: colors.bullish, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+          <Feather name="check-circle" size={14} color={colors.bullish} />
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.bullish }}>Scan {totalCount} koin selesai!</Text>
+        </View>
+      )}
+      {scanStatus === 'running' && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${ACCENT}12`, borderWidth: 1, borderColor: ACCENT, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+          <ActivityIndicator size="small" color={ACCENT} />
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: ACCENT }}>Masih scanning... {scannedCount}/{totalCount} koin (hasil di bawah update otomatis)</Text>
+        </View>
+      )}
+
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
         <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />

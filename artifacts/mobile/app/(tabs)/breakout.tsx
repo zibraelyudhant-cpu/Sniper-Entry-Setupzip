@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ActivityIndicator, Platform, Pressable, ScrollView,
@@ -60,7 +60,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isScalping15M ? '⏱ 15M' : '🧲 Money Magnet'}</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isScalping15M ? '⏱ 15M' : ((coin as any).moneyMagnetVariant === 'dual_level' ? '🧲 Money Magnet 2' : '🧲 Money Magnet')}</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
@@ -151,9 +151,35 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   // FIX (request user, "diem di tab lain 5-10 menit, balik ke Scan malah
   // auto-refetch"): staleTime Infinity — data scan GAK PERNAH dianggap basi
   // otomatis, CUMA refresh kalau user PENCET Scan Ulang manual (refetch()).
+  // REVISI (request user, "hasil progresif + notif complete"): sekarang
+  // POLLING -- refetchInterval jalan tiap 1.5 detik SELAMA status masih
+  // 'running'/'idle', otomatis STOP polling begitu 'complete'/'error' (biar
+  // gak nge-poll selamanya sia-sia). staleTime Infinity DIHAPUS karena
+  // sekarang emang justru MAU auto-refresh (bukan cache statis lagi).
   const { data, isLoading, isFetching, isError, refetch } = useGetScalpingScan({
-    query: { queryKey: getGetScalpingScanQueryKey(), staleTime: Infinity },
+    query: {
+      queryKey: getGetScalpingScanQueryKey(),
+      refetchInterval: (query) => {
+        const s = (query.state.data as any)?.status;
+        return s === 'running' || s === 'idle' || s === undefined ? 1500 : false;
+      },
+    },
   });
+  const scanStatus = (data as any)?.status as 'idle' | 'running' | 'complete' | 'error' | undefined;
+  const scannedCount = (data as any)?.scanned ?? 0;
+  const totalCount = (data as any)?.total ?? 0;
+  // Notif "Complete" -- muncul SEKALI aja pas status TRANSISI ke 'complete'
+  // (bukan tiap render), ilang otomatis abis 3 detik.
+  const [showCompleteNotif, setShowCompleteNotif] = useState(false);
+  const prevScanStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (prevScanStatusRef.current === 'running' && scanStatus === 'complete') {
+      setShowCompleteNotif(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTimeout(() => setShowCompleteNotif(false), 3000);
+    }
+    prevScanStatusRef.current = scanStatus;
+  }, [scanStatus]);
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('default');
@@ -169,7 +195,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
-      const skillLabel = c.mode === 'scalping15m' ? 'Skill 15M' : 'Money Magnet';
+      const skillLabel = c.mode === 'scalping15m' ? 'Skill 15M' : ((c as any).moneyMagnetVariant === 'dual_level' ? 'Money Magnet 2' : 'Money Magnet');
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
@@ -227,6 +253,16 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const waiting    = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, getMeta);
 
   if (coins.length === 0) {
+    if (scanStatus === 'running' || scanStatus === 'idle') {
+      return (
+        <View style={scanStyles.center}>
+          <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
+          <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : '2 Skill — Money Magnet (H4→M30) & Scalping 15M (M15)'}
+          </Text>
+        </View>
+      );
+    }
     return (
       <View style={scanStyles.center}>
         <Feather name="crosshair" size={36} color={colors.mutedForeground} />
@@ -246,6 +282,19 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }}
       showsVerticalScrollIndicator={false}
     >
+      {showCompleteNotif && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${colors.bullish}18`, borderWidth: 1, borderColor: colors.bullish, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+          <Feather name="check-circle" size={14} color={colors.bullish} />
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.bullish }}>Scan {totalCount} koin selesai!</Text>
+        </View>
+      )}
+      {scanStatus === 'running' && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${ACCENT}12`, borderWidth: 1, borderColor: ACCENT, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+          <ActivityIndicator size="small" color={ACCENT} />
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: ACCENT }}>Masih scanning... {scannedCount}/{totalCount} koin (hasil di bawah update otomatis)</Text>
+        </View>
+      )}
+
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
         <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
@@ -374,7 +423,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = data.mode === 'scalping15m' ? 'Skill 15M' : 'Money Magnet';
+    const skillLabel = data.mode === 'scalping15m' ? 'Skill 15M' : ((data as any).moneyMagnetVariant === 'dual_level' ? 'Money Magnet 2' : 'Money Magnet');
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
