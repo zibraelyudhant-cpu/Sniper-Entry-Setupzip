@@ -59,7 +59,7 @@ export interface JournalEntry {
 
   // Dari menu/skill mana
   sourceMenu: SourceMenu;
-  sourceSkill: string; // e.g. 'Sniper Breakout (Anticipation H1+M15)', 'Money Magnet', 'Skill 15M'
+  sourceSkill: string; // e.g. 'Sniper Breakout (Anticipation H1+M15)', 'Money Magnet', 'Money Magnet 2'
 
   // Harga & level
   entryPrice: number;
@@ -68,7 +68,7 @@ export interface JournalEntry {
   takeProfit2?: number;
   currentPriceAtSignal: number; // harga pas sinyal diberikan
   rr1?: number;
-  orderType?: 'stop' | 'limit'; // WAJIB buat evaluasi akurat — nentuin arah cek "entry udah ke-hit belum" (limit: harga harus DATENG ke entry; stop: harga harus TEMBUS ke arah breakout). Default 'limit' kalau gak ada (mayoritas skill basis Skill 15M breakout+retest).
+  orderType?: 'stop' | 'limit'; // WAJIB buat evaluasi akurat — nentuin arah cek "entry udah ke-hit belum" (limit: harga harus DATENG ke entry; stop: harga harus TEMBUS ke arah breakout). Default 'limit' kalau gak ada (mayoritas skill basis breakout+retest limit order).
   btcAligned?: boolean; // BTC Correlation pas sinyal ini diberikan — informasional, buat riset kombinasi kondisi win/lose
   btcBias?: 'bullish' | 'bearish' | 'ranging';
   entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif) DAN statistik timing (request user)
@@ -131,7 +131,7 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
  * REVISI (request user): dedup sekarang berbasis symbol+bias+sourceSkill+
  * orderType (buy/sell DAN stop/limit) -- entryPrice SENGAJA DIHAPUS dari
  * kunci (harga beda tetep dianggap duplikat). Skill beda TETEP dianggap
- * sinyal terpisah (Structural & Skill 15M kasih sinyal buat koin yang sama
+ * sinyal terpisah (Money Magnet & Money Magnet 2 kasih sinyal buat koin yang sama
  * = bukan duplikat). Dedup ini CUMA berlaku ke sinyal yang kesimpen dalam
  * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
  * (dianggap kejadian baru, bukan re-save yang gak sengaja).
@@ -235,7 +235,7 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
     const risk = Math.abs(entry.entryPrice - entry.stopLoss);
     const evalAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
     const now = Date.now();
-    const orderType = entry.orderType ?? 'limit'; // default limit (mayoritas skill basis Skill 15M)
+    const orderType = entry.orderType ?? 'limit'; // default limit (mayoritas skill basis breakout+retest limit order)
 
     // Fix bug (request user, "jangan sampe baca win/lose padahal entry belum
     // ke-hit"): kode LAMA langsung ngecek SL/TP dari harga sekarang tanpa
