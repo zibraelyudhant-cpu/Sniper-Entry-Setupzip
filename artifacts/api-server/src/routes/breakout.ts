@@ -57,7 +57,8 @@ async function runScalpingScan(): Promise<void> {
   scalpingScanRunning = true;
   scalpingScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now() };
   try {
-    const universe = await getUniverse(300);
+    // REVISI (request user): naik dari 300 jadi 400 koin
+    const universe = await getUniverse(400);
     scalpingScanState.total = universe.length;
     const batchSize = 2; // FIX (ketemu user, kena rate limit Binance): batch 4 kombinasi 150 koin x 2 skill itu TERLALU AGRESIF (~32 request simultan tiap 300ms). Diturunkan ke 2 + delay diperpanjang jadi 500ms.
     for (let i = 0; i < universe.length; i += batchSize) {
