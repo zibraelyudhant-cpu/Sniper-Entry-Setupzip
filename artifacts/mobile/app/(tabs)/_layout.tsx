@@ -21,6 +21,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
         <Label>Scalping</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="money-magnet-scalping">
+        <Icon sf={{ default: 'bolt.circle', selected: 'bolt.circle.fill' }} />
+        <Label>MM Scalping</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="multi-tf-scan">
         <Icon sf={{ default: 'square.grid.3x3', selected: 'square.grid.3x3.fill' }} />
         <Label>Multi-TF</Label>
@@ -118,6 +122,25 @@ function ClassicTabLayout() {
                 <SymbolView name="bolt.horizontal.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="zap" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="money-magnet-scalping"
+        options={{
+          title: 'MM Scalping',
+          // Menu BARU (request user): "otomatis scan pas buka app" -- sama
+          // pola lazy=false kayak Sniper Breakout & Scalping.
+          lazy: false,
+          tabBarActiveTintColor: MENU_COLORS.moneyMagnetScalping,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="bolt.circle.fill" tintColor={color} size={22} />
+              ) : (
+                <Feather name="target" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),

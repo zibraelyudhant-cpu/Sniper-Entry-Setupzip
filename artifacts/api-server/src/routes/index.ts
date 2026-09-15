@@ -9,6 +9,7 @@ import economicCalendarRouter from "./economic-calendar";
 import multiTfScanRouter from "./multi-tf-scan";
 import allMenusAnalysisRouter from "./all-menus-analysis";
 import journalFollowupRouter from "./journal-followup";
+import moneyMagnetScalpingRouter from "./money-magnet-scalping";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(economicCalendarRouter);
 router.use(multiTfScanRouter);
 router.use(allMenusAnalysisRouter);
 router.use(journalFollowupRouter);
+router.use(moneyMagnetScalpingRouter);
 
 export default router;

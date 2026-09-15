@@ -113,9 +113,9 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const isPantau = coin.status === 'waiting';
   const statusColor = isSiapRetest ? colors.gold : isPantau ? '#F87171' : '#818CF8';
   // REVISI (request user, 3 skill sekaligus): badge nunjukin skill mana yang
-  // hasilin sinyal ini -- Sniper Breakout (H4→M15) / Money Magnet (H1+M15) /
-  // Money Magnet 2 (H1+M15, cascading).
-  const modeLabel = (coin as any).mode === 'moneymagnet3' ? '🧲 Money Magnet 2' : '🎯 Sniper Breakout';
+  // hasilin sinyal ini -- Sniper Breakout (M15 fresh breakout) / Money Magnet (H1+M15) /
+  // Money Magnet 3 (H1+M15, cascading).
+  const modeLabel = (coin as any).mode === 'moneymagnet3' ? '🧲 Money Magnet 3' : '🎯 Sniper Breakout';
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -255,8 +255,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
       const mode = (c as any).mode as string | undefined;
-      const skillLabel = mode === 'moneymagnet3' ? 'Money Magnet 2' : 'Sniper Breakout (Anticipation H1+M15)';
-      const tfStruktur = mode === 'moneymagnet3' ? 'H1' : 'H4';
+      const skillLabel = mode === 'moneymagnet3' ? 'Money Magnet 3' : 'Sniper Breakout (M15 Fresh Breakout)';
+      const tfStruktur = mode === 'moneymagnet3' ? 'H1' : 'M15';
       const tfEksekusi = 'M15';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
@@ -284,7 +284,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — H4 trend scoring + M15 S&R confluence</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — M15 fresh breakout, belum retest</Text>
       </View>
     );
   }
@@ -313,7 +313,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — H4 trend scoring + M15 S&R confluence'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — M15 fresh breakout, belum retest'}
           </Text>
         </View>
       );
@@ -487,11 +487,9 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const dataMode = (data as any).mode as string | undefined;
-    const skillLabel = dataMode === 'moneymagnet3' ? 'Money Magnet 2' : 'Sniper Breakout (Anticipation H1+M15)';
-    // FIX BUG (ketemu sambil nambah Money Magnet 1/2): tfStruktur dulu
-    // HARDCODE 'H1' bahkan buat mode structural asli -- padahal Sniper
-    // Breakout (Anticipation Strategy) trend-nya dari H4, bukan H1.
-    const tfStruktur = dataMode === 'moneymagnet3' ? 'H1' : 'H4';
+    const skillLabel = dataMode === 'moneymagnet3' ? 'Money Magnet 3' : 'Sniper Breakout (M15 Fresh Breakout)';
+    // REVISI: Sniper Breakout skill 1 sekarang M15-only (bukan H4 lagi).
+    const tfStruktur = dataMode === 'moneymagnet3' ? 'H1' : 'M15';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
@@ -539,7 +537,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
         </Pressable>
       </View>
 
-      {/* Mode Switcher — Sniper Breakout (asli, H4->M15) vs Money Magnet 2
+      {/* Mode Switcher — Sniper Breakout (asli, H4->M15) vs Money Magnet 3
           (cascading, H1->M15) -- request user */}
       <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
         <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -552,7 +550,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
                 style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
               >
                 <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'structural' ? 'Sniper Breakout' : 'Money Magnet 2'}
+                  {m === 'structural' ? 'Sniper Breakout' : 'Money Magnet 3'}
                 </Text>
               </Pressable>
             );
@@ -780,7 +778,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4 trend scoring (RSI/EMA26/MACD/ADX) + M15 S&R confluence — entry pakai buy/sell STOP</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 fresh breakout (belum retest) + struktur EMA26/89 — entry pakai buy/sell LIMIT</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

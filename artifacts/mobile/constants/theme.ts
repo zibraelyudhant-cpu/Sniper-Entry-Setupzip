@@ -8,6 +8,7 @@ export const MENU_COLORS = {
   breakout: '#22D3EE',   // Menu 1 — cyan
   calculator: '#FBBF24', // Menu 3 — amber
   scalping: '#FB923C',   // Menu 4 — oranye
+  moneyMagnetScalping: '#A78BFA', // Menu BARU (Money Magnet Scalping, M30->M1) — violet, beda dari scalping oranye
   multiTfScan: '#34D399', // Menu 6 — emerald (kesan "overview/dashboard")
   allMenus: '#F472B6', // Menu 7 — pink (kesan "gabungan semua")
   journal: '#F0ABFC', // Menu Journal — fuchsia terang (beda dari menu lain, kesan "catatan")

@@ -43,6 +43,8 @@ export const SOURCE_MENUS = [
   // biar entry Journal yang UDAH TERSIMPAN gak rusak/ilang dari tampilan —
   // kalau mau bersih total, pakai tombol Reset Data di tab Ringkasan.
   'Sniper Breakout', 'Scalping', 'Counter Scalping',
+  // BARU (request user, menu Money Magnet Scalping — M30 trend + M1 eksekusi)
+  'Money Magnet Scalping',
 ] as const;
 export type SourceMenu = typeof SOURCE_MENUS[number];
 

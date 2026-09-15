@@ -68,7 +68,8 @@ async function runSniperScan(): Promise<void> {
   sniperScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now() };
   try {
     // REVISI (request user): naik dari 300 jadi 400 koin
-    const universe = await getUniverse(400);
+    // REVISI (request user): naik dari 400 jadi 500 koin
+    const universe = await getUniverse(500);
     sniperScanState.total = universe.length;
     const batchSize = 2; // 2 skill per koin
     for (let i = 0; i < universe.length; i += batchSize) {
