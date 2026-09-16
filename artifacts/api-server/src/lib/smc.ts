@@ -2721,21 +2721,18 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const c1 = h4.closes[lastH4Idx]!, o1 = h4.opens[lastH4Idx]!;
     const c2 = h4.closes[lastH4Idx - 1]!, o2 = h4.opens[lastH4Idx - 1]!;
     const momentumOk = biasH4 === 'bullish' ? (c1 > o1 && c2 > o2) : (c1 < o1 && c2 < o2);
-    if (!momentumOk) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `Momentum H4 belum konfirmasi (butuh 2 candle berturut ${biasH4 === 'bullish' ? 'hijau' : 'merah'})`, maxScore };
-    }
+    // REVISI (request user): momentum jadi INFO doang, gak nge-block lagi.
+    // Wajib cukup EMA26 H4 + ADX>25 + FASE 2 (+ FASE 3, karena itu logic
+    // pencarian entry-nya sendiri).
 
     // Filter "3x magnet penetration": hitung crossing Close vs EMA26 dalam
-    // 20 candle H4 terakhir -- kalau >3x, trend dianggap exhausted/chop
+    // 20 candle H4 terakhir -- SEKARANG INFO DOANG (gak nge-block lagi)
     let h4CrossCount = 0;
     const crossWindowStart = Math.max(1, lastH4Idx - 19);
     for (let i = crossWindowStart; i <= lastH4Idx; i++) {
       const prevAbove = h4.closes[i - 1]! > emaSeries26H4[i - 1]!;
       const nowAbove = h4.closes[i]! > emaSeries26H4[i]!;
       if (prevAbove !== nowAbove) h4CrossCount++;
-    }
-    if (h4CrossCount > 3) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `H4 udah crossing EMA26 ${h4CrossCount}x dalam 20 candle terakhir (>3x) — trend dianggap exhausted/chop, bukan "fresh magnet"`, maxScore };
     }
 
     // TAMBAHAN (request user, ketemu dari kasus PRLUSDT lose): ADX H4 WAJIB
@@ -2749,9 +2746,27 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `ADX H4 cuma ${adxH4Result.adx.toFixed(1)} (butuh >25) — market lagi ranging/trend exhausted, bukan trend beneran, biarpun EMA26 masih nunjuk ${biasH4}`, maxScore };
     }
 
+    // TAMBAHAN (request user): Force Index (EMA2) H4 WAJIB searah trend --
+    // ini KEPUTUSAN FINAL FASE 1 (urutan: EMA26 trend -> ADX -> Force Index).
+    const forceIndexSeriesH4 = calcForceIndexSeries(h4.closes, h4.volumes);
+    const forceIndexH4Now = forceIndexSeriesH4[forceIndexSeriesH4.length - 1];
+    if (forceIndexH4Now === undefined) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: 'Force Index H4 gak cukup data', maxScore };
+    }
+    const forceIndexH4Ok = biasH4 === 'bullish' ? forceIndexH4Now > 0 : forceIndexH4Now < 0;
+    if (!forceIndexH4Ok) {
+      return {
+        status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural',
+        message: `Force Index H4 ${forceIndexH4Now.toFixed(2)} (butuh ${biasH4 === 'bullish' ? 'positif' : 'negatif'}) — momentum H4 belum mendukung arah trend ${biasH4}`,
+        maxScore,
+      };
+    }
+
     const filterResults: string[] = [
-      `✅ H4 Trend ${biasH4.toUpperCase()} — Close ${closeH4.toFixed(6)} vs EMA26 ${ema26H4.toFixed(6)}, momentum 2 candle konfirmasi, crossing ${h4CrossCount}x/20candle (fresh, ≤3x)`,
+      `✅ H4 Trend ${biasH4.toUpperCase()} — Close ${closeH4.toFixed(6)} vs EMA26 ${ema26H4.toFixed(6)}`,
       `✅ ADX H4 ${adxH4Result.adx.toFixed(1)} (>25) — trend genuinely kuat, bukan ranging`,
+      `✅ Force Index H4 (EMA2) ${forceIndexH4Now.toFixed(2)} ${forceIndexH4Now > 0 ? 'positif' : 'negatif'} — searah trend ${biasH4} (keputusan final FASE 1)`,
+      `ℹ️ (info) Momentum 2 candle H4 ${momentumOk ? 'konfirmasi' : 'BELUM konfirmasi'}, crossing ${h4CrossCount}x/20candle${h4CrossCount > 3 ? ' (>3x, agak exhausted)' : ' (fresh)'}`,
     ];
 
     // ═══ FASE 2: M30 BREAKOUT CONFIRMATION (level FRESH, tanpa syarat touch) ═
@@ -2964,9 +2979,7 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
     const c1 = h4.closes[lastH4Idx]!, o1 = h4.opens[lastH4Idx]!;
     const c2 = h4.closes[lastH4Idx - 1]!, o2 = h4.opens[lastH4Idx - 1]!;
     const momentumOk = biasH4 === 'bullish' ? (c1 > o1 && c2 > o2) : (c1 < o1 && c2 < o2);
-    if (!momentumOk) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: `Momentum H4 belum konfirmasi (butuh 2 candle berturut ${biasH4 === 'bullish' ? 'hijau' : 'merah'})`, maxScore };
-    }
+    // REVISI (request user): momentum jadi INFO doang, gak nge-block lagi.
 
     let h4CrossCount = 0;
     const crossWindowStart = Math.max(1, lastH4Idx - 19);
@@ -2975,9 +2988,7 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       const nowAbove = h4.closes[i]! > emaSeries26H4[i]!;
       if (prevAbove !== nowAbove) h4CrossCount++;
     }
-    if (h4CrossCount > 3) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: `H4 udah crossing EMA26 ${h4CrossCount}x dalam 20 candle terakhir (>3x) — trend dianggap exhausted/chop, bukan "fresh magnet"`, maxScore };
-    }
+    // REVISI (request user): crossing jadi INFO doang, gak nge-block lagi.
 
     // TAMBAHAN (request user, sama kayak Money Magnet -- ketemu dari kasus
     // PRLUSDT lose): ADX H4 WAJIB >25
@@ -2986,9 +2997,27 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: `ADX H4 cuma ${adxH4Result.adx.toFixed(1)} (butuh >25) — market lagi ranging/trend exhausted, bukan trend beneran, biarpun EMA26 masih nunjuk ${biasH4}`, maxScore };
     }
 
+    // TAMBAHAN (request user): Force Index (EMA2) H4 WAJIB searah trend --
+    // ini KEPUTUSAN FINAL FASE 1 (urutan: EMA26 trend -> ADX -> Force Index).
+    const forceIndexSeriesH4 = calcForceIndexSeries(h4.closes, h4.volumes);
+    const forceIndexH4Now = forceIndexSeriesH4[forceIndexSeriesH4.length - 1];
+    if (forceIndexH4Now === undefined) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'Force Index H4 gak cukup data', maxScore };
+    }
+    const forceIndexH4Ok = biasH4 === 'bullish' ? forceIndexH4Now > 0 : forceIndexH4Now < 0;
+    if (!forceIndexH4Ok) {
+      return {
+        status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m',
+        message: `Force Index H4 ${forceIndexH4Now.toFixed(2)} (butuh ${biasH4 === 'bullish' ? 'positif' : 'negatif'}) — momentum H4 belum mendukung arah trend ${biasH4}`,
+        maxScore,
+      };
+    }
+
     const filterResults: string[] = [
-      `✅ H4 Trend ${biasH4.toUpperCase()} — Close ${closeH4.toFixed(6)} vs EMA26 ${ema26H4.toFixed(6)}, momentum 2 candle konfirmasi, crossing ${h4CrossCount}x/20candle (fresh, ≤3x)`,
+      `✅ H4 Trend ${biasH4.toUpperCase()} — Close ${closeH4.toFixed(6)} vs EMA26 ${ema26H4.toFixed(6)}`,
       `✅ ADX H4 ${adxH4Result.adx.toFixed(1)} (>25) — trend genuinely kuat, bukan ranging`,
+      `✅ Force Index H4 (EMA2) ${forceIndexH4Now.toFixed(2)} ${forceIndexH4Now > 0 ? 'positif' : 'negatif'} — searah trend ${biasH4} (keputusan final FASE 1)`,
+      `ℹ️ (info) Momentum 2 candle H4 ${momentumOk ? 'konfirmasi' : 'BELUM konfirmasi'}, crossing ${h4CrossCount}x/20candle${h4CrossCount > 3 ? ' (>3x, agak exhausted)' : ' (fresh)'}`,
     ];
 
     // ═══ FASE 2: M30 CASCADING MULTI-LEVEL BREAKOUT ════════════════════════
@@ -3138,13 +3167,14 @@ export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult
       };
     }
 
-    // SL = level SEBELUM yang terdalam (pengecualian, BUKAN pure ATR)
-    const stopLoss = found.slBasisLevel;
+    // REVISI (request user): SL sekarang PURE ATR M30 x1.4, unconditional
+    // (berlaku juga buat cascade) -- bukan level-based lagi.
+    const stopLoss = entryPrice - atrM30 * 1.4 * dirMult;
     const risk = Math.abs(entryPrice - stopLoss);
     const takeProfit1 = entryPrice + risk * 2 * dirMult;
     const rr1 = 2;
 
-    filterResults.push(`✅ SL di SNR${found.depthReached} @ ${stopLoss.toFixed(6)}, TP RR 1:${rr1} @ ${takeProfit1.toFixed(6)}`);
+    filterResults.push(`✅ SL pure ATR M30 (1.4x) @ ${stopLoss.toFixed(6)}, TP RR 1:${rr1} @ ${takeProfit1.toFixed(6)}`);
 
     return {
       status: 'in_zone', symbol, bias, currentPrice, timestamp, mode: 'scalping15m',
@@ -3204,9 +3234,7 @@ export async function analyzeMoneyMagnet3(symbol: string): Promise<ScalpingResul
     const c1 = h1.closes[lastH1Idx]!, o1 = h1.opens[lastH1Idx]!;
     const c2 = h1.closes[lastH1Idx - 1]!, o2 = h1.opens[lastH1Idx - 1]!;
     const momentumOk = biasH1 === 'bullish' ? (c1 > o1 && c2 > o2) : (c1 < o1 && c2 < o2);
-    if (!momentumOk) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: `Momentum H1 belum konfirmasi (butuh 2 candle berturut ${biasH1 === 'bullish' ? 'hijau' : 'merah'})`, maxScore };
-    }
+    // REVISI (request user): momentum jadi INFO doang, gak nge-block lagi.
 
     let h1CrossCount = 0;
     const crossWindowStart = Math.max(1, lastH1Idx - 19);
@@ -3215,9 +3243,7 @@ export async function analyzeMoneyMagnet3(symbol: string): Promise<ScalpingResul
       const nowAbove = h1.closes[i]! > emaSeries26H1[i]!;
       if (prevAbove !== nowAbove) h1CrossCount++;
     }
-    if (h1CrossCount > 3) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: `H1 udah crossing EMA26 ${h1CrossCount}x dalam 20 candle terakhir (>3x) — trend dianggap exhausted/chop, bukan "fresh magnet"`, maxScore };
-    }
+    // REVISI (request user): crossing jadi INFO doang, gak nge-block lagi.
 
     // TAMBAHAN (request user, ketemu dari kasus PRLUSDT lose): ADX H1 WAJIB
     // >25 -- ganti timeframe sesuai skill ini (H1, bukan H4)
@@ -3226,9 +3252,27 @@ export async function analyzeMoneyMagnet3(symbol: string): Promise<ScalpingResul
       return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: `ADX H1 cuma ${adxH1Result.adx.toFixed(1)} (butuh >25) — market lagi ranging/trend exhausted, bukan trend beneran, biarpun EMA26 masih nunjuk ${biasH1}`, maxScore };
     }
 
+    // TAMBAHAN (request user): Force Index (EMA2) H1 WAJIB searah trend --
+    // ini KEPUTUSAN FINAL FASE 1 (urutan: EMA26 trend -> ADX -> Force Index).
+    const forceIndexSeriesH1 = calcForceIndexSeries(h1.closes, h1.volumes);
+    const forceIndexH1Now = forceIndexSeriesH1[forceIndexSeriesH1.length - 1];
+    if (forceIndexH1Now === undefined) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: 'Force Index H1 gak cukup data', maxScore };
+    }
+    const forceIndexH1Ok = biasH1 === 'bullish' ? forceIndexH1Now > 0 : forceIndexH1Now < 0;
+    if (!forceIndexH1Ok) {
+      return {
+        status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3',
+        message: `Force Index H1 ${forceIndexH1Now.toFixed(2)} (butuh ${biasH1 === 'bullish' ? 'positif' : 'negatif'}) — momentum H1 belum mendukung arah trend ${biasH1}`,
+        maxScore,
+      };
+    }
+
     const filterResults: string[] = [
-      `✅ H1 Trend ${biasH1.toUpperCase()} — Close ${closeH1.toFixed(6)} vs EMA26 ${ema26H1.toFixed(6)}, momentum 2 candle konfirmasi, crossing ${h1CrossCount}x/20candle (fresh, ≤3x)`,
+      `✅ H1 Trend ${biasH1.toUpperCase()} — Close ${closeH1.toFixed(6)} vs EMA26 ${ema26H1.toFixed(6)}`,
       `✅ ADX H1 ${adxH1Result.adx.toFixed(1)} (>25) — trend genuinely kuat, bukan ranging`,
+      `✅ Force Index H1 (EMA2) ${forceIndexH1Now.toFixed(2)} ${forceIndexH1Now > 0 ? 'positif' : 'negatif'} — searah trend ${biasH1} (keputusan final FASE 1)`,
+      `ℹ️ (info) Momentum 2 candle H1 ${momentumOk ? 'konfirmasi' : 'BELUM konfirmasi'}, crossing ${h1CrossCount}x/20candle${h1CrossCount > 3 ? ' (>3x, agak exhausted)' : ' (fresh)'}`,
     ];
 
     // ═══ FASE 2: M15 CASCADING MULTI-LEVEL BREAKOUT (TF M30 -> M15) ════════
@@ -5986,9 +6030,16 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       const brokenLevel = bullishBreakout ? swings.high!.price : swings.low!.price;
 
       // ═══ FASE 2: BELUM RETEST (binary) ═══════════════════════════════════
-      const swingIdxUsed = bullishBreakout ? swings.high!.idx : swings.low!.idx;
-      const stillFresh = isFreshUntouched(swingIdxUsed, brokenLevel, lastClosedIdx + 1, tol);
-      if (!stillFresh) continue; // udah keretest, bukan kandidat "belum retest" lagi
+      // FIX BUG (audit user, "kenapa gak pernah dapet sinyal"): dulu ngecek
+      // ulang dari swingIdx+1, range-nya IKUT NYENGGOL candle breakout itu
+      // SENDIRI (karena breakoutIdx <= lastClosedIdx). Candle breakout wajar
+      // low/high-nya deket/nembus level (baru aja jebol dari situ), jadi
+      // HAMPIR SELALU ke-flag "udah disentuh" oleh DIRINYA SENDIRI -- breakout
+      // yang baru ketemu di FASE 1 langsung DITOLAK LAGI di FASE 2, hampir
+      // tiap kali. FIX: cek cuma dari SETELAH breakoutIdx (candle breakout
+      // itu sendiri DIKECUALIKAN, sama kayak FASE 1).
+      const stillFresh = isFreshUntouched(breakoutIdx, brokenLevel, lastClosedIdx + 1, tol);
+      if (!stillFresh) continue; // udah keretest SETELAH breakout, bukan kandidat "belum retest" lagi
 
       found = { breakoutIdx, bias, brokenLevel, adxValue: adx.adx };
       break;
@@ -6028,7 +6079,13 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
 
     // ═══ FASE 5: ENTRY SETUP — LIMIT di level breakout, SL 1.4x ATR M15 ═════
     const dirMult = bias === 'bullish' ? 1 : -1;
-    const entryPrice = brokenLevel;
+    // REVISI (request user, dari riset presisi retest 3 koin/222 sample):
+    // entry digeser 0.05% ke arah "lebih gampang ke-fill" dari level persis
+    // -- bullish: SEDIKIT DI ATAS brokenLevel, bearish: SEDIKIT DI BAWAH.
+    // Data nunjukin ~75% retest overshoot/pas persis ke level, cuma ~25%
+    // berhenti sebelum nyampe (maks ~0.15%) -- geser dikit nutupin
+    // mayoritas kasus "stop sebelum level" tanpa ngorbanin presisi banyak.
+    const entryPrice = brokenLevel + (brokenLevel * 0.0005 * dirMult);
 
     const entryStillValid = bias === 'bullish' ? entryPrice <= currentPrice : entryPrice >= currentPrice;
     if (!entryStillValid) {
@@ -6045,7 +6102,7 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
     const takeProfit2 = entryPrice + risk * 3 * dirMult;
     const rr1 = 2;
 
-    filterResults.push(`✅ FASE 5 — Entry LIMIT @ ${entryPrice.toFixed(6)}, SL 1.4×ATR M15 @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
+    filterResults.push(`✅ FASE 5 — Entry LIMIT @ ${entryPrice.toFixed(6)} (level ${brokenLevel.toFixed(6)}, digeser 0.05% ke arah lebih gampang ke-fill), SL 1.4×ATR M15 @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
 
     return {
       status: 'siap_retest', symbol, bias, currentPrice, timestamp,
@@ -6399,6 +6456,12 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh M30 50+, M5 100+)', maxScore };
     }
 
+    // TAMBAHAN (request user): ATR M30 buat basis SL baru (1.2x)
+    const atrM30 = calcATR(m30.highs, m30.lows, m30.closes);
+    if (atrM30 <= 0) {
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'ATR M30 gak valid', maxScore };
+    }
+
     // ═══ FASE 1: M30 TREND IDENTIFICATION ══════════════════════════════════
     const emaSeries26M30 = calcEMASeries(m30.closes, 26);
     const lastM30Idx = m30.closes.length - 2;
@@ -6409,9 +6472,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     const c1 = m30.closes[lastM30Idx]!, o1 = m30.opens[lastM30Idx]!;
     const c2 = m30.closes[lastM30Idx - 1]!, o2 = m30.opens[lastM30Idx - 1]!;
     const momentumOk = biasM30 === 'bullish' ? (c1 > o1 && c2 > o2) : (c1 < o1 && c2 < o2);
-    if (!momentumOk) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `Momentum M30 belum konfirmasi (butuh 2 candle berturut ${biasM30 === 'bullish' ? 'hijau' : 'merah'})`, maxScore };
-    }
+    // REVISI (request user): momentum jadi INFO doang, gak nge-block lagi.
 
     let m30CrossCount = 0;
     const crossWindowStart = Math.max(1, lastM30Idx - 19);
@@ -6420,12 +6481,18 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       const nowAbove = m30.closes[i]! > emaSeries26M30[i]!;
       if (prevAbove !== nowAbove) m30CrossCount++;
     }
-    if (m30CrossCount > 3) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `M30 udah crossing EMA26 ${m30CrossCount}x dalam 20 candle terakhir (>3x) — trend dianggap exhausted/chop, bukan "fresh magnet"`, maxScore };
+    // REVISI (request user): crossing jadi INFO doang, gak nge-block lagi.
+
+    // TAMBAHAN (request user, ketemu dari kasus PRLUSDT lose): ADX M30 WAJIB
+    // >25 -- ganti timeframe sesuai skill ini (M30, bukan H4)
+    const adxM30Result = calcADXWithDI(m30.highs, m30.lows, m30.closes, 14);
+    if (adxM30Result.adx <= 25) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `ADX M30 cuma ${adxM30Result.adx.toFixed(1)} (butuh >25) — market lagi ranging/trend exhausted, bukan trend beneran, biarpun EMA26 masih nunjuk ${biasM30}`, maxScore };
     }
 
-    // TAMBAHAN (request user): Force Index (EMA2) M30 WAJIB searah trend M30
-    // -- ini TERPISAH dari Force Index M5 di FASE 3 (retest), boleh beda arah.
+    // REVISI (request user): Force Index M30 (EMA2) BALIK jadi HARD BLOCK --
+    // keputusan FINAL FASE 1 (urutan: EMA26 -> ADX -> Force Index). Force
+    // Index M5 di FASE 3 (retest) tetap wajib & independen dari ini.
     const forceIndexSeriesM30 = calcForceIndexSeries(m30.closes, m30.volumes);
     const forceIndexM30Now = forceIndexSeriesM30[forceIndexSeriesM30.length - 1];
     if (forceIndexM30Now === undefined) {
@@ -6435,22 +6502,16 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     if (!forceIndexM30Ok) {
       return {
         status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping',
-        message: `Force Index M30 ${forceIndexM30Now.toFixed(2)} (${biasM30 === 'bullish' ? 'butuh positif' : 'butuh negatif'}) — momentum M30 belum mendukung arah trend`,
+        message: `Force Index M30 ${forceIndexM30Now.toFixed(2)} (butuh ${biasM30 === 'bullish' ? 'positif' : 'negatif'}) — momentum M30 belum mendukung arah trend ${biasM30}`,
         maxScore,
       };
     }
 
-    // TAMBAHAN (request user, ketemu dari kasus PRLUSDT lose): ADX M30 WAJIB
-    // >25 -- ganti timeframe sesuai skill ini (M30, bukan H4)
-    const adxM30Result = calcADXWithDI(m30.highs, m30.lows, m30.closes, 14);
-    if (adxM30Result.adx <= 25) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `ADX M30 cuma ${adxM30Result.adx.toFixed(1)} (butuh >25) — market lagi ranging/trend exhausted, bukan trend beneran, biarpun EMA26 masih nunjuk ${biasM30}`, maxScore };
-    }
-
     const filterResults: string[] = [
-      `✅ M30 Trend ${biasM30.toUpperCase()} — Close ${closeM30.toFixed(6)} vs EMA26 ${ema26M30.toFixed(6)}, momentum 2 candle konfirmasi, crossing ${m30CrossCount}x/20candle (fresh, ≤3x)`,
-      `✅ Force Index M30 (EMA2) ${forceIndexM30Now.toFixed(2)} ${forceIndexM30Now > 0 ? 'positif' : 'negatif'} — searah trend M30`,
+      `✅ M30 Trend ${biasM30.toUpperCase()} — Close ${closeM30.toFixed(6)} vs EMA26 ${ema26M30.toFixed(6)}`,
       `✅ ADX M30 ${adxM30Result.adx.toFixed(1)} (>25) — trend genuinely kuat, bukan ranging`,
+      `✅ Force Index M30 (EMA2) ${forceIndexM30Now.toFixed(2)} ${forceIndexM30Now > 0 ? 'positif' : 'negatif'} — searah trend ${biasM30} (keputusan final FASE 1)`,
+      `ℹ️ (info) Momentum 2 candle M30 ${momentumOk ? 'konfirmasi' : 'BELUM konfirmasi'}, crossing ${m30CrossCount}x/20candle${m30CrossCount > 3 ? ' (>3x, agak exhausted)' : ' (fresh)'}`,
     ];
 
     // ═══ FASE 2: M5 BREAKOUT CONFIRMATION (level FRESH, tanpa syarat touch) ═
@@ -6573,16 +6634,10 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       };
     }
 
-    // SL pakai swing high/low TERDEKAT (bukan ATR)
-    const oppositeSwingList = bias === 'bullish'
-      ? findRecentSwingLowsWithIndex(m5.lows.slice(swingSlice, lastClosedIdx + 1), 6)
-      : findRecentSwingHighsWithIndex(m5.highs.slice(swingSlice, lastClosedIdx + 1), 6);
-    const nearestOppositeSwing = oppositeSwingList
-      .map(s => s.price)
-      .filter(p => bias === 'bullish' ? p < entryPrice : p > entryPrice)
-      .sort((a, b) => bias === 'bullish' ? b - a : a - b)[0];
-    const stopLoss = nearestOppositeSwing !== undefined ? nearestOppositeSwing : entryPrice - atrM5 * 1.0 * dirMult;
-    const slBasis = nearestOppositeSwing !== undefined ? 'swing high/low terdekat' : 'ATR M5 (fallback, gak ada swing terdeteksi)';
+    // REVISI (request user): SL sekarang PURE ATR M30 x1.2 (bukan swing
+    // high/low terdekat lagi).
+    const stopLoss = entryPrice - atrM30 * 1.2 * dirMult;
+    const slBasis = 'ATR M30 (1.2x)';
 
     const risk = Math.abs(entryPrice - stopLoss);
     if (risk <= 0) {

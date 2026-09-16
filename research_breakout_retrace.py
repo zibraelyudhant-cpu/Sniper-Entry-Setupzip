@@ -12,7 +12,7 @@ import json
 import time
 from datetime import datetime, timezone, timedelta
 
-SYMBOLS = ["BTCUSDT", "DOGEUSDT"]
+SYMBOLS = ["BTCUSDT", "DOGEUSDT", "SUIUSDT"]
 INTERVAL = "15m"
 MONTHS_BACK = 12
 VOLUME_MULTIPLIERS = [1.5, 2.0, 2.5]
@@ -154,7 +154,8 @@ def run_analysis(symbol, klines):
 
     results = {m: {"total_breakout": 0, "retrace": 0, "no_retrace": 0,
                     "depths_pct": [], "depths_atr": [], "continued_after_retrace": 0,
-                    "failed_after_retrace": 0, "candles_to_retest": []} for m in VOLUME_MULTIPLIERS}
+                    "failed_after_retrace": 0, "candles_to_retest": [], "precision_pct": [],
+                    "tp_outcome": []} for m in VOLUME_MULTIPLIERS}
 
     for i in range(SWING_LOOKBACK + SWING_FRACTAL, n - LOOKAHEAD_CANDLES):
         vol_ma20 = calc_sma(volumes, 20, i)
@@ -204,6 +205,67 @@ def run_analysis(symbol, klines):
                 continue
 
             results[mult]["retrace"] += 1
+
+            # TAMBAHAN (request user): ukur SEPRESISI APA harga balik ke
+            # level PAS SAAT PERTAMA KALI nyentuh -- 0 = pas persis di
+            # level, POSITIF = berhenti SEBELUM nyampe level (retrace
+            # dangkal, gak sampe level), NEGATIF = udah LEWAT/nembus level
+            # (overshoot). Ini beda dari "depth" (kemarin) yang ngukur
+            # titik TERDALAM keseluruhan -- ini ngukur PAS DI CANDLE
+            # SENTUHAN PERTAMA doang, buat kalibrasi jarak entry limit.
+            touch_high, touch_low = highs[retrace_touch_idx], lows[retrace_touch_idx]
+            if direction == "bullish":
+                precision_pct = (touch_low - broken_level) / broken_level * 100
+            else:
+                precision_pct = (broken_level - touch_high) / broken_level * 100
+            results[mult]["precision_pct"].append(precision_pct)
+
+            # TAMBAHAN (request user): simulasi TRADE FORWARD -- entry di
+            # level (sama mekanisme Sniper Breakout skill 1: level +-0.05%
+            # ke arah gampang ke-fill, SL 1.4x ATR) -- cari RR TERTINGGI yang
+            # kena SEBELUM SL, minimal RR1:2 sampe RR1:4.
+            dir_mult = 1 if direction == "bullish" else -1
+            entry_price = broken_level + (broken_level * 0.0005 * dir_mult)
+            sl_price = entry_price - atr_at_breakout * 1.4 * dir_mult
+            risk = abs(entry_price - sl_price)
+            rr2_price = entry_price + risk * 2 * dir_mult
+            rr3_price = entry_price + risk * 3 * dir_mult
+            rr4_price = entry_price + risk * 4 * dir_mult
+
+            outcome = "below_rr2"  # default kalau sampe window abis blm nyampe RR1:2 & blm SL
+            max_rr_reached = 0
+            for k in range(retrace_touch_idx, min(retrace_touch_idx + 100, n)):
+                if direction == "bullish":
+                    sl_hit = lows[k] <= sl_price
+                    rr4_hit = highs[k] >= rr4_price
+                    rr3_hit = highs[k] >= rr3_price
+                    rr2_hit = highs[k] >= rr2_price
+                else:
+                    sl_hit = highs[k] >= sl_price
+                    rr4_hit = lows[k] <= rr4_price
+                    rr3_hit = lows[k] <= rr3_price
+                    rr2_hit = lows[k] <= rr2_price
+
+                if rr4_hit:
+                    max_rr_reached = 4
+                elif rr3_hit:
+                    max_rr_reached = max(max_rr_reached, 3)
+                elif rr2_hit:
+                    max_rr_reached = max(max_rr_reached, 2)
+
+                # SL dicek DULUAN per candle (asumsi konservatif -- worst case)
+                if sl_hit:
+                    outcome = "sl" if max_rr_reached == 0 else f"rr{max_rr_reached}_then_sl"
+                    break
+                if max_rr_reached == 4:
+                    outcome = "rr4"
+                    break
+            else:
+                # window abis (100 candle) tanpa SL/RR4 -- laporin RR tertinggi
+                # yang sempet kena, atau "below_rr2" kalau blm ada yang kena
+                if max_rr_reached > 0:
+                    outcome = f"rr{max_rr_reached}_nohit_rr4"
+            results[mult]["tp_outcome"].append(outcome)
 
             # TAMBAHAN (request user): ukur BERAPA CANDLE dari breakout
             # sampai retest KEJADIAN -- buat kalibrasi scan-back window.
@@ -306,6 +368,35 @@ def main():
             p90_c = ctr[min(int(n_c * 0.90), n_c - 1)]
             p95_c = ctr[min(int(n_c * 0.95), n_c - 1)]
             print(f"  {mult}x MA20{'':<4}{med_c:<8}{p75_c:<8}{p90_c:<8}{p95_c:<8}{ctr[-1]:<8}")
+
+        print(f"\n  Presisi retest ke level PAS SAAT PERTAMA nyentuh (%) -- 0=pas persis,")
+        print(f"  POSITIF=berhenti SEBELUM nyampe level, NEGATIF=overshoot lewat level:")
+        print(f"  {'Threshold':<12}{'Med%':<8}{'P25%':<8}{'P75%':<8}{'Min%':<8}{'Max%':<8}")
+        for mult in VOLUME_MULTIPLIERS:
+            r = res[mult]
+            prec = sorted(r["precision_pct"])
+            if not prec:
+                print(f"  {mult}x MA20{'':<4}(gak ada data)")
+                continue
+            n_p = len(prec)
+            med_p = prec[n_p // 2]
+            p25_p = prec[min(int(n_p * 0.25), n_p - 1)]
+            p75_p = prec[min(int(n_p * 0.75), n_p - 1)]
+            print(f"  {mult}x MA20{'':<4}{med_p:<8.4f}{p25_p:<8.4f}{p75_p:<8.4f}{prec[0]:<8.4f}{prec[-1]:<8.4f}")
+
+        print(f"\n  Simulasi RR tertinggi kena SEBELUM SL (entry level+-0.05%, SL 1.4xATR):")
+        for mult in VOLUME_MULTIPLIERS:
+            r = res[mult]
+            outcomes = r["tp_outcome"]
+            if not outcomes:
+                print(f"  {mult}x MA20{'':<4}(gak ada data)")
+                continue
+            n_o = len(outcomes)
+            from collections import Counter
+            counts = Counter(outcomes)
+            print(f"  {mult}x MA20 (n={n_o}):")
+            for k, v in sorted(counts.items(), key=lambda x: -x[1]):
+                print(f"    {k:<20} {v} ({v/n_o*100:.1f}%)")
 
     with open("breakout_retrace_result.json", "w") as f:
         json.dump(all_results, f, indent=2)

@@ -671,9 +671,15 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP — R:R 1:${data.rr1?.toFixed(1) ?? '2'}`}</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP1 — R:R 1:${data.rr1?.toFixed(1) ?? '2'}`}</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
+              {data.takeProfit2 !== undefined && (
+                <View style={styles.infoRow}>
+                  <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP2 — R:R 1:${((data.rr1 ?? 2) + 1).toFixed(1)}`}</Text>
+                  <Text style={[styles.infoValue, { color: colors.bullish }]}>{formatPrice(data.takeProfit2)}</Text>
+                </View>
+              )}
               {data.candlesNearEdge !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
