@@ -16,7 +16,8 @@ import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
-import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { CyberBackground } from '@/components/animated/CyberBackground';
+import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { journalSave, journalSaveMany, type JournalEntry } from './journal-helpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -399,6 +400,9 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                 {savingJournal ? <ActivityIndicator size="small" color="#000" /> : <Feather name="book-open" size={15} color="#000" />}
                 <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#000' }}>Simpan ke Journal</Text>
               </Pressable>
+              {(data as any).taProBonusConfirmed && (
+                <TaProBonusBanner winnerTf={(data as any).taProBonusWinnerTf} winnerScore={(data as any).taProBonusWinnerScore} />
+              )}
               <View style={[styles.levelCard, { borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish, backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10` }]}>
                 <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
                 <Text style={[styles.levelCardValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>{data.entryPrice?.toFixed(6)}</Text>
@@ -448,9 +452,9 @@ export default function MoneyMagnetScalpingScreen() {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FuturisticBackground accentColor={ACCENT} secondaryColor="#818CF8" />
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <CyberBackground />
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Money Magnet Scalping</Text>

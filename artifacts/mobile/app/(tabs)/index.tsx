@@ -9,12 +9,13 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
+import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { LogResultBadge } from '@/components/animated/LogResultBadge';
-import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
@@ -651,6 +652,9 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
                 {data.orderType === 'stop' ? 'PASANG STOP ORDER' : 'PASANG LIMIT ORDER (RETEST)'}
               </Text>
+              {(data as any).taProBonusConfirmed && (
+                <TaProBonusBanner winnerTf={(data as any).taProBonusWinnerTf} winnerScore={(data as any).taProBonusWinnerScore} />
+              )}
               <View style={[styles.levelCard, {
                 backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
                 borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish
@@ -778,9 +782,9 @@ export default function BreakoutEntryScreen() {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FuturisticBackground accentColor={ACCENT} secondaryColor="#A78BFA" />
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <CyberBackground />
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>

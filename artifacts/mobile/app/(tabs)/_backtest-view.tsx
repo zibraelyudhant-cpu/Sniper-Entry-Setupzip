@@ -206,8 +206,8 @@ export default function BacktestScreen({ embedded = false }: { embedded?: boolea
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Backtesting</Text>
         <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Analisa performa sinyal historis — powered by Python (pandas/numpy)</Text>
       </View>

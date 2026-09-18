@@ -11,7 +11,7 @@ import * as Haptics from 'expo-haptics';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DonutChart, StackedBar, HorizontalBarChart, DivergingBar, TimingBar, StatTile, Sparkline, LoseConditionHeatmap, TrendChart, SlTpDistanceDiagram } from '@/components/JournalCharts';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
-import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import {
   type JournalEntry, type SourceMenu,
@@ -384,9 +384,9 @@ export default function JournalScreen() {
   }, [entries]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FuturisticBackground accentColor={ACCENT} secondaryColor="#818CF8" />
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <CyberBackground />
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Journal Trading</Text>
         <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Rekap lengkap semua sinyal — entry/SL/TP, TF, indikator, evaluasi win-lose</Text>
         <View style={{ marginTop: 12 }}>

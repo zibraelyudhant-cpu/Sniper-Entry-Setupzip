@@ -27,8 +27,8 @@ export default function InsightScreen({ embedded = false }: { embedded?: boolean
   const topPadding = embedded ? 12 : insets.top + (Platform.OS === 'web' ? 67 : 0);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Insight</Text>
 
         <View style={[styles.tabRow, { backgroundColor: colors.card, borderColor: colors.border }]}>

@@ -9,7 +9,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { ScanLoading } from '@/components/animated/ScanLoading';
-import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
@@ -444,9 +444,9 @@ export default function MultiTFScanScreen() {
   }, [inputSymbol]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FuturisticBackground accentColor={ACCENT} secondaryColor="#6EE7B7" />
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <CyberBackground />
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Multi-TF Scanner</Text>
         <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>D1+H4 trending kuat → breakdown 6 TF (D1/H4/H1/M30/M15/M5)</Text>
       </View>

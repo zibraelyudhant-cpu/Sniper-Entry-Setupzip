@@ -7,7 +7,7 @@ import patternsRouter from "./patterns";
 import backtestRouter from "./backtest";
 import economicCalendarRouter from "./economic-calendar";
 import multiTfScanRouter from "./multi-tf-scan";
-import allMenusAnalysisRouter from "./all-menus-analysis";
+import technicalAnalysisProRouter from "./technical-analysis-pro";
 import journalFollowupRouter from "./journal-followup";
 import moneyMagnetScalpingRouter from "./money-magnet-scalping";
 
@@ -21,7 +21,7 @@ router.use(patternsRouter);
 router.use(backtestRouter);
 router.use(economicCalendarRouter);
 router.use(multiTfScanRouter);
-router.use(allMenusAnalysisRouter);
+router.use(technicalAnalysisProRouter);
 router.use(journalFollowupRouter);
 router.use(moneyMagnetScalpingRouter);
 

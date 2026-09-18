@@ -12,13 +12,14 @@ import { router } from 'expo-router';
 import { useGetScalping, useGetScalpingScan, getGetScalpingQueryKey, getGetScalpingScanQueryKey, type ScalpingResult } from '@workspace/api-client-react';
 import { journalSave, journalSaveMany, type JournalEntry } from './journal-helpers';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
+import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
 import { ScoreBadge } from '@/components/animated/ScoreBadge';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { LogResultBadge } from '@/components/animated/LogResultBadge';
-import { FuturisticBackground } from '@/components/animated/FuturisticBackground';
+import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
@@ -627,6 +628,9 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
             <AnimatedCard index={3}>
             <View style={[styles.section, { backgroundColor: 'rgba(251,191,36,0.06)', borderColor: 'rgba(251,191,36,0.22)' }]}>
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER</Text>
+              {(data as any).taProBonusConfirmed && (
+                <TaProBonusBanner winnerTf={(data as any).taProBonusWinnerTf} winnerScore={(data as any).taProBonusWinnerScore} />
+              )}
               <View style={[styles.levelCard, {
                 backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
                 borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish
@@ -737,9 +741,9 @@ export default function ScalpingScreen() {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FuturisticBackground accentColor={ACCENT} secondaryColor="#FBBF24" />
-      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <CyberBackground />
+      <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>

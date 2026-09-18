@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { CyberBackground } from '@/components/animated/CyberBackground';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
@@ -51,8 +52,9 @@ export default function ToolsScreen() {
   }, [params.section]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#050208' }]}>
+      <CyberBackground />
+      <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <AnimatedTabSwitcher
           tabs={[
             { key: 'kalkulator', label: 'KALKULATOR' },

@@ -29,9 +29,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'square.grid.3x3', selected: 'square.grid.3x3.fill' }} />
         <Label>Multi-TF</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="all-menus-analysis">
-        <Icon sf={{ default: 'rectangle.stack', selected: 'rectangle.stack.fill' }} />
-        <Label>Semua Menu</Label>
+      <NativeTabs.Trigger name="technical-analysis-pro">
+        <Icon sf={{ default: 'chart.bar.doc.horizontal', selected: 'chart.bar.doc.horizontal.fill' }} />
+        <Label>TA PRO</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="journal">
         <Icon sf={{ default: 'book', selected: 'book.fill' }} />
@@ -163,16 +163,16 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="all-menus-analysis"
+        name="technical-analysis-pro"
         options={{
-          title: 'Semua Menu',
+          title: 'TA PRO',
           tabBarActiveTintColor: MENU_COLORS.allMenus,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
               {isIOS ? (
-                <SymbolView name="rectangle.stack.fill" tintColor={color} size={22} />
+                <SymbolView name="chart.bar.doc.horizontal.fill" tintColor={color} size={22} />
               ) : (
-                <Feather name="layers" size={22} color={color} />
+                <Feather name="bar-chart-2" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),
