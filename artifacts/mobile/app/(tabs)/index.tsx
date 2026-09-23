@@ -113,10 +113,9 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
   const isSiapRetest = coin.status === 'siap_retest' || coin.status === 'siap_breakout' || coin.status === 'in_zone';
   const isPantau = coin.status === 'waiting';
   const statusColor = isSiapRetest ? colors.gold : isPantau ? '#F87171' : '#818CF8';
-  // REVISI (request user, 3 skill sekaligus): badge nunjukin skill mana yang
-  // hasilin sinyal ini -- Sniper Breakout (M15 fresh breakout) / Money Magnet (H1+M15) /
-  // Money Magnet 3 (H1+M15, cascading).
-  const modeLabel = (coin as any).mode === 'moneymagnet3' ? '🧲 Money Magnet 3' : '🎯 Sniper Breakout';
+  // REVISI (request user): Money Magnet 3 DIHAPUS -- Sniper Breakout sekarang
+  // 1 skill doang (Skill 1, M30). Badge selalu nunjukin Sniper Breakout.
+  const modeLabel = '🎯 Sniper Breakout';
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -255,10 +254,11 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
-      const mode = (c as any).mode as string | undefined;
-      const skillLabel = mode === 'moneymagnet3' ? 'Money Magnet 3' : 'Sniper Breakout (M15 Fresh Breakout)';
-      const tfStruktur = mode === 'moneymagnet3' ? 'H1' : 'M15';
-      const tfEksekusi = 'M15';
+      // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill
+      // 1 sekarang M30 (bukan M15 lagi).
+      const skillLabel = 'Sniper Breakout (M30 Fresh Breakout)';
+      const tfStruktur = 'M30';
+      const tfEksekusi = 'M30';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
@@ -285,7 +285,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — M15 fresh breakout, belum retest</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — M30 fresh breakout, belum retest</Text>
       </View>
     );
   }
@@ -314,7 +314,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — M15 fresh breakout, belum retest'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — M30 fresh breakout, belum retest'}
           </Text>
         </View>
       );
@@ -448,9 +448,9 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
   // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
   // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
   const [liveMode, setLiveMode] = useState(!pinnedData);
-  // REVISI (request user): sub-tab BARU "Money Magnet 3" (logic Money Magnet
-  // 2, TF H4->H1, M30->M15) -- toggle manual, gak ada classifier auto-pilih.
-  const [mode, setMode] = useState<'structural' | 'moneymagnet3'>('structural');
+  // REVISI (request user): Money Magnet 3 DIHAPUS -- Sniper Breakout sekarang
+  // 1 skill doang, gak ada toggle mode lagi.
+  const mode = 'structural' as const;
 
   useEffect(() => {
     setLiveMode(!pinnedData); // reset tiap kali coin baru dipilih dari Scan
@@ -487,17 +487,17 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const dataMode = (data as any).mode as string | undefined;
-    const skillLabel = dataMode === 'moneymagnet3' ? 'Money Magnet 3' : 'Sniper Breakout (M15 Fresh Breakout)';
-    // REVISI: Sniper Breakout skill 1 sekarang M15-only (bukan H4 lagi).
-    const tfStruktur = dataMode === 'moneymagnet3' ? 'H1' : 'M15';
+    // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill 1
+    // sekarang M30 (bukan M15/H4 lagi).
+    const skillLabel = 'Sniper Breakout (M30 Fresh Breakout)';
+    const tfStruktur = 'M30';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
       sourceMenu: 'Sniper Breakout', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur, tfEksekusi: 'M15',
+      tfStruktur, tfEksekusi: 'M30',
       technicalSnapshot: data.technicalSnapshot,
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
@@ -538,26 +538,8 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
         </Pressable>
       </View>
 
-      {/* Mode Switcher — Sniper Breakout (asli, H4->M15) vs Money Magnet 3
-          (cascading, H1->M15) -- request user */}
-      <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
-        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['structural', 'moneymagnet3'] as const).map((m) => {
-            const active = mode === m;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => setMode(m)}
-                style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
-              >
-                <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'structural' ? 'Sniper Breakout' : 'Money Magnet 3'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      {/* Mode Switcher DIHAPUS (request user) — Money Magnet 3 udah gak ada,
+          Sniper Breakout sekarang 1 skill doang, gak perlu toggle. */}
 
       {!querySymbol ? (
         <View style={styles.emptyState}>
@@ -653,7 +635,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
                 {data.orderType === 'stop' ? 'PASANG STOP ORDER' : 'PASANG LIMIT ORDER (RETEST)'}
               </Text>
               {(data as any).taProBonusConfirmed && (
-                <TaProBonusBanner winnerTf={(data as any).taProBonusWinnerTf} winnerScore={(data as any).taProBonusWinnerScore} />
+                <TaProBonusBanner classification={(data as any).taProBonusClassification} score={(data as any).taProBonusScore} />
               )}
               <View style={[styles.levelCard, {
                 backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
@@ -788,7 +770,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 fresh breakout (belum retest) + struktur EMA26/89 — entry pakai buy/sell LIMIT</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M30 fresh breakout (belum retest) + struktur EMA26/89 — entry pakai buy/sell LIMIT</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>

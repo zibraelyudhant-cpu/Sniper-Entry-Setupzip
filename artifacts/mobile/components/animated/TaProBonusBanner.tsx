@@ -4,8 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 
 interface TaProBonusBannerProps {
-  winnerTf: 'H1' | 'H4' | 'D1' | null;
-  winnerScore: number;
+  classification: string | null;
+  score: number;
 }
 
 const GOLD = '#FFD700';
@@ -18,7 +18,7 @@ const GOLD_DIM = '#FF8F00';
  * diubah, ini cuma nempel di atasnya. Disetujui user dari mockup sebelum
  * diimplementasi.
  */
-export function TaProBonusBanner({ winnerTf, winnerScore }: TaProBonusBannerProps) {
+export function TaProBonusBanner({ classification, score }: TaProBonusBannerProps) {
   const bannerOpacity = useRef(new Animated.Value(0)).current;
   const bannerScale = useRef(new Animated.Value(0.95)).current;
   const bannerTranslateY = useRef(new Animated.Value(-8)).current;
@@ -127,7 +127,7 @@ export function TaProBonusBanner({ winnerTf, winnerScore }: TaProBonusBannerProp
       <View style={{ flex: 1 }}>
         <Text style={styles.title}>⚡ TA PRO CONFIRMED</Text>
         <Text style={styles.subtitle}>
-          Searah Skor Long vs Short — {winnerTf} menang (skor {winnerScore >= 0 ? '+' : ''}{winnerScore})
+          Searah breakout Fitur 5 — {classification} (skor {score >= 0 ? '+' : ''}{score})
         </Text>
       </View>
     </Animated.View>

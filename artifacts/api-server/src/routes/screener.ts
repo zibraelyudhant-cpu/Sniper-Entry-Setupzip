@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { analyzeMarketStructureV2, fetchKlines } from "../lib/smc";
+import { analyzeMarketStructureV2, fetchKlines, calcATR } from "../lib/smc";
 
 const router = Router();
 const BINANCE_FUTURES_BASE = "https://fapi.binance.com";
@@ -43,19 +43,6 @@ async function getCryptoPerpetualSymbols(): Promise<Set<string>> {
 }
 
 // ─── Technical indicators ─────────────────────────────────────────────────────
-
-function calcATR(highs: number[], lows: number[], closes: number[], period = 14): number {
-  const trs: number[] = [];
-  for (let i = 1; i < highs.length; i++) {
-    trs.push(Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i - 1]),
-      Math.abs(lows[i] - closes[i - 1])
-    ));
-  }
-  const slice = trs.slice(-period);
-  return slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : 0;
-}
 
 function calcRSI(closes: number[], period = 14): number {
   if (closes.length < period + 1) return 50;
@@ -146,22 +133,22 @@ interface ScreenerEntry {
   volume24h: number;
   rsiH4: number;
   rsiD1: number;
-  atrH4: number;
-  atrH4Pct: number;
-  adxH4: number;
+  atrD1: number;
+  atrD1Pct: number;
+  adxD1: number;
   correctionDepthPct: number; // seberapa dalam koreksi dari high/low terakhir
   volumeValid: boolean;
-  oiDirection: "up" | "down" | "neutral";
-  fundingRate: number;
+  fundingRate: number | null;
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 router.get("/screener", async (req, res) => {
   try {
-    const [cryptoSymbols, tickersRes] = await Promise.all([
+    const [cryptoSymbols, tickersRes, fundingMap] = await Promise.all([
       getCryptoPerpetualSymbols(),
       fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr`),
+      getFundingRateMap(),
     ]);
 
     if (!tickersRes.ok) {
@@ -218,8 +205,8 @@ router.get("/screener", async (req, res) => {
             const correctionBias = bias === "bullish" ? "bearish" : "bullish";
 
             // ── Filter 3: ADX D1 >= 25 (trend kuat di D1) ────────────────────
-            const adxH4 = calcADX(d1.highs, d1.lows, d1.closes);
-            if (adxH4 < 25) return null;
+            const adxD1 = calcADX(d1.highs, d1.lows, d1.closes);
+            if (adxD1 < 25) return null;
 
             // ── Filter 4: EMA 21/34/61 hard filter (H4) ─────────────────────
             // Bullish: harga harus di atas EMA 21 atau minimal di antara EMA 21-61
@@ -237,9 +224,9 @@ router.get("/screener", async (req, res) => {
             if (bias === "bearish" && rsiH4 > 75) return null; // bounce H4 terlalu tinggi
 
             // ── Filter 5: ATR D1 >= 0.5% (volatilitas cukup di D1) ───────────
-            const atrH4 = calcATR(d1.highs, d1.lows, d1.closes);
-            const atrH4Pct = (atrH4 / price) * 100;
-            if (atrH4Pct < 0.5) return null;
+            const atrD1 = calcATR(d1.highs, d1.lows, d1.closes);
+            const atrD1Pct = (atrD1 / price) * 100;
+            if (atrD1Pct < 0.5) return null;
 
             // ── Hitung kedalaman koreksi dari high/low D1 terakhir ────────────
             const recentH4Highs = d1.highs.slice(-20);
@@ -253,8 +240,7 @@ router.get("/screener", async (req, res) => {
               correctionDepthPct = ((price - swingLow) / swingLow) * 100;
             }
 
-            const fundingRate = 0;
-            const oiDirection: "up" | "down" | "neutral" = "neutral";
+            const fundingRate = fundingMap.get(ticker.symbol) ?? null;
 
             // ── Volume ratio ──────────────────────────────────────────────────
             const recent24h = d1.volumes.slice(-3).reduce((a, b) => a + b, 0);
@@ -268,8 +254,8 @@ router.get("/screener", async (req, res) => {
             if (h4V2.classification === "bullish_strong" || h4V2.classification === "bearish_strong") score += 2;
             else if (h4V2.classification === "bullish_weak" || h4V2.classification === "bearish_weak") score += 1;
             // ADX kuat
-            if (adxH4 > 35) score += 2;
-            else if (adxH4 > 25) score += 1;
+            if (adxD1 > 35) score += 2;
+            else if (adxD1 > 25) score += 1;
             // RSI D1 di zona trend sehat (trend utama)
             const rsiD1Healthy = bias === "bullish"
               ? rsiD1 >= 45 && rsiD1 <= 75  // trend D1 bullish sehat
@@ -301,12 +287,11 @@ router.get("/screener", async (req, res) => {
               volume24h: parseFloat(ticker.quoteVolume),
               rsiH4,
               rsiD1,
-              atrH4,
-              atrH4Pct,
-              adxH4,
+              atrD1,
+              atrD1Pct,
+              adxD1,
               correctionDepthPct,
               volumeValid,
-              oiDirection,
               fundingRate,
             };
           } catch {

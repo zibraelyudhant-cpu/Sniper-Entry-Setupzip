@@ -397,7 +397,7 @@ function calcMACD(closes: number[], fastPeriod = 12, slowPeriod = 26, signalPeri
   };
 }
 
-function calcATR(
+export function calcATR(
   highs: number[],
   lows: number[],
   closes: number[],
@@ -851,6 +851,31 @@ async function fetchOpenInterest(symbol: string): Promise<number | null> {
     if (!res.ok) return null;
     const data = await res.json() as { openInterest: string };
     return parseFloat(data.openInterest);
+  } catch {
+    return null;
+  }
+}
+
+/** Histori Open Interest -- dipake buat Fitur 5 TA PRO (OI trend vs harga). Urutan lama->baru sama kayak kline. */
+async function fetchOpenInterestHist(symbol: string, period: '1h' | '4h' | '1d', limit: number): Promise<number[] | null> {
+  try {
+    const res = await fetch(`${BINANCE_FUTURES_BASE}/futures/data/openInterestHist?symbol=${symbol}&period=${period}&limit=${limit}`);
+    if (!res.ok) return null;
+    const data = await res.json() as { sumOpenInterest: string }[];
+    if (!Array.isArray(data) || data.length === 0) return null;
+    return data.map((d) => parseFloat(d.sumOpenInterest));
+  } catch {
+    return null;
+  }
+}
+
+/** Funding rate terkini (persen, misal 0.0003 = 0.03%). Dipake buat Fitur 5 TA PRO. */
+async function fetchFundingRate(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/premiumIndex?symbol=${symbol}`);
+    if (!res.ok) return null;
+    const data = await res.json() as { lastFundingRate: string };
+    return parseFloat(data.lastFundingRate) * 100; // ke persen
   } catch {
     return null;
   }
@@ -2606,67 +2631,6 @@ async function getVolumeBreakoutThreshold(symbol: string, baseHighCap: number): 
   return baseHighCap * 1.67; // 1.5->2.505, 1.8->3.006, sesuai rentang 2-4x yang diminta user
 }
 
-// ─── BTC Correlation Filter ─────────────────────────────────────────────────
-// BTC dump/pump sering nyeret SEMUA altcoin ikut (cascading liquidation cross-margin,
-// panic sell/FOMO, market maker re-hedge) — ini efek makro, BUKAN soal analisa
-// teknikal koin itu sendiri salah. Sinyal yang SEARAH BTC lebih aman; sinyal yang
-// LAWAN ARAH BTC beresiko lebih tinggi ke-tarik gerakan BTC walau setup-nya sendiri
-// valid. Ini bukan hard-skip — cuma warning + sedikit penyesuaian confidence,
-// karena BTC bisa aja balik korelasi sebelum posisi ditutup.
-async function checkBtcAlignment(
-  bias: 'bullish' | 'bearish',
-  symbol: string,
-  tfInterval: string = '2h',
-  tfLimit: number = 100
-): Promise<{ aligned: boolean; btcBias: 'bullish' | 'bearish' | 'ranging'; btcStrength: string; message: string; nearStrongSR: boolean; srMessage: string; marketStructureV2?: MarketStructureV2Result | null }> {
-  // Skip self-check kalau yang dianalisa emang BTC sendiri — gak ada gunanya BTC ngecek dirinya sendiri
-  if (symbol === 'BTCUSDT') {
-    return { aligned: true, btcBias: bias, btcStrength: 'strong', message: '', nearStrongSR: false, srMessage: '' };
-  }
-  try {
-    // TF & candle count sekarang PARAMETER (request user: BTC Correlation harus
-    // nyesuain TF struktur menu yang manggil, bukan fixed H2 lagi). Default
-    // H2/100 dipertahanin buat backward-compat kalau ada pemanggil yang belum
-    // di-update ngirim parameter ini.
-    const btcData = await fetchKlines('BTCUSDT', tfInterval, tfLimit);
-
-    // Fix konsistensi basis (request user): BTC Correlation sekarang pake
-    // Market Structure V2 juga — sebelumnya masih pake analyzePriceActionStructure
-    // (sistem lama) walau semua 9 skill koin udah pindah ke V2 sebagai primary gate.
-    const tfV2 = binanceIntervalToTFLabelV2(tfInterval);
-    const structV2 = analyzeMarketStructureV2(btcData.opens, btcData.highs, btcData.lows, btcData.closes, tfV2, btcData.volumes);
-    const btcBias: 'bullish' | 'bearish' | 'ranging' =
-      structV2.classification === 'bullish_strong' || structV2.classification === 'bullish_weak' ? 'bullish' :
-      structV2.classification === 'bearish_strong' || structV2.classification === 'bearish_weak' ? 'bearish' :
-      'ranging'; // sideways ATAU transition = netral, gak ada tekanan makro jelas
-    const btcStrength = structV2.classification.endsWith('_strong') ? 'strong' : structV2.classification.endsWith('_weak') ? 'weak' : 'neutral';
-
-    const aligned = btcBias === bias || btcBias === 'ranging';
-    const message =
-      btcBias === 'ranging'
-        ? `BTC netral/${structV2.classification} — gak ada tekanan makro searah/lawan arah`
-        : aligned
-        ? `✅ Searah BTC (${btcBias}, ${btcStrength}) — risiko ke-tarik gerakan makro lebih rendah`
-        : `⚠️ Lawan arah BTC (BTC lagi ${btcBias}) — waspada risiko ke-tarik gerakan makro BTC`;
-
-    // BTC deket S&R kuat (radius 2%) — informasional/scoring doang, gak block.
-    // Trend BTC bisa "strong" tapi kalau lagi mepet S&R kuat, risiko reversal makro naik.
-    const btcPrice = btcData.closes[btcData.closes.length - 1]!;
-    const btcSR = detectSRLevels(btcData.highs, btcData.lows, btcData.closes, 100);
-    const strongLevels = btcSR.filter(l => l.touches >= 3);
-    const nearLevel = strongLevels.find(l => (Math.abs(l.price - btcPrice) / btcPrice) * 100 <= 2);
-    const nearStrongSR = !!nearLevel;
-    const srMessage = nearLevel
-      ? `⚠️ BTC lagi deket ${nearLevel.type === 'resistance' ? 'resistance' : 'support'} kuat (${nearLevel.touches}x touch) di ${nearLevel.price.toFixed(0)} — waspada rawan reversal makro`
-      : '';
-
-    return { aligned, btcBias, btcStrength, message, nearStrongSR, srMessage, marketStructureV2: structV2 };
-  } catch {
-    // Fail-safe: kalau fetch BTC gagal, jangan ganggu alur analisa koin utama
-    return { aligned: true, btcBias: 'ranging', btcStrength: 'neutral', message: '', nearStrongSR: false, srMessage: '' };
-  }
-}
-
 export interface ScalpingResult {
   status: 'waiting' | 'approaching' | 'in_zone' | 'expired' | 'no_setup' | 'no_structure' | 'skip' | 'error';
   symbol: string;
@@ -2721,8 +2685,8 @@ export interface ScalpingResult {
   // Technical Analysis PRO (Skor Long vs Short) apa enggak. Gak nge-block,
   // cuma info/badge tambahan buat UI.
   taProBonusConfirmed?: boolean;
-  taProBonusWinnerTf?: 'H1' | 'H4' | 'D1' | null;
-  taProBonusWinnerScore?: number;
+  taProBonusClassification?: string | null;
+  taProBonusScore?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2743,6 +2707,34 @@ export interface ScalpingResult {
 //         searah TANPA divergence
 // FASE 3: Entry di S/R, SL di swing SEBELUM S/R itu kebentuk, TP RR1:2/1:3
 // ═══════════════════════════════════════════════════════════════════════════
+
+// BARU (request user, samain di 3 menu: Menu Scalping, Sniper Breakout Skill 1,
+// Money Magnet Scalping): pastiin level S/R yang mau ditembus BENERAN
+// SIGNIFIKAN di TF BESAR (H4) -- minimal 2x disentuh, ADA REAKSI JELAS tiap
+// sentuhan (wick masuk zona toleransi TAPI close balik/menjauh dari zona,
+// bukan cuma nempel/doji di situ). Toleransi = ATR(H4) x 0.15, scan mundur
+// 26 candle H4. GANTI dari cek lama (hitung approach di TF eksekusi yang
+// sama) -- sekarang selalu ngecek di H4 terlepas dari TF eksekusi menu.
+function checkLevelSignificantH4(
+  h4Highs: number[], h4Lows: number[], h4Closes: number[],
+  level: number, bias: 'bullish' | 'bearish', atrH4: number,
+  window = 26, minTouch = 2,
+): { significant: boolean; touches: number } {
+  const tol = atrH4 * 0.15;
+  const lastIdx = h4Closes.length - 1; // caller kirim array yang udah dipotong sampe candle H4 closed terakhir
+  const start = Math.max(0, lastIdx - window + 1);
+  let touches = 0;
+  for (let i = start; i <= lastIdx; i++) {
+    if (bias === 'bullish') { // level = resistance -- wick nyampe zona dari bawah, close balik ke BAWAH zona
+      const h = h4Highs[i]!, c = h4Closes[i]!;
+      if (h >= level - tol && c < level - tol) touches++;
+    } else { // level = support -- wick nyampe zona dari atas, close balik ke ATAS zona
+      const l = h4Lows[i]!, c = h4Closes[i]!;
+      if (l <= level + tol && c > level + tol) touches++;
+    }
+  }
+  return { significant: touches >= minTouch, touches };
+}
 
 export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
@@ -2765,25 +2757,33 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: 'Data candle gak cukup (butuh H4 100+, M30 100+)', maxScore };
     }
 
-    // ═══ FASE 1: TREND IDENTIFIKASI (Market Structure V2 + EMA26 H4) ═══════
-    // REVISI (request user): Money Magnet Scalping GAK pake ADX -- requireADX=false
-    const structV2 = analyzeMarketStructureV2(h4.opens, h4.highs, h4.lows, h4.closes, 'H4', h4.volumes, false);
-    if (structV2.bias === 'sideways') {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `Market Structure V2 H4 baca sideways/gak jelas (${structV2.classification}) — belum ada trend buat dipakai`, maxScore };
+    // ═══ FASE 1: TREND IDENTIFIKASI (request user: EMA26 H4 doang, Market
+    // Structure V2 dilepas dari trend gate) + ADX H4 HARD FILTER (request
+    // user: minimal 35) + EMA34 H4 KONFIRMASI (BARU, request user -- dari
+    // tes EMA13/26/34/50/89 di M15/M30/H1/H4 pake data BTC/ETH/FET: EMA89
+    // kelamaan buat H4 di konteks scalping intraday, jarak rata-rata ke
+    // harga bisa >6% buat altcoin -- EMA34 pas, jarak wajar di semua profil
+    // volatilitas koin) ═══════════════════════════════════════════════════
+    const adxH4 = calcADXWithDI(h4.highs, h4.lows, h4.closes, 14);
+    if (adxH4.adx < 35) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `ADX H4 (${adxH4.adx.toFixed(1)}) di bawah 35 — trend belum cukup kuat`, maxScore };
     }
-    const biasH4 = structV2.bias;
 
     const emaSeries26H4 = calcEMASeries(h4.closes, 26);
+    const emaSeries34H4 = calcEMASeries(h4.closes, 34);
     const lastH4Idx = h4.closes.length - 2;
     const ema26H4 = emaSeries26H4[lastH4Idx]!;
+    const ema34H4 = emaSeries34H4[lastH4Idx]!;
     const closeH4 = h4.closes[lastH4Idx]!;
-    const ema26H4Bias: 'bullish' | 'bearish' = closeH4 > ema26H4 ? 'bullish' : 'bearish';
-    if (ema26H4Bias !== biasH4) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `Market Structure V2 H4 bilang ${biasH4} (${structV2.classification}), tapi EMA26 H4 bilang ${ema26H4Bias} — gak searah`, maxScore };
+    const closeAboveEma26H4 = closeH4 > ema26H4;
+    const ema26AboveEma34H4 = ema26H4 > ema34H4;
+    if (closeAboveEma26H4 !== ema26AboveEma34H4) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `H4 masih transisi/mixed — Close ${closeH4.toFixed(6)} ${closeAboveEma26H4 ? '>' : '<'} EMA26 ${ema26H4.toFixed(6)}, tapi EMA26 ${ema26AboveEma34H4 ? '>' : '<'} EMA34 ${ema34H4.toFixed(6)} (gak searah)`, maxScore };
     }
+    const biasH4: 'bullish' | 'bearish' = closeAboveEma26H4 ? 'bullish' : 'bearish';
 
     const filterResults: string[] = [
-      `✅ FASE 1 — Market Structure V2 H4: ${structV2.classification}, EMA26 H4 searah (Close ${closeH4.toFixed(6)} vs EMA26 ${ema26H4.toFixed(6)})`,
+      `✅ FASE 1 — Trend EMA26 H4: Close ${closeH4.toFixed(6)} ${closeAboveEma26H4 ? '>' : '<'} EMA26 ${ema26H4.toFixed(6)}, EMA26 ${ema26AboveEma34H4 ? '>' : '<'} EMA34 ${ema34H4.toFixed(6)} (searah) -> ${biasH4}, ADX(14) ${adxH4.adx.toFixed(1)} (>=35)`,
     ];
 
     // ═══ FASE 2: BREAKOUT M30 (swing S/R fresh ATAU EMA26 M30) ═════════════
@@ -2819,6 +2819,17 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       return true;
     };
 
+    // BARU (request user, samain di 3 menu): level S/R yang mau ditembus
+    // harus signifikan di H4 -- minimal 2x disentuh dengan reaksi jelas
+    // (lihat checkLevelSignificantH4 di atas). H4 udah ke-fetch buat FASE 1.
+    const h4LastClosedIdx = h4.closes.length - 2;
+    const h4ClosedHighs = h4.highs.slice(0, h4LastClosedIdx + 1);
+    const h4ClosedLows = h4.lows.slice(0, h4LastClosedIdx + 1);
+    const h4ClosedCloses = h4.closes.slice(0, h4LastClosedIdx + 1);
+    const atrH4 = calcATR(h4ClosedHighs, h4ClosedLows, h4ClosedCloses);
+    const isSignificantLevel = (level: number, bias: 'bullish' | 'bearish'): boolean =>
+      checkLevelSignificantH4(h4ClosedHighs, h4ClosedLows, h4ClosedCloses, level, bias, atrH4).significant;
+
     const forceIndexSeries = calcForceIndexSeries(m30.closes, m30.volumes);
 
     type MoneyMagnetV3Found = {
@@ -2832,19 +2843,28 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       const volRatio = volMa20Series[breakoutIdx]! > 0 ? m30.volumes[breakoutIdx]! / volMa20Series[breakoutIdx]! : 0;
       if (volRatio < 2.0) continue;
 
-      const resistance = swingHighsList[0]!;
-      const support = swingLowsList[0]!;
+      // FIX (request user, "5 hari gak dapet sinyal"): dulu selalu
+      // pake swing PALING BARU (index 0) sebagai resistance/support buat SEMUA
+      // breakoutIdx yang dites -- itu swing biasanya cuma 1-3 candle dari
+      // lastClosedIdx, jadi hampir gak ada breakoutIdx yang lolos syarat
+      // "breakoutIdx > resistance.index". Sekarang tiap breakoutIdx pake swing
+      // TERBARU YANG UDAH KEBENTUK SEBELUM candle itu sendiri (lebih match logic
+      // breakout beneran: "apakah candle ini nembus level yang UDAH ADA saat itu").
+      const resistance = swingHighsList.find(s => s.index < breakoutIdx) ?? swingHighsList[0]!;
+      const support = swingLowsList.find(s => s.index < breakoutIdx) ?? swingLowsList[0]!;
 
       // BULLISH: breakout resistance ATAU EMA26 M30 (cross), searah biasH4
       const emaCrossUp = m30.closes[breakoutIdx - 1]! <= emaSeries26M30[breakoutIdx - 1]! && closeB > emaSeries26M30[breakoutIdx]!;
       const bullishBreakout = biasH4 === 'bullish' && breakoutIdx > resistance.index &&
         ((closeB > resistance.price && isFreshUntouched(resistance.index, resistance.price, breakoutIdx)) || emaCrossUp) &&
-        closeB > resistance.price; // tetep pastiin udah lewatin resistance (biar entry S/R konsisten)
+        closeB > resistance.price && // tetep pastiin udah lewatin resistance (biar entry S/R konsisten)
+        isSignificantLevel(resistance.price, 'bullish');
 
       const emaCrossDown = m30.closes[breakoutIdx - 1]! >= emaSeries26M30[breakoutIdx - 1]! && closeB < emaSeries26M30[breakoutIdx]!;
       const bearishBreakout = biasH4 === 'bearish' && breakoutIdx > support.index &&
         ((closeB < support.price && isFreshUntouched(support.index, support.price, breakoutIdx)) || emaCrossDown) &&
-        closeB < support.price;
+        closeB < support.price &&
+        isSignificantLevel(support.price, 'bearish');
 
       if (!bullishBreakout && !bearishBreakout) continue;
 
@@ -2904,13 +2924,13 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     if (!found) {
       return {
         status: 'waiting', symbol, currentPrice, timestamp, mode: 'structural',
-        message: `Belum ada breakout+retest M30 valid (breakout searah H4 ${biasH4}, volume>=2x MA20, retest ke S/R dengan Force Index searah tanpa divergence) dalam 24 candle terakhir`,
+        message: `Belum ada breakout+retest M30 valid (breakout searah H4 ${biasH4}, level signifikan (>=2x reaksi jelas di H4), volume>=2x MA20, retest ke S/R dengan Force Index searah tanpa divergence) dalam 24 candle terakhir`,
         maxScore, filterResults,
       };
     }
 
     const bias = biasH4;
-    filterResults.push(`✅ FASE 2 — Breakout M30 valid @ ${found.levelPrice.toFixed(6)} (volume>=2x MA20), retest ke S/R, Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
+    filterResults.push(`✅ FASE 2 — Breakout M30 valid @ ${found.levelPrice.toFixed(6)} (level signifikan (>=2x reaksi jelas di H4), volume>=2x MA20), retest ke S/R, Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
 
     // ═══ FASE 3: ENTRY SETUP ═════════════════════════════════════════════
     const dirMult = bias === 'bullish' ? 1 : -1;
@@ -2946,7 +2966,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       forceIndexValue: found.forceIndexValue,
       magnetLevelUsed: 'broken_level',
       atr15MPct: (atrM30 / currentPrice) * 100,
-      taProBonusConfirmed: taProBonus.confirmed, taProBonusWinnerTf: taProBonus.winnerTf, taProBonusWinnerScore: taProBonus.winnerScore,
+      taProBonusConfirmed: taProBonus.confirmed, taProBonusClassification: taProBonus.classification, taProBonusScore: taProBonus.score,
       message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} — Market Structure V2+EMA26 H4 ${bias}, breakout+retest M30 confirmed, Force Index ${found.forceIndexValue.toFixed(2)} tanpa divergence, RR 1:2/1:3.`,
     };
   } catch (err) {
@@ -2984,483 +3004,6 @@ export interface ScalpingModeClassification {
 //         terus lanjut tanpa konsolidasi -- entry di level TERDALAM
 // FASE 3: retest ke level terdalam, Force Index searah TANPA divergence
 // FASE 4: SL di swing SEBELUM level terdalam itu, TP RR1:2/1:3
-// ═══════════════════════════════════════════════════════════════════════════
-
-export async function analyzeScalping15M(symbol: string): Promise<ScalpingResult> {
-  const timestamp = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
-    day: '2-digit', month: 'long', year: 'numeric',
-  }) + ' WIB';
-  const maxScore = 100;
-
-  try {
-    const [h4, m30, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '4h', 100),
-      fetchKlines(symbol, '30m', 100),
-      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
-    ]);
-    const currentPrice = tickerRes.ok
-      ? parseFloat((await tickerRes.json() as { price: string }).price)
-      : m30.closes[m30.closes.length - 1]!;
-
-    if (h4.closes.length < 100 || m30.closes.length < 100) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'Data candle gak cukup (butuh H4 100+, M30 100+)', maxScore };
-    }
-
-    // ═══ FASE 1: TREND IDENTIFIKASI (Market Structure V2 + EMA26 H4) ═══════
-    const structV2 = analyzeMarketStructureV2(h4.opens, h4.highs, h4.lows, h4.closes, 'H4', h4.volumes, false);
-    if (structV2.bias === 'sideways') {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: `Market Structure V2 H4 baca sideways/gak jelas (${structV2.classification}) — belum ada trend buat dipakai`, maxScore };
-    }
-    const biasH4 = structV2.bias;
-
-    const emaSeries26H4 = calcEMASeries(h4.closes, 26);
-    const lastH4Idx = h4.closes.length - 2;
-    const ema26H4 = emaSeries26H4[lastH4Idx]!;
-    const closeH4 = h4.closes[lastH4Idx]!;
-    const ema26H4Bias: 'bullish' | 'bearish' = closeH4 > ema26H4 ? 'bullish' : 'bearish';
-    if (ema26H4Bias !== biasH4) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'scalping15m', message: `Market Structure V2 H4 bilang ${biasH4} (${structV2.classification}), tapi EMA26 H4 bilang ${ema26H4Bias} — gak searah`, maxScore };
-    }
-
-    const filterResults: string[] = [
-      `✅ FASE 1 — Market Structure V2 H4: ${structV2.classification}, EMA26 H4 searah (Close ${closeH4.toFixed(6)} vs EMA26 ${ema26H4.toFixed(6)})`,
-    ];
-
-    // ═══ FASE 2: CASCADING BREAKOUT M30 ═════════════════════════════════════
-    const atrM30 = calcATR(m30.highs, m30.lows, m30.closes);
-    if (atrM30 <= 0) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'ATR M30 gak valid', maxScore };
-    }
-    const lastClosedIdx = m30.closes.length - 2;
-    const emaSeries26M30 = calcEMASeries(m30.closes, 26);
-    const volMa20Series = m30.volumes.map((_, i) => {
-      const start = Math.max(0, i - 19);
-      const w = m30.volumes.slice(start, i + 1);
-      return w.reduce((a, b) => a + b, 0) / w.length;
-    });
-
-    const swingWindow = 60;
-    const swingSlice = Math.max(0, lastClosedIdx - swingWindow);
-    const swingHighsList = findRecentSwingHighsWithIndex(m30.highs.slice(swingSlice, lastClosedIdx + 1), 8)
-      .map(s => ({ price: s.price, index: swingSlice + s.index }));
-    const swingLowsList = findRecentSwingLowsWithIndex(m30.lows.slice(swingSlice, lastClosedIdx + 1), 8)
-      .map(s => ({ price: s.price, index: swingSlice + s.index }));
-
-    if (swingHighsList.length < 2 || swingLowsList.length < 2) {
-      return { status: 'no_structure', symbol, currentPrice, timestamp, mode: 'scalping15m', message: 'Belum cukup swing high/low M30 buat cari level S/R', maxScore };
-    }
-
-    const touchTolFresh = atrM30 * 0.1;
-    const isFreshUntouched = (swingIdxAbs: number, level: number, checkUntilIdx: number): boolean => {
-      for (let i = swingIdxAbs + 1; i < checkUntilIdx; i++) {
-        const hh = m30.highs[i]!, ll = m30.lows[i]!;
-        if (Math.abs(hh - level) <= touchTolFresh || Math.abs(ll - level) <= touchTolFresh || (ll <= level && hh >= level)) return false;
-      }
-      return true;
-    };
-
-    const forceIndexSeries = calcForceIndexSeries(m30.closes, m30.volumes);
-
-    type MoneyMagnet2ScalpingFound = {
-      breakoutIdx: number; cascadeEndIdx: number; retestIdx: number;
-      entryLevel: number; slBasisPrice: number; depthReached: number;
-      forceIndexValue: number;
-    };
-    let found: MoneyMagnet2ScalpingFound | null = null;
-
-    for (let breakoutIdx = lastClosedIdx - 1; breakoutIdx >= Math.max(swingSlice + 5, lastClosedIdx - 24); breakoutIdx--) {
-      const closeB = m30.closes[breakoutIdx]!;
-      const volRatio = volMa20Series[breakoutIdx]! > 0 ? m30.volumes[breakoutIdx]! / volMa20Series[breakoutIdx]! : 0;
-      if (volRatio < 2.0) continue;
-
-      const resistance = swingHighsList[0]!;
-      const support = swingLowsList[0]!;
-
-      const emaCrossUp = m30.closes[breakoutIdx - 1]! <= emaSeries26M30[breakoutIdx - 1]! && closeB > emaSeries26M30[breakoutIdx]!;
-      const bullishBreakout = biasH4 === 'bullish' && breakoutIdx > resistance.index &&
-        closeB > resistance.price && (isFreshUntouched(resistance.index, resistance.price, breakoutIdx) || emaCrossUp);
-
-      const emaCrossDown = m30.closes[breakoutIdx - 1]! >= emaSeries26M30[breakoutIdx - 1]! && closeB < emaSeries26M30[breakoutIdx]!;
-      const bearishBreakout = biasH4 === 'bearish' && breakoutIdx > support.index &&
-        closeB < support.price && (isFreshUntouched(support.index, support.price, breakoutIdx) || emaCrossDown);
-
-      if (!bullishBreakout && !bearishBreakout) continue;
-
-      const bias = bullishBreakout ? 'bullish' : 'bearish';
-      const swingList = bullishBreakout ? swingHighsList : swingLowsList;
-
-      // ═══ CASCADE: lanjut selama candle terus bikin low/high baru tanpa
-      // konsolidasi, cek tembus SNR berikutnya yang lebih dalam ═══════════
-      let cascadeIdx = breakoutIdx;
-      let depthReached = 0;
-      let lastCascadeClose = closeB;
-      while (true) {
-        const nextIdx = cascadeIdx + 1;
-        if (nextIdx > lastClosedIdx) break;
-        const nextClose = m30.closes[nextIdx]!;
-        const continuing = bias === 'bullish' ? nextClose >= lastCascadeClose : nextClose <= lastCascadeClose;
-        if (!continuing) break;
-        cascadeIdx = nextIdx;
-        lastCascadeClose = nextClose;
-        const nextLevelIdx = depthReached + 1;
-        if (nextLevelIdx >= swingList.length) continue;
-        const nextLevel = swingList[nextLevelIdx]!.price;
-        const brokenDeeper = bias === 'bullish' ? nextClose > nextLevel : nextClose < nextLevel;
-        if (brokenDeeper) depthReached = nextLevelIdx;
-      }
-
-      const entryLevel = swingList[depthReached]!.price;
-      const cascadeEndIdx = cascadeIdx;
-
-      let slBasisPrice: number;
-      if (depthReached >= 1) {
-        slBasisPrice = swingList[depthReached - 1]!.price;
-      } else {
-        const oppositeList = bias === 'bullish' ? swingLowsList : swingHighsList;
-        const before = oppositeList.filter(s => s.index < swingList[0]!.index);
-        if (before.length === 0) continue;
-        slBasisPrice = before[0]!.price;
-      }
-
-      const nextIdx2 = cascadeEndIdx + 1;
-      if (nextIdx2 > lastClosedIdx) continue;
-
-      for (let retestIdx = nextIdx2; retestIdx <= lastClosedIdx; retestIdx++) {
-        const c = m30.closes[retestIdx]!;
-        const nearLevel = Math.abs(c - entryLevel) / entryLevel * 100 <= 0.3;
-        if (!nearLevel) continue;
-
-        const fiIdx = retestIdx - 1;
-        const fiVal = forceIndexSeries[fiIdx];
-        if (fiVal === undefined) continue;
-        const forceIndexOk = bias === 'bullish' ? fiVal < 0 : fiVal > 0;
-        if (!forceIndexOk) continue;
-
-        const fiWindow = forceIndexSeries.slice(nextIdx2, fiIdx).filter((v): v is number => v !== undefined);
-        const priceWindow = m30.closes.slice(nextIdx2, retestIdx);
-        let divergence = false;
-        if (bias === 'bullish' && fiWindow.length > 0 && priceWindow.length > 0) {
-          const priceMinBefore = Math.min(...priceWindow);
-          const fiMinBefore = Math.min(...fiWindow);
-          if (c <= priceMinBefore && fiVal > fiMinBefore) divergence = true;
-        } else if (bias === 'bearish' && fiWindow.length > 0 && priceWindow.length > 0) {
-          const priceMaxBefore = Math.max(...priceWindow);
-          const fiMaxBefore = Math.max(...fiWindow);
-          if (c >= priceMaxBefore && fiVal < fiMaxBefore) divergence = true;
-        }
-        if (divergence) continue;
-
-        found = { breakoutIdx, cascadeEndIdx, retestIdx, entryLevel, slBasisPrice, depthReached, forceIndexValue: fiVal };
-        break;
-      }
-      if (found) break;
-    }
-
-    if (!found) {
-      return {
-        status: 'waiting', symbol, currentPrice, timestamp, mode: 'scalping15m',
-        message: `Belum ada breakout+retest M30 valid (cascading, searah H4 ${biasH4}, volume>=2x MA20, retest dengan Force Index searah tanpa divergence) dalam 24 candle terakhir`,
-        maxScore, filterResults,
-      };
-    }
-
-    const bias = biasH4;
-    filterResults.push(`✅ FASE 2 — Cascading breakout M30 valid, tembus ${found.depthReached + 1} level SNR sekaligus, entry di level terdalam @ ${found.entryLevel.toFixed(6)}, retest Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
-
-    // ═══ FASE 3: ENTRY SETUP ═════════════════════════════════════════════
-    const dirMult = bias === 'bullish' ? 1 : -1;
-    const entryPrice = found.entryLevel;
-
-    const entryStillValid = bias === 'bullish' ? entryPrice <= currentPrice : entryPrice >= currentPrice;
-    if (!entryStillValid) {
-      return {
-        status: 'waiting', symbol, currentPrice, timestamp, mode: 'scalping15m',
-        message: `Breakout+retest udah basi — harga sekarang (${currentPrice.toFixed(6)}) udah ${bias === 'bullish' ? 'di bawah' : 'di atas'} level entry (${entryPrice.toFixed(6)})`,
-        maxScore, filterResults,
-      };
-    }
-
-    const stopLoss = found.slBasisPrice;
-    const risk = Math.abs(entryPrice - stopLoss);
-    if (risk <= 0) {
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, mode: 'scalping15m', message: 'Risk gak valid (entry & SL kelewat dekat)', maxScore, filterResults };
-    }
-    const takeProfit1 = entryPrice + risk * 2 * dirMult;
-    const takeProfit2 = entryPrice + risk * 3 * dirMult;
-    const rr1 = 2;
-
-    filterResults.push(`✅ FASE 3 — Entry LIMIT @ ${entryPrice.toFixed(6)}, SL (swing sebelum level) @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
-
-    const taProBonus = await checkTaProBonus(symbol, bias);
-
-    return {
-      status: 'in_zone', symbol, bias, currentPrice, timestamp, mode: 'scalping15m',
-      maxScore, filterResults,
-      entryPrice, stopLoss, takeProfit1, takeProfit2, rr1,
-      moneyMagnetVariant: found.depthReached === 0 ? 'standard' : 'dual_level',
-      forceIndexValue: found.forceIndexValue,
-      magnetLevelUsed: 'broken_level',
-      atr15MPct: (atrM30 / currentPrice) * 100,
-      taProBonusConfirmed: taProBonus.confirmed, taProBonusWinnerTf: taProBonus.winnerTf, taProBonusWinnerScore: taProBonus.winnerScore,
-      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} [cascading ${found.depthReached + 1} level] — Market Structure V2+EMA26 H4 ${bias}, Force Index ${found.forceIndexValue.toFixed(2)} tanpa divergence, RR 1:2/1:3.`,
-    };
-  } catch (err) {
-    return {
-      status: 'error', symbol, currentPrice: 0, timestamp, mode: 'scalping15m',
-      message: err instanceof Error ? err.message : 'Unknown error',
-      maxScore,
-    };
-  }
-}
-// ═══════════════════════════════════════════════════════════════════════════
-// MONEY MAGNET 3 (request user, sub-tab BARU di menu Sniper Breakout) --
-// PERSIS logic Money Magnet 2 (cascading multi-level breakout), TF diganti:
-// H4 -> H1 (trend), M30 -> M15 (swing/eksekusi/cascading).
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MONEY MAGNET 2 v3 (Sniper Breakout, H1/M15, CASCADING dipertahankan, request user):
-// FASE 1: sama persis Money Magnet 1 -- Market Structure V2 H1 (requireADX=
-//         false) + EMA26 H1 searah
-// FASE 2: breakout M15 (swing S/R fresh ATAU EMA26 M15), volume>=2x MA20,
-//         CASCADE ke level lebih dalam (SNR2, SNR3, dst) selama harga
-//         terus lanjut tanpa konsolidasi -- entry di level TERDALAM
-// FASE 3: retest ke level terdalam, Force Index searah TANPA divergence
-// FASE 4: SL di swing SEBELUM level terdalam itu, TP RR1:2/1:3
-// ═══════════════════════════════════════════════════════════════════════════
-
-export async function analyzeMoneyMagnet3(symbol: string): Promise<ScalpingResult> {
-  const timestamp = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
-    day: '2-digit', month: 'long', year: 'numeric',
-  }) + ' WIB';
-  const maxScore = 100;
-
-  try {
-    const [h1, m15, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '1h', 100),
-      fetchKlines(symbol, '15m', 100),
-      fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
-    ]);
-    const currentPrice = tickerRes.ok
-      ? parseFloat((await tickerRes.json() as { price: string }).price)
-      : m15.closes[m15.closes.length - 1]!;
-
-    if (h1.closes.length < 100 || m15.closes.length < 100) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: 'Data candle gak cukup (butuh H1 100+, M15 100+)', maxScore };
-    }
-
-    // ═══ FASE 1: TREND IDENTIFIKASI (Market Structure V2 + EMA26 H1) ═══════
-    const structV2 = analyzeMarketStructureV2(h1.opens, h1.highs, h1.lows, h1.closes, 'H1', h1.volumes, false);
-    if (structV2.bias === 'sideways') {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: `Market Structure V2 H1 baca sideways/gak jelas (${structV2.classification}) — belum ada trend buat dipakai`, maxScore };
-    }
-    const biasH1 = structV2.bias;
-
-    const emaSeries26H1 = calcEMASeries(h1.closes, 26);
-    const lastH1Idx = h1.closes.length - 2;
-    const ema26H1 = emaSeries26H1[lastH1Idx]!;
-    const closeH1 = h1.closes[lastH1Idx]!;
-    const ema26H1Bias: 'bullish' | 'bearish' = closeH1 > ema26H1 ? 'bullish' : 'bearish';
-    if (ema26H1Bias !== biasH1) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: `Market Structure V2 H1 bilang ${biasH1} (${structV2.classification}), tapi EMA26 H1 bilang ${ema26H1Bias} — gak searah`, maxScore };
-    }
-
-    const filterResults: string[] = [
-      `✅ FASE 1 — Market Structure V2 H1: ${structV2.classification}, EMA26 H1 searah (Close ${closeH1.toFixed(6)} vs EMA26 ${ema26H1.toFixed(6)})`,
-    ];
-
-    // ═══ FASE 2: CASCADING BREAKOUT M15 ═════════════════════════════════════
-    const atrM15 = calcATR(m15.highs, m15.lows, m15.closes);
-    if (atrM15 <= 0) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: 'ATR M15 gak valid', maxScore };
-    }
-    const lastClosedIdx = m15.closes.length - 2;
-    const emaSeries26M15 = calcEMASeries(m15.closes, 26);
-    const volMa20Series = m15.volumes.map((_, i) => {
-      const start = Math.max(0, i - 19);
-      const w = m15.volumes.slice(start, i + 1);
-      return w.reduce((a, b) => a + b, 0) / w.length;
-    });
-
-    const swingWindow = 60;
-    const swingSlice = Math.max(0, lastClosedIdx - swingWindow);
-    const swingHighsList = findRecentSwingHighsWithIndex(m15.highs.slice(swingSlice, lastClosedIdx + 1), 8)
-      .map(s => ({ price: s.price, index: swingSlice + s.index }));
-    const swingLowsList = findRecentSwingLowsWithIndex(m15.lows.slice(swingSlice, lastClosedIdx + 1), 8)
-      .map(s => ({ price: s.price, index: swingSlice + s.index }));
-
-    if (swingHighsList.length < 2 || swingLowsList.length < 2) {
-      return { status: 'no_structure', symbol, currentPrice, timestamp, mode: 'moneymagnet3', message: 'Belum cukup swing high/low M15 buat cari level S/R', maxScore };
-    }
-
-    const touchTolFresh = atrM15 * 0.1;
-    const isFreshUntouched = (swingIdxAbs: number, level: number, checkUntilIdx: number): boolean => {
-      for (let i = swingIdxAbs + 1; i < checkUntilIdx; i++) {
-        const hh = m15.highs[i]!, ll = m15.lows[i]!;
-        if (Math.abs(hh - level) <= touchTolFresh || Math.abs(ll - level) <= touchTolFresh || (ll <= level && hh >= level)) return false;
-      }
-      return true;
-    };
-
-    const forceIndexSeries = calcForceIndexSeries(m15.closes, m15.volumes);
-
-    type MoneyMagnet2ScalpingFound = {
-      breakoutIdx: number; cascadeEndIdx: number; retestIdx: number;
-      entryLevel: number; slBasisPrice: number; depthReached: number;
-      forceIndexValue: number;
-    };
-    let found: MoneyMagnet2ScalpingFound | null = null;
-
-    for (let breakoutIdx = lastClosedIdx - 1; breakoutIdx >= Math.max(swingSlice + 5, lastClosedIdx - 24); breakoutIdx--) {
-      const closeB = m15.closes[breakoutIdx]!;
-      const volRatio = volMa20Series[breakoutIdx]! > 0 ? m15.volumes[breakoutIdx]! / volMa20Series[breakoutIdx]! : 0;
-      if (volRatio < 2.0) continue;
-
-      const resistance = swingHighsList[0]!;
-      const support = swingLowsList[0]!;
-
-      const emaCrossUp = m15.closes[breakoutIdx - 1]! <= emaSeries26M15[breakoutIdx - 1]! && closeB > emaSeries26M15[breakoutIdx]!;
-      const bullishBreakout = biasH1 === 'bullish' && breakoutIdx > resistance.index &&
-        closeB > resistance.price && (isFreshUntouched(resistance.index, resistance.price, breakoutIdx) || emaCrossUp);
-
-      const emaCrossDown = m15.closes[breakoutIdx - 1]! >= emaSeries26M15[breakoutIdx - 1]! && closeB < emaSeries26M15[breakoutIdx]!;
-      const bearishBreakout = biasH1 === 'bearish' && breakoutIdx > support.index &&
-        closeB < support.price && (isFreshUntouched(support.index, support.price, breakoutIdx) || emaCrossDown);
-
-      if (!bullishBreakout && !bearishBreakout) continue;
-
-      const bias = bullishBreakout ? 'bullish' : 'bearish';
-      const swingList = bullishBreakout ? swingHighsList : swingLowsList;
-
-      // ═══ CASCADE: lanjut selama candle terus bikin low/high baru tanpa
-      // konsolidasi, cek tembus SNR berikutnya yang lebih dalam ═══════════
-      let cascadeIdx = breakoutIdx;
-      let depthReached = 0;
-      let lastCascadeClose = closeB;
-      while (true) {
-        const nextIdx = cascadeIdx + 1;
-        if (nextIdx > lastClosedIdx) break;
-        const nextClose = m15.closes[nextIdx]!;
-        const continuing = bias === 'bullish' ? nextClose >= lastCascadeClose : nextClose <= lastCascadeClose;
-        if (!continuing) break;
-        cascadeIdx = nextIdx;
-        lastCascadeClose = nextClose;
-        const nextLevelIdx = depthReached + 1;
-        if (nextLevelIdx >= swingList.length) continue;
-        const nextLevel = swingList[nextLevelIdx]!.price;
-        const brokenDeeper = bias === 'bullish' ? nextClose > nextLevel : nextClose < nextLevel;
-        if (brokenDeeper) depthReached = nextLevelIdx;
-      }
-
-      const entryLevel = swingList[depthReached]!.price;
-      const cascadeEndIdx = cascadeIdx;
-
-      let slBasisPrice: number;
-      if (depthReached >= 1) {
-        slBasisPrice = swingList[depthReached - 1]!.price;
-      } else {
-        const oppositeList = bias === 'bullish' ? swingLowsList : swingHighsList;
-        const before = oppositeList.filter(s => s.index < swingList[0]!.index);
-        if (before.length === 0) continue;
-        slBasisPrice = before[0]!.price;
-      }
-
-      const nextIdx2 = cascadeEndIdx + 1;
-      if (nextIdx2 > lastClosedIdx) continue;
-
-      for (let retestIdx = nextIdx2; retestIdx <= lastClosedIdx; retestIdx++) {
-        const c = m15.closes[retestIdx]!;
-        const nearLevel = Math.abs(c - entryLevel) / entryLevel * 100 <= 0.3;
-        if (!nearLevel) continue;
-
-        const fiIdx = retestIdx - 1;
-        const fiVal = forceIndexSeries[fiIdx];
-        if (fiVal === undefined) continue;
-        const forceIndexOk = bias === 'bullish' ? fiVal < 0 : fiVal > 0;
-        if (!forceIndexOk) continue;
-
-        const fiWindow = forceIndexSeries.slice(nextIdx2, fiIdx).filter((v): v is number => v !== undefined);
-        const priceWindow = m15.closes.slice(nextIdx2, retestIdx);
-        let divergence = false;
-        if (bias === 'bullish' && fiWindow.length > 0 && priceWindow.length > 0) {
-          const priceMinBefore = Math.min(...priceWindow);
-          const fiMinBefore = Math.min(...fiWindow);
-          if (c <= priceMinBefore && fiVal > fiMinBefore) divergence = true;
-        } else if (bias === 'bearish' && fiWindow.length > 0 && priceWindow.length > 0) {
-          const priceMaxBefore = Math.max(...priceWindow);
-          const fiMaxBefore = Math.max(...fiWindow);
-          if (c >= priceMaxBefore && fiVal < fiMaxBefore) divergence = true;
-        }
-        if (divergence) continue;
-
-        found = { breakoutIdx, cascadeEndIdx, retestIdx, entryLevel, slBasisPrice, depthReached, forceIndexValue: fiVal };
-        break;
-      }
-      if (found) break;
-    }
-
-    if (!found) {
-      return {
-        status: 'waiting', symbol, currentPrice, timestamp, mode: 'moneymagnet3',
-        message: `Belum ada breakout+retest M15 valid (cascading, searah H1 ${biasH1}, volume>=2x MA20, retest dengan Force Index searah tanpa divergence) dalam 24 candle terakhir`,
-        maxScore, filterResults,
-      };
-    }
-
-    const bias = biasH1;
-    filterResults.push(`✅ FASE 2 — Cascading breakout M15 valid, tembus ${found.depthReached + 1} level SNR sekaligus, entry di level terdalam @ ${found.entryLevel.toFixed(6)}, retest Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
-
-    // ═══ FASE 3: ENTRY SETUP ═════════════════════════════════════════════
-    const dirMult = bias === 'bullish' ? 1 : -1;
-    const entryPrice = found.entryLevel;
-
-    const entryStillValid = bias === 'bullish' ? entryPrice <= currentPrice : entryPrice >= currentPrice;
-    if (!entryStillValid) {
-      return {
-        status: 'waiting', symbol, currentPrice, timestamp, mode: 'moneymagnet3',
-        message: `Breakout+retest udah basi — harga sekarang (${currentPrice.toFixed(6)}) udah ${bias === 'bullish' ? 'di bawah' : 'di atas'} level entry (${entryPrice.toFixed(6)})`,
-        maxScore, filterResults,
-      };
-    }
-
-    const stopLoss = found.slBasisPrice;
-    const risk = Math.abs(entryPrice - stopLoss);
-    if (risk <= 0) {
-      return { status: 'no_setup', symbol, bias, currentPrice, timestamp, mode: 'moneymagnet3', message: 'Risk gak valid (entry & SL kelewat dekat)', maxScore, filterResults };
-    }
-    const takeProfit1 = entryPrice + risk * 2 * dirMult;
-    const takeProfit2 = entryPrice + risk * 3 * dirMult;
-    const rr1 = 2;
-
-    filterResults.push(`✅ FASE 3 — Entry LIMIT @ ${entryPrice.toFixed(6)}, SL (swing sebelum level) @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
-
-    const taProBonus = await checkTaProBonus(symbol, bias);
-
-    return {
-      status: 'in_zone', symbol, bias, currentPrice, timestamp, mode: 'moneymagnet3',
-      maxScore, filterResults,
-      entryPrice, stopLoss, takeProfit1, takeProfit2, rr1,
-      moneyMagnetVariant: found.depthReached === 0 ? 'standard' : 'dual_level',
-      forceIndexValue: found.forceIndexValue,
-      magnetLevelUsed: 'broken_level',
-      atr15MPct: (atrM15 / currentPrice) * 100,
-      taProBonusConfirmed: taProBonus.confirmed, taProBonusWinnerTf: taProBonus.winnerTf, taProBonusWinnerScore: taProBonus.winnerScore,
-      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} [cascading ${found.depthReached + 1} level] — Market Structure V2+EMA26 H1 ${bias}, Force Index ${found.forceIndexValue.toFixed(2)} tanpa divergence, RR 1:2/1:3.`,
-    };
-  } catch (err) {
-    return {
-      status: 'error', symbol, currentPrice: 0, timestamp, mode: 'moneymagnet3',
-      message: err instanceof Error ? err.message : 'Unknown error',
-      maxScore,
-    };
-  }
-}
-// ═══════════════════════════════════════════════════════════════════════════
-// MONEY MAGNET 1 (request user, sub-tab BARU di menu Sniper Breakout) --
-// PERSIS logic Money Magnet asli (single-level, fresh+untouched), TF diganti:
-// H4 -> H1 (trend), M30 -> M15 (swing/eksekusi).
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function analyzeMoneyMagnet1(symbol: string): Promise<ScalpingResult> {
@@ -3679,38 +3222,6 @@ export function classifyScalpingMode(closes: number[], volumes: number[]): Scalp
 }
 
 
-// ─── Menu 5 — Extreme Scalping (H1 → M15 → M5) ─────────────────────────────
-// Beda dari Menu 4 (H4→M30→M5): 1 level lebih cepat, dan DIDESAIN KHUSUS buat
-// nangkep REVERSAL — bukan cuma trend-following. Kalau CHoCH H1 kedeteksi
-// (break swing lawan arah trend utama), sinyal ngikutin arah CHoCH (arah
-// reversal), bukan arah trend H1 yang lama. Contoh: H1 bearish tapi CHoCH ke
-// atas kedeteksi → sistem cari LONG, bukan SHORT.
-
-// ═══════════════════════════════════════════════════════════════════════════
-
-function detectMomentumTrend(ltf: KlineData, lookback = 3): { decelerating: boolean; accelerating: boolean; rangeRatio: number; volRatio: number } {
-  const n = ltf.closes.length;
-  if (n < lookback * 2) return { decelerating: false, accelerating: false, rangeRatio: 1, volRatio: 1 };
-
-  let recentRangeSum = 0, olderRangeSum = 0, recentVolSum = 0, olderVolSum = 0;
-  for (let i = 0; i < lookback; i++) {
-    const idxRecent = n - 1 - i;
-    const idxOlder = n - 1 - lookback - i;
-    recentRangeSum += ltf.highs[idxRecent]! - ltf.lows[idxRecent]!;
-    olderRangeSum += ltf.highs[idxOlder]! - ltf.lows[idxOlder]!;
-    recentVolSum += ltf.volumes[idxRecent]!;
-    olderVolSum += ltf.volumes[idxOlder]!;
-  }
-  const rangeRatio = olderRangeSum > 0 ? recentRangeSum / olderRangeSum : 1;
-  const volRatio = olderVolSum > 0 ? recentVolSum / olderVolSum : 1;
-
-  return {
-    decelerating: rangeRatio < 0.8 && volRatio < 0.8,
-    accelerating: rangeRatio > 1.2 && volRatio > 1.2,
-    rangeRatio, volRatio,
-  };
-}
-
 // FIX (request user, "wajib pilih yang kuat" — dampak ke SEMUA 4 caller:
 // Menu 4 Structural, Counter Structural, CVD-OI Confluence, Extreme
 // Scalping Sniper): zona S&R sekarang WAJIB punya minimal 2 touches
@@ -3801,90 +3312,6 @@ function scoreFibPrioritySkill15M(fibLevel: string): number {
   if (fibLevel === '0.236') return 3; // paling reliable, sample besar
   if (fibLevel === '0.618' || fibLevel === '0.786') return 0; // paling lemah, dihindari
   return 1; // sisanya netral
-}
-
-/**
- * FIX (request user, kedua skill Menu Scalping — Structural & Skill 15M):
- * cegah kasih sinyal BUY pas market udah overbought, atau SELL pas udah
- * oversold — kejadian nyata yang dialami user: sinyal SELL keluar pas market
- * lagi oversold, ternyata malah rebound naik, jadi LOSE.
- *
- * Cek 4 indikator: RSI, Stochastic RSI, MACD histogram, Volume. Block SIGNAL
- * (bukan cuma warning) kalau MAYORITAS (3 dari 4) indikator nunjukin kondisi
- * "melawan arah" — biar gak terlalu ketat cuma karena 1 indikator kebetulan
- * ekstrem, tapi tetep block kalau memang udah konsisten di banyak indikator.
- *
- * CATATAN JUJUR: backtest 128 trade (38 koin H1) yang saya jalanin sebelum
- * implementasi ini justru nunjukin KEBALIKAN — sinyal yang "melawan" RSI
- * ekstrem itu WR-nya LEBIH TINGGI (55.6% vs 38.7%), bukan lebih rendah. Sample
- * kecil (9 trade) jadi belum konklusif, tapi user tetep minta diimplementasikan
- * buat ditest sendiri di live — bukan karena udah terbukti bagus di backtest.
- */
-interface IndicatorExhaustionCheck {
-  blocked: boolean;
-  reason?: string;
-  rsi: number;
-  stochRsi: number;
-  macdHistogram: number;
-  volRatio: number;
-  cci: number;
-  mfi: number;
-  roc: number;
-}
-
-/**
- * FIX (request user, berdasarkan DATA LIVE Journal 175 sinyal — BUKAN
- * backtest simulasi lagi): analisa Journal nunjukin pola KONSISTEN di
- * SEMUA skill:
- * - CCI ekstrem (|CCI|≥100) muncul di 50-62% kasus LOSE (Skill 15M 50%,
- *   Structural 62%, Counter Scalping 54%)
- * - MFI pas LOSE jauh lebih tinggi dari WIN (53.9 vs 44.5 struktur, 51.8
- *   vs 45.5 eksekusi) — indikasi "hollow move" (harga gerak, volume gak dukung)
- * - MACD histogram pas WIN jelas lebih kuat dari LOSE (0.2 vs ~0)
- * - ROC pas WIN jelas lebih tajam dari LOSE (4.2%/3.8% vs 3.5%/2.9%)
- * Threshold CCI/MFI/ROC di bawah diambil dari pola data live ini (bukan
- * dugaan/riset backtest historis).
- */
-function checkIndicatorExhaustion(highs: number[], lows: number[], closes: number[], volumes: number[], bias: 'bullish' | 'bearish'): IndicatorExhaustionCheck {
-  const rsi = calcRSI(closes, 14);
-  const stochRsi = calcStochRSI(closes);
-  const macd = calcMACD(closes);
-  const volMA20 = volumes.length >= 21 ? volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20 : 0;
-  const lastVol = volumes[volumes.length - 1] ?? 0;
-  const volRatio = volMA20 > 0 ? lastVol / volMA20 : 1;
-  const cci = calcCCI(highs, lows, closes);
-  const mfi = calcMFI(highs, lows, closes, volumes);
-  const roc = calcROC(closes);
-
-  let exhaustionCount = 0;
-  if (bias === 'bullish') {
-    // BUY tapi overbought — dicek searah "overbought"
-    if (rsi >= 70) exhaustionCount++;
-    if (stochRsi >= 80) exhaustionCount++;
-    if (macd.histogram < 0) exhaustionCount++; // momentum udah mulai melemah
-    if (volRatio < 0.8) exhaustionCount++; // volume ngedrop, kurang dukungan buat lanjut naik
-    if (cci >= 100) exhaustionCount++; // CCI ekstrem — data live: 50-62% korelasi ke LOSE
-    if (mfi >= 60) exhaustionCount++; // MFI tinggi — data live: indikasi hollow move
-    if (roc < 1.0) exhaustionCount++; // momentum harga lemah — data live: WIN rata2 ROC 3.8-4.2%, LOSE 2.9-3.5%
-  } else {
-    // SELL tapi oversold — dicek searah "oversold"
-    if (rsi <= 30) exhaustionCount++;
-    if (stochRsi <= 20) exhaustionCount++;
-    if (macd.histogram > 0) exhaustionCount++;
-    if (volRatio < 0.8) exhaustionCount++;
-    if (cci <= -100) exhaustionCount++;
-    if (mfi <= 40) exhaustionCount++;
-    if (roc > -1.0) exhaustionCount++;
-  }
-
-  // Threshold block naik dari 3/4 jadi 4/7 (mayoritas, konsisten proporsinya
-  // sama basis lama ~75% dari total indikator) — sekarang 7 indikator dicek.
-  const blocked = exhaustionCount >= 4;
-  const reason = blocked
-    ? `Market udah ${bias === 'bullish' ? 'overbought/hollow' : 'oversold/hollow'} (${exhaustionCount}/7 indikator: RSI ${rsi.toFixed(1)}, StochRSI ${stochRsi.toFixed(1)}, MACD hist ${macd.histogram.toFixed(4)}, vol ${(volRatio*100).toFixed(0)}% MA20, CCI ${cci.toFixed(0)}, MFI ${mfi.toFixed(1)}, ROC ${roc.toFixed(2)}%) — resiko rebound/hollow move lawan arah`
-    : undefined;
-
-  return { blocked, reason, rsi, stochRsi, macdHistogram: macd.histogram, volRatio, cci, mfi, roc };
 }
 
 /**
@@ -4083,637 +3510,6 @@ function checkStructureV2GateForReversal(htf: KlineData, bias: 'bullish' | 'bear
   return { blocked: false, structureNote, structV2 };
 }
 
-/**
- * Konversi label TF Momentum Hunter ('15M'/'5M'/'1M', angka-dulu) ke
- * TFLabelV2 ('M15'/'M5'/'M1', huruf-dulu) — 2 konvensi penamaan beda yang
- * kepake di bagian kode yang beda, H1/H4/M30 udah konsisten jadi gak perlu diubah.
- */
-function momentumHunterLabelToTFLabelV2(label: string): TFLabelV2 {
-  switch (label) {
-    case '1M': return 'M1';
-    case '5M': return 'M5';
-    case '15M': return 'M15';
-    case 'M30': return 'M30';
-    case 'H1': return 'H1';
-    case 'H4': return 'H4';
-    default: return 'M15'; // fallback aman
-  }
-}
-
-/**
- * Konversi Binance interval string ('1m'/'5m'/'15m'/'30m'/'1h'/'2h'/'4h'/'1d')
- * ke TFLabelV2 ('M1'/'M5'/.../'D1') — dipake checkBtcAlignment yang terima TF
- * dinamis dari pemanggil (format Binance), beda konvensi lagi dari 2 fungsi di atas.
- */
-function binanceIntervalToTFLabelV2(interval: string): TFLabelV2 {
-  switch (interval) {
-    case '1m': return 'M1';
-    case '5m': return 'M5';
-    case '15m': return 'M15';
-    case '30m': return 'M30';
-    case '1h': return 'H1';
-    case '2h': return 'H2';
-    case '4h': return 'H4';
-    case '1d': return 'D1';
-    default: return 'H2'; // fallback aman (default lama checkBtcAlignment)
-  }
-}
-
-
-/**
- * Reversal-Ekstrem (Menu 8 Momentum Hunter) — mean-reversion di S&R TERKUAT
- * (bukan sepasang S&R yang ngapit harga kayak tryZoneRejectionRetest, tapi 1
- * level PALING KUAT terlepas dari sisi). Threshold hasil diskusi:
- * - S&R kuat: minimal 3x touches
- * - Radius approach: 0.35x ATR (zoneWidth, konsisten basis)
- * - Wajib ada rejection candle (price action) dalam 24 candle terakhir
- * - Momentum support: minimal 1 dari 3 (RSI ekstrem 20/80, RSI divergence,
- *   Volume divergence) — kombinasi divergence sendiri udah "min 1 dari 2"
- *   sesuai request, digabung sama RSI ekstrem jadi total 3 kandidat OR
- */
-function tryReversalExtreme(
-  htf: KlineData, ltf: KlineData, currentPrice: number,
-  resistanceLevels: { price: number; hits: number }[], supportLevels: { price: number; hits: number }[],
-  zoneWidth: number, atrHtf: number, tf: TFLabelV2
-): ZoneEventOk | ZoneEventFail {
-  const strongRes = resistanceLevels.filter(l => l.hits >= 3);
-  const strongSup = supportLevels.filter(l => l.hits >= 3);
-  if (strongRes.length === 0 && strongSup.length === 0) {
-    return { ok: false, status: 'waiting', reason: 'Gak ada S&R kuat (≥3x touch) yang ketemu' };
-  }
-
-  const candidates = [
-    ...strongRes.map(l => ({ ...l, type: 'resistance' as const })),
-    ...strongSup.map(l => ({ ...l, type: 'support' as const })),
-  ];
-  const nearest = candidates.reduce((closest, c) =>
-    Math.abs(c.price - currentPrice) < Math.abs(closest.price - currentPrice) ? c : closest
-  );
-  const radius = zoneWidth;
-  const dist = Math.abs(nearest.price - currentPrice);
-  if (dist > radius) {
-    return { ok: false, status: 'waiting', reason: `Harga belum deket S&R kuat manapun (jarak terdekat ${(dist / atrHtf).toFixed(2)}x ATR, radius wajib ≤${(radius / atrHtf).toFixed(2)}x) — level terkuat di ${nearest.price.toFixed(4)} (${nearest.hits}x touch)` };
-  }
-
-  const bias: 'bullish' | 'bearish' = nearest.type === 'resistance' ? 'bearish' : 'bullish';
-  const edgeUpper = nearest.price + zoneWidth / 2;
-  const edgeLower = nearest.price - zoneWidth / 2;
-
-  // ═══ Market Structure V2 — primary gate versi reversal (request user) ════
-  const structGateRev = checkStructureV2GateForReversal(htf, bias, tf);
-  if (structGateRev.blocked) {
-    return { ok: false, status: 'waiting', reason: structGateRev.reason, marketStructureV2: structGateRev.structV2 };
-  }
-  const structureNote = structGateRev.structureNote;
-  const marketStructureV2 = structGateRev.structV2;
-
-  // Cari rejection candle (price action) dalam 24 candle terakhir — WAJIB,
-  // bukan bonus. Ini "konfirmasi valid" yang diminta, terpisah dari momentum support.
-  const n = htf.closes.length;
-  const window = 24;
-  let rejectionIdx = -1;
-  let wickRatio = 0;
-  for (let idx = Math.max(1, n - window); idx < n; idx++) {
-    const o = htf.opens[idx]!, h = htf.highs[idx]!, l = htf.lows[idx]!, c = htf.closes[idx]!;
-    const body = Math.abs(c - o);
-    if (bias === 'bearish') {
-      const upperWick = h - Math.max(o, c);
-      if (h >= edgeLower && upperWick > body * 1.5 && c < edgeUpper) { rejectionIdx = idx; wickRatio = upperWick / (body || 0.0001); }
-    } else {
-      const lowerWick = Math.min(o, c) - l;
-      if (l <= edgeUpper && lowerWick > body * 1.5 && c > edgeLower) { rejectionIdx = idx; wickRatio = lowerWick / (body || 0.0001); }
-    }
-  }
-  if (rejectionIdx === -1) {
-    return { ok: false, status: 'waiting', reason: `Harga udah deket S&R kuat ${nearest.price.toFixed(4)} (${nearest.hits}x touch) TAPI belum ada rejection candle valid di ${window} candle terakhir` };
-  }
-  const candlesSinceBreakout = n - 1 - rejectionIdx;
-
-  // Momentum support: min 1 dari 3 (RSI ekstrem 20/80 ATAU RSI divergence ATAU Volume divergence)
-  const rsi = calcRSI(ltf.closes, 14);
-  const rsiExtreme = bias === 'bullish' ? rsi < 20 : rsi > 80;
-  const rsiDiv = detectRSIDivergenceGeneric(htf.highs, htf.lows, htf.closes);
-  const volDiv = detectVolumeDivergence(htf.highs, htf.lows, htf.closes, htf.volumes);
-  const rsiDivSupport = bias === 'bullish' ? rsiDiv.bullish : rsiDiv.bearish;
-  const volDivSupport = bias === 'bullish' ? volDiv.bullish : volDiv.bearish;
-  const supportNotes: string[] = [];
-  if (rsiExtreme) supportNotes.push(`RSI(14) ${rsi.toFixed(1)} ${bias === 'bullish' ? 'oversold (<20)' : 'overbought (>80)'}`);
-  if (rsiDivSupport) supportNotes.push('RSI divergence mendukung');
-  if (volDivSupport) supportNotes.push('Volume divergence mendukung');
-  if (supportNotes.length === 0) {
-    return { ok: false, status: 'waiting', reason: `Rejection candle udah ada (${candlesSinceBreakout} candle lalu) di S&R ${nearest.price.toFixed(4)} TAPI belum ada momentum support (RSI ekstrem/divergence)` };
-  }
-
-  const entryBuffer = atrHtf * 0.2;
-  const slBuffer = atrHtf * 1;
-  const dir = bias === 'bullish' ? 1 : -1;
-  const entryPrice = bias === 'bullish' ? edgeUpper + entryBuffer : edgeLower - entryBuffer;
-  const stopLoss = bias === 'bullish' ? edgeLower - slBuffer : edgeUpper + slBuffer;
-  const risk = Math.abs(entryPrice - stopLoss);
-  if (risk <= 0) return { ok: false, status: 'waiting', reason: 'Risk tidak valid' };
-  const takeProfit1 = entryPrice + risk * 2 * dir; // RR floor 1:2, basis Skill 15M
-
-  const distFromEdge = bias === 'bullish' ? currentPrice - edgeUpper : edgeLower - currentPrice;
-  const maxPullback = atrHtf * 1.5;
-  if (distFromEdge < 0 || distFromEdge > maxPullback) {
-    return {
-      ok: true, status: 'approaching', bias, entryPrice, stopLoss, takeProfit1, rr1: 2,
-      zoneEdgeUpper: edgeUpper, zoneEdgeLower: edgeLower, candlesSinceBreakout,
-      note: `Reversal-ekstrem di S&R terkuat ${nearest.price.toFixed(4)} (${nearest.hits}x touch, wick ${wickRatio.toFixed(1)}x body) — momentum: ${supportNotes.join(', ')}. Nunggu harga balik ke zona entry`,
-      structureNote, marketStructureV2,
-    };
-  }
-
-  return {
-    ok: true, status: 'in_zone', bias, entryPrice, stopLoss, takeProfit1, rr1: 2,
-    zoneEdgeUpper: edgeUpper, zoneEdgeLower: edgeLower, candlesSinceBreakout,
-    note: `Reversal-ekstrem di S&R terkuat ${nearest.price.toFixed(4)} (${nearest.hits}x touch, rejection ${candlesSinceBreakout} candle lalu, wick ${wickRatio.toFixed(1)}x body) — momentum: ${supportNotes.join(', ')}`,
-    structureNote, marketStructureV2,
-  };
-}
-
-/**
- * Breakout-Antisipasi (Menu 8 Momentum Hunter) — basis anticipatory breakout:
- * entry SEBELUM breakout kejadian (STOP order), momentum yang BAGUS itu
- * AKSELERASI (kebalikan dari retest/reversal yang butuh deselerasi).
- * Standalone, gak reuse dari fungsi manapun di Menu 1 (basis Menu 1 sekarang
- * OI Surge Breakout & Funding Rate Kontrarian, konsepnya beda total).
- */
-function tryBreakoutAnticipation(
-  htf: KlineData, currentPrice: number,
-  resistanceLevels: number[], supportLevels: number[], zoneWidth: number, atrHtf: number, tf: TFLabelV2
-): ZoneEventOk | ZoneEventFail {
-  if (resistanceLevels.length === 0 && supportLevels.length === 0) {
-    return { ok: false, status: 'waiting', reason: 'Gak ada zona S/R yang valid' };
-  }
-  // Coba dua arah (bullish nempel resistance, bearish nempel support) — ambil
-  // level TERDEKAT ke currentPrice dari GABUNGAN keduanya
-  const resCandidates = resistanceLevels.map(price => ({ price, bias: 'bullish' as const }));
-  const supCandidates = supportLevels.map(price => ({ price, bias: 'bearish' as const }));
-  const all = [...resCandidates, ...supCandidates];
-  const nearest = all.reduce((closest, c) =>
-    Math.abs(c.price - currentPrice) < Math.abs(closest.price - currentPrice) ? c : closest
-  );
-  const bias = nearest.bias;
-  const level = nearest.price;
-  const edgeUpper = level + zoneWidth / 2;
-  const edgeLower = level - zoneWidth / 2;
-
-  // ═══ Market Structure V2 — primary gate (request user) ════════════════
-  const structGateAnt = checkStructureV2Gate(htf, bias, tf, `Zona anticipatory (belum breakout) searah bias ${bias} ketemu`);
-  if (structGateAnt.blocked) {
-    return { ok: false, status: 'waiting', reason: structGateAnt.reason, marketStructureV2: structGateAnt.structV2 };
-  }
-  const structureNote = structGateAnt.structureNote;
-  const marketStructureV2 = structGateAnt.structV2;
-
-  const alreadyBroken = bias === 'bullish' ? currentPrice > edgeUpper : currentPrice < edgeLower;
-  if (alreadyBroken) {
-    return { ok: false, status: 'waiting', reason: 'Harga udah breakout dari zona terdekat — bukan lagi anticipatory (coba tipe retest)' };
-  }
-
-  const approachRadius = zoneWidth;
-  const distToEdge = bias === 'bullish' ? edgeUpper - currentPrice : currentPrice - edgeLower;
-  if (distToEdge > approachRadius) {
-    return { ok: false, status: 'waiting', reason: `Harga masih ${(distToEdge / atrHtf).toFixed(2)}x ATR dari edge terdekat (radius wajib ≤${(approachRadius / atrHtf).toFixed(2)}x)` };
-  }
-
-  const n = htf.closes.length;
-  let candlesNearEdge = 0;
-  for (let i = n - 1; i >= 0; i--) {
-    const c = htf.closes[i]!;
-    const d = bias === 'bullish' ? edgeUpper - c : c - edgeLower;
-    if (d >= 0 && d <= approachRadius) candlesNearEdge++;
-    else break;
-  }
-  if (candlesNearEdge > 12) {
-    return { ok: false, status: 'expired', reason: `Harga udah nongkrong ${candlesNearEdge} candle deket edge tanpa breakout — momentum melemah (max 12 candle)` };
-  }
-
-  const momentum = detectMomentumTrend(htf, 3);
-  const entryBuffer = atrHtf * 0.2;
-  const slBuffer = atrHtf * 1;
-  const dir = bias === 'bullish' ? 1 : -1;
-  const entryPrice = bias === 'bullish' ? edgeUpper + entryBuffer : edgeLower - entryBuffer;
-  const stopLoss = bias === 'bullish' ? edgeLower - slBuffer : edgeUpper + slBuffer;
-  const risk = Math.abs(entryPrice - stopLoss);
-  if (risk <= 0) return { ok: false, status: 'waiting', reason: 'Risk tidak valid' };
-  const takeProfit1 = entryPrice + risk * 2 * dir;
-
-  const momentumNote = momentum.accelerating
-    ? ` Momentum akselerasi mendekati edge — tanda breakout mendekat.`
-    : momentum.decelerating
-    ? ` ⚠️ Momentum deselerasi mendekati edge — mungkin kehabisan tenaga.`
-    : '';
-
-  return {
-    ok: true, status: 'approaching', bias, entryPrice, stopLoss, takeProfit1, rr1: 2,
-    zoneEdgeUpper: edgeUpper, zoneEdgeLower: edgeLower, candlesSinceBreakout: candlesNearEdge,
-    note: `Breakout-antisipasi di zona ${level.toFixed(4)}, ${candlesNearEdge} candle deket edge.${momentumNote}`,
-    momentumFavorable: momentum.accelerating,
-    structureNote, marketStructureV2,
-  };
-}
-
-/**
- * Trend-following: breakout+retest — REPLIKA PERSIS basis Skill 15M (request
- * user: "ubah total pakai basis 15M"). Bias ditentuin dari arah breakout yang
- * KETEMU (bukan pre-determined dari ZigZag) — sama persis kayak Skill 15M asli.
- */
-/**
- * FIX (request user): "gunakan retest: entry pada pullback ke level breakout
- * dengan volume yang MENURUN LALU STABIL" — BEDA dari cek sebelumnya yang
- * cuma liat 1 candle terakhir (lastVol < lastVolMA). Sekarang cek POLA dari
- * beberapa candle SEJAK breakout: (1) volume rata-rata pullback HARUS lebih
- * rendah dari volume breakout candle itu sendiri (trending turun), (2)
- * volume candle-candle pullback GAK BOLEH fluktuasi liar (coefficient of
- * variation rendah) — "stabil", bukan naik-turun brutal yang nunjukin
- * ketidakpastian/manipulasi.
- */
-
-function checkVolumeDecliningStable(volumes: number[], breakoutIdx: number, currentIdx: number, breakoutVolume: number): { ok: boolean; reason?: string } {
-  const pullbackVols = volumes.slice(breakoutIdx + 1, currentIdx + 1);
-  if (pullbackVols.length === 0) return { ok: false, reason: 'Belum ada candle pullback buat dicek' };
-
-  const avgPullbackVol = pullbackVols.reduce((a, b) => a + b, 0) / pullbackVols.length;
-  const declining = avgPullbackVol < breakoutVolume;
-  if (!declining) return { ok: false, reason: 'Volume pullback rata-rata masih >= volume breakout (belum nunjukin koreksi mereda)' };
-
-  if (pullbackVols.length >= 2) {
-    const mean = avgPullbackVol;
-    const variance = pullbackVols.reduce((a, b) => a + (b - mean) ** 2, 0) / pullbackVols.length;
-    const stdev = Math.sqrt(variance);
-    const coefficientOfVariation = mean > 0 ? stdev / mean : 1;
-    // CoV > 0.6 dianggap fluktuasi liar (gak stabil) — threshold longgar
-    // sengaja (retest 2-3 candle doang, wajar ada variasi dikit)
-    if (coefficientOfVariation > 0.6) {
-      return { ok: false, reason: `Volume pullback fluktuasi liar (CoV ${coefficientOfVariation.toFixed(2)}) — belum stabil` };
-    }
-  }
-  return { ok: true };
-}
-
-async function tryZoneBreakoutRetest(
-  htf: KlineData, ltf: KlineData, currentPrice: number,
-  resistanceLevels: number[], supportLevels: number[], zoneWidth: number, atrHtf: number,
-  tf: TFLabelV2, symbol: string, resistanceMatches?: FibZoneMatch[], supportMatches?: FibZoneMatch[]
-): Promise<ZoneEventOk | ZoneEventFail> {
-  const n = htf.closes.length;
-  const volMA20At = (idx: number) => {
-    const start = Math.max(0, idx - 20);
-    const win = htf.volumes.slice(start, idx);
-    return win.length > 0 ? win.reduce((a, b) => a + b, 0) / win.length : 0;
-  };
-
-  // REVISI (request user, berdasarkan riset 630 sample): threshold volume
-  // breakout NAIK dari 1.8x jadi 2.0x (base, high-cap) -- data nunjukin
-  // volume ratio breakout GAK diskriminatif winner/loser di 1.8x, dicoba
-  // lebih ketat. Koin likuiditas rendah tetep otomatis naik lebih tinggi lagi.
-  const volumeThreshold = await getVolumeBreakoutThreshold(symbol, 2.0);
-
-  // FIX (request user, "tunggu close candle sebelum entry"): candle PALING
-  // TERAKHIR dari Binance API bisa aja MASIH BERJALAN (belum closed) — window
-  // scan breakout BERHENTI di 'n - 1' (bukan 'n'), jadi breakout CUMA
-  // terdeteksi dari candle yang PASTI udah closed. currentPrice/entry-trigger
-  // (in_zone check di bawah) TETAP pakai harga live — itu emang perlu
-  // real-time buat tau harga SEKARANG udah retest ke zona apa belum.
-  const retestWindowMax = 24;
-
-  // REVISI (request user): KUMPULIN semua breakout event valid di window,
-  // BUKAN cuma overwrite ke yang paling terakhir -- biar bisa PRIORITASKAN
-  // level Fib terbaik (0.786/1.0/0.5 buat Structural), bukan asal ambil
-  // yang paling baru kejadian.
-  const fibScoreOf = (level: number, matches?: FibZoneMatch[]): number => {
-    const m = matches?.find(x => x.price === level);
-    return m ? scoreFibPriorityStructural(m.fibLevel) : 1;
-  };
-  const allFound: { direction: 'bullish' | 'bearish'; level: number; edgeUpper: number; edgeLower: number; breakoutPrice: number; breakoutIdx: number; fibScore: number }[] = [];
-
-  for (let idx = Math.max(1, n - retestWindowMax); idx < n - 1; idx++) {
-    const closeAt = htf.closes[idx]!;
-    const volAt = htf.volumes[idx]!;
-    const volMA = volMA20At(idx);
-    if (volMA <= 0) continue;
-    for (const level of resistanceLevels) {
-      const edgeUpper = level + zoneWidth / 2;
-      const edgeLower = level - zoneWidth / 2;
-      if (closeAt > edgeUpper && volAt > volumeThreshold * volMA) {
-        allFound.push({ direction: 'bullish', level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx, fibScore: fibScoreOf(level, resistanceMatches) });
-      }
-    }
-    for (const level of supportLevels) {
-      const edgeUpper = level + zoneWidth / 2;
-      const edgeLower = level - zoneWidth / 2;
-      if (closeAt < edgeLower && volAt > volumeThreshold * volMA) {
-        allFound.push({ direction: 'bearish', level, edgeUpper, edgeLower, breakoutPrice: closeAt, breakoutIdx: idx, fibScore: fibScoreOf(level, supportMatches) });
-      }
-    }
-  }
-
-  // Pilih: fibScore TERTINGGI duluan, tiebreak breakoutIdx PALING BARU
-  allFound.sort((a, b) => (b.fibScore - a.fibScore) || (b.breakoutIdx - a.breakoutIdx));
-  const found = allFound[0] ?? null;
-
-  if (!found) return { ok: false, status: 'waiting', reason: `Belum ada breakout valid dalam ${retestWindowMax} candle terakhir (threshold volume ${volumeThreshold.toFixed(2)}x MA20)` };
-
-  const bias = found.direction;
-
-  // CATATAN (request user): validasi momentum candle 2-candle setelah breakout
-  // SENGAJA DIHAPUS — bikin sinyal jadi terlalu sedikit. Validasi breakout
-  // sekarang cukup dari VOLUME (threshold adaptif per likuiditas).
-
-  // ═══ Market Structure V2 — REVISI (request user): jadi SOFT WARNING, ═════
-  // BUKAN hard block lagi. Riset nunjukin MSV2 genuinely simetris (bukan
-  // bug), tapi user pilih tetep lanjutin sinyal + kasih tau kondisi MSV2
-  // aja, ketimbang blok total (biar sinyal gak terlalu sedikit).
-  const structGate = checkStructureV2Gate(htf, bias, tf);
-  const structureNote = structGate.blocked
-    ? `⚠️ Market Structure V2 gak searah (${structGate.structV2?.classification ?? 'n/a'}) -- soft warning, sinyal tetap lanjut`
-    : structGate.structureNote;
-  const marketStructureV2 = structGate.structV2;
-
-  const candlesSinceBreakout = n - 1 - found.breakoutIdx;
-  const entryBuffer = atrHtf * 0.2;
-  const slBuffer = atrHtf * 1;
-  const dir = bias === 'bullish' ? 1 : -1;
-  const entryPrice = bias === 'bullish' ? found.edgeUpper - entryBuffer : found.edgeLower + entryBuffer;
-  const stopLoss = bias === 'bullish' ? found.edgeLower - slBuffer : found.edgeUpper + slBuffer;
-  const risk = Math.abs(entryPrice - stopLoss);
-  const takeProfit1 = entryPrice + risk * 2 * dir; // RR 1:2, basis Skill 15M
-
-  const inZone = currentPrice <= found.edgeUpper && currentPrice >= found.edgeLower;
-
-  if (!inZone) {
-    if (candlesSinceBreakout > retestWindowMax) {
-      return { ok: false, status: 'expired', reason: `Breakout ${bias} udah lewat retest window (${candlesSinceBreakout} candle, max ${retestWindowMax})` };
-    }
-    return {
-      ok: true, status: 'approaching', bias, entryPrice, stopLoss, takeProfit1, rr1: 2,
-      zoneEdgeUpper: found.edgeUpper, zoneEdgeLower: found.edgeLower, candlesSinceBreakout,
-      note: `Breakout ${bias} dari ${found.level.toFixed(4)}, ${candlesSinceBreakout} candle lalu — nunggu retest`,
-      structureNote, marketStructureV2,
-    };
-  }
-
-  const pullbackDepth = Math.abs(found.breakoutPrice - currentPrice);
-  // REVISI (request user): max pullback naik dari 1.5x jadi 1.8x ATR --
-  // kasih ruang retest sedikit lebih dalam sebelum dianggap expired.
-  if (pullbackDepth > atrHtf * 1.8) {
-    return { ok: false, status: 'expired', reason: `Pullback udah kelewat dalam (${pullbackDepth.toFixed(4)} > max ${(atrHtf * 1.8).toFixed(4)})` };
-  }
-
-  const lastVol = htf.volumes[n - 1]!;
-  const lastVolMA = volMA20At(n - 1);
-  // FIX (request user): retest volume MENURUN LALU STABIL, bukan cuma cek
-  // 1 candle terakhir doang — lihat comment checkVolumeDecliningStable.
-  const breakoutVolume = htf.volumes[found.breakoutIdx]!;
-  const declineCheck = checkVolumeDecliningStable(htf.volumes, found.breakoutIdx, n - 1, breakoutVolume);
-  if (!declineCheck.ok) return { ok: false, status: 'expired', reason: declineCheck.reason ?? 'Pullback volume masih tinggi (belum nunjukin koreksi lemah)' };
-
-  let confirmCount = 0;
-  const rejectionVolumeOk = lastVolMA > 0 && lastVol >= 1.2 * lastVolMA;
-  if (rejectionVolumeOk) confirmCount++;
-  const nLtf = ltf.closes.length;
-  const rsiLtf = calcRSI(ltf.closes, 14);
-  const macdLtf = calcMACD(ltf.closes);
-  const momentumAlign = bias === 'bullish' ? (rsiLtf > 50 && macdLtf.histogram > 0) : (rsiLtf < 50 && macdLtf.histogram < 0);
-  if (momentumAlign) confirmCount++;
-  if (confirmCount < 1) return { ok: false, status: 'expired', reason: 'Belum ada konfirmasi tambahan (rejection volume / momentum align) yang lolos' };
-
-  // Momentum check (request user): buat RETEST, momentum yang BAGUS itu
-  // DESELERASI (pullback ngempos = sehat, bukan reversal beneran). Akselerasi
-  // pas retest itu warning (pullback masih kenceng, rawan gak balik lagi).
-  const momentum = detectMomentumTrend(ltf, 3);
-  const momentumNote = momentum.decelerating
-    ? ` Momentum deselerasi mendekati retest (range ${(momentum.rangeRatio * 100).toFixed(0)}%, vol ${(momentum.volRatio * 100).toFixed(0)}% dari 3 candle sebelumnya) — pullback sehat, bonus konfluensi.`
-    : momentum.accelerating
-    ? ` ⚠️ Momentum masih akselerasi pas retest (range ${(momentum.rangeRatio * 100).toFixed(0)}%, vol ${(momentum.volRatio * 100).toFixed(0)}%) — pullback masih kenceng, waspada.`
-    : '';
-
-  return {
-    ok: true, status: 'in_zone', bias, entryPrice, stopLoss, takeProfit1, rr1: 2,
-    zoneEdgeUpper: found.edgeUpper, zoneEdgeLower: found.edgeLower, candlesSinceBreakout,
-    note: `Breakout ${bias} + retest ke ${found.level.toFixed(4)} dikonfirmasi (${confirmCount}/2 konfirmasi tambahan).${momentumNote}`,
-    momentumFavorable: momentum.decelerating,
-    structureNote, marketStructureV2,
-  };
-}
-
-/**
- * Range: rejection+retest — ADAPTASI basis Skill 15M buat kondisi ranging
- * (request user, approved). Bedanya dari breakout: "event"-nya REJECTION di
- * salah satu dari 2 zona (S&R sepasang yang ngapit harga), bukan breakout.
- * Bias-nya MEAN-REVERSION (rejection di resistance = short, di support = long).
- */
-function tryZoneRejectionRetest(
-  htf: KlineData, ltf: KlineData, currentPrice: number,
-  resistanceLevels: number[], supportLevels: number[], zoneWidth: number, atrHtf: number,
-  tf: TFLabelV2
-): ZoneEventOk | ZoneEventFail {
-  const n = htf.closes.length;
-
-  // Butuh pasangan S&R yang genuinely ngapit harga sekarang
-  const resAbove = resistanceLevels.filter(l => l > currentPrice);
-  const supBelow = supportLevels.filter(l => l < currentPrice);
-  if (resAbove.length === 0 || supBelow.length === 0) {
-    return { ok: false, status: 'waiting', reason: 'Gak ada pasangan S&R yang ngapit harga sekarang' };
-  }
-  const nearestRes = Math.min(...resAbove);
-  const nearestSup = Math.max(...supBelow);
-  if (nearestRes - nearestSup < atrHtf * 1) {
-    return { ok: false, status: 'waiting', reason: `Range cuma ${((nearestRes - nearestSup) / atrHtf).toFixed(2)}x ATR — kesempitan, butuh ≥1x` };
-  }
-
-  const volMA20At = (idx: number) => {
-    const start = Math.max(0, idx - 20);
-    const win = htf.volumes.slice(start, idx);
-    return win.length > 0 ? win.reduce((a, b) => a + b, 0) / win.length : 0;
-  };
-
-  const windowMax = 24;
-  let found: { direction: 'bullish' | 'bearish'; edge: number; rejectIdx: number } | null = null;
-
-  for (let idx = Math.max(1, n - windowMax); idx < n; idx++) {
-    const o = htf.opens[idx]!, h = htf.highs[idx]!, l = htf.lows[idx]!, c = htf.closes[idx]!;
-    const body = Math.abs(c - o);
-    const edgeUpperRes = nearestRes + zoneWidth / 2;
-    const edgeLowerRes = nearestRes - zoneWidth / 2;
-    const edgeUpperSup = nearestSup + zoneWidth / 2;
-    const edgeLowerSup = nearestSup - zoneWidth / 2;
-    // Rejection di resistance: high masuk zona TAPI close nolak balik ke bawah
-    const upperWick = h - Math.max(o, c);
-    if (h >= edgeLowerRes && upperWick > body * 1.5 && c < edgeUpperRes) {
-      found = { direction: 'bearish', edge: nearestRes, rejectIdx: idx };
-    }
-    // Rejection di support: low masuk zona TAPI close nolak balik ke atas
-    const lowerWick = Math.min(o, c) - l;
-    if (l <= edgeUpperSup && lowerWick > body * 1.5 && c > edgeLowerSup) {
-      found = { direction: 'bullish', edge: nearestSup, rejectIdx: idx };
-    }
-  }
-
-  if (!found) return { ok: false, status: 'waiting', reason: `Belum ada rejection candle valid di boundary manapun dalam ${windowMax} candle terakhir` };
-
-  const bias = found.direction;
-
-  // ═══ Market Structure V2 — primary gate versi reversal (request user) ════
-  const structGate = checkStructureV2GateForReversal(htf, bias, tf);
-  if (structGate.blocked) {
-    return { ok: false, status: 'waiting', reason: structGate.reason, marketStructureV2: structGate.structV2 };
-  }
-  const structureNote = structGate.structureNote;
-  const marketStructureV2 = structGate.structV2;
-
-  const candlesSinceBreakout = n - 1 - found.rejectIdx;
-  const edgeUpper = found.edge + zoneWidth / 2;
-  const edgeLower = found.edge - zoneWidth / 2;
-
-  // Invalidate: abis rejection, kalau harga BALIK nembus edge ke arah rejection
-  // (bukan mean-revert kayak yang diharepin) → setup gagal.
-  for (let idx = found.rejectIdx + 1; idx < n; idx++) {
-    const c = htf.closes[idx]!;
-    if (bias === 'bearish' && c > edgeUpper) return { ok: false, status: 'expired', reason: 'Harga nembus balik ke atas resistance — rejection invalid' };
-    if (bias === 'bullish' && c < edgeLower) return { ok: false, status: 'expired', reason: 'Harga nembus balik ke bawah support — rejection invalid' };
-  }
-  if (candlesSinceBreakout > windowMax) {
-    return { ok: false, status: 'expired', reason: `Rejection udah lewat window (${candlesSinceBreakout} candle, max ${windowMax})` };
-  }
-
-  const entryBuffer = atrHtf * 0.2;
-  const slBuffer = atrHtf * 1;
-  const dir = bias === 'bullish' ? 1 : -1;
-  const entryPrice = bias === 'bullish' ? edgeUpper + entryBuffer : edgeLower - entryBuffer; // masuk ke dalam range
-  const stopLoss = bias === 'bullish' ? edgeLower - slBuffer : edgeUpper + slBuffer;
-  const risk = Math.abs(entryPrice - stopLoss);
-  const oppositeLevel = bias === 'bullish' ? nearestRes : nearestSup;
-  const targetDist = Math.abs(oppositeLevel - entryPrice);
-  const rrToOpposite = risk > 0 ? targetDist / risk : 0;
-  const rr1 = Math.max(2, rrToOpposite); // floor RR 1:2, dipake yang lebih gede kalau jarak asli ngasih lebih
-  const takeProfit1 = entryPrice + risk * rr1 * dir;
-
-  // "in_zone" kalau harga udah balik deket entry (dalem radius maxPullback dari edge)
-  const distFromEdge = bias === 'bullish' ? currentPrice - edgeUpper : edgeLower - currentPrice;
-  const maxPullback = atrHtf * 1.5;
-  if (distFromEdge < 0 || distFromEdge > maxPullback) {
-    return {
-      ok: true, status: 'approaching', bias, entryPrice, stopLoss, takeProfit1, rr1,
-      zoneEdgeUpper: edgeUpper, zoneEdgeLower: edgeLower, candlesSinceBreakout,
-      note: `Rejection ${bias === 'bullish' ? 'bullish di support' : 'bearish di resistance'} ${found.edge.toFixed(4)}, ${candlesSinceBreakout} candle lalu — nunggu harga balik ke zona entry`,
-      structureNote, marketStructureV2,
-    };
-  }
-
-  const lastVol = htf.volumes[n - 1]!;
-  const lastVolMA = volMA20At(n - 1);
-  let confirmCount = 0;
-  const rejectionVolumeOk = lastVolMA > 0 && lastVol >= 1.2 * lastVolMA;
-  if (rejectionVolumeOk) confirmCount++;
-  const rsiLtf = calcRSI(ltf.closes, 14);
-  const rsiExtremeOk = bias === 'bullish' ? rsiLtf < 35 : rsiLtf > 65;
-  if (rsiExtremeOk) confirmCount++;
-  if (confirmCount < 1) return { ok: false, status: 'expired', reason: 'Belum ada konfirmasi tambahan (rejection volume / RSI ekstrem) yang lolos' };
-
-  // Momentum check: buat REJECTION, deselerasi mendekati boundary itu bagus
-  // (harga kehabisan tenaga = rejection lebih mungkin bertahan/mantul).
-  const momentum = detectMomentumTrend(ltf, 3);
-  const momentumNote = momentum.decelerating
-    ? ` Momentum deselerasi di boundary (range ${(momentum.rangeRatio * 100).toFixed(0)}%, vol ${(momentum.volRatio * 100).toFixed(0)}%) — rejection lebih mungkin bertahan, bonus konfluensi.`
-    : momentum.accelerating
-    ? ` ⚠️ Momentum masih akselerasi di boundary (range ${(momentum.rangeRatio * 100).toFixed(0)}%, vol ${(momentum.volRatio * 100).toFixed(0)}%) — rawan tembus, waspada.`
-    : '';
-
-  return {
-    ok: true, status: 'in_zone', bias, entryPrice, stopLoss, takeProfit1, rr1,
-    zoneEdgeUpper: edgeUpper, zoneEdgeLower: edgeLower, candlesSinceBreakout,
-    note: `Rejection ${bias === 'bullish' ? 'bullish di support' : 'bearish di resistance'} ${found.edge.toFixed(4)} + retest dikonfirmasi (${confirmCount}/2 konfirmasi tambahan), target ${oppositeLevel.toFixed(4)}.${momentumNote}`,
-    momentumFavorable: momentum.decelerating,
-    structureNote, marketStructureV2,
-  };
-}
-
-/**
- * Extreme Scalping v5 — REWRITE TOTAL (request user: "ubah total pakai basis
- * 15M"). Struktur M15 -> eksekusi M5. Coba trend (breakout+retest) dulu; kalau
- * 'waiting' (belum ada breakout), coba range (rejection+retest). BTC Correlation
- * hard filter di kedua jalur.
- */
-// ─── H1 Zone Detection (pivot 3 kiri-kanan, merge jadi zona, hitung touches) —
-// basis skill Quant baru, request user setelah backtest ekstensif di luar app.
-interface H1Zone { low: number; high: number; mid: number; touches: number; type: 'support' | 'resistance' }
-
-function findH1Pivots(highs: number[], lows: number[], leftRight: number = 3): { ph: number[]; pl: number[] } {
-  const ph: number[] = []; const pl: number[] = [];
-  for (let i = leftRight; i < highs.length - leftRight; i++) {
-    const windowH = highs.slice(i - leftRight, i + leftRight + 1);
-    const windowL = lows.slice(i - leftRight, i + leftRight + 1);
-    if (highs[i] === Math.max(...windowH)) ph.push(highs[i]!);
-    if (lows[i] === Math.min(...windowL)) pl.push(lows[i]!);
-  }
-  return { ph, pl };
-}
-
-function mergeIntoH1Zones(pivots: number[], tolerance: number, type: 'support' | 'resistance'): H1Zone[] {
-  if (pivots.length === 0) return [];
-  const sorted = [...pivots].sort((a, b) => a - b);
-  const zones: H1Zone[] = [];
-  let group: number[] = [sorted[0]!];
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i]! - group[group.length - 1]! <= tolerance) {
-      group.push(sorted[i]!);
-    } else {
-      zones.push({ low: Math.min(...group), high: Math.max(...group), mid: group.reduce((a, b) => a + b, 0) / group.length, touches: group.length, type });
-      group = [sorted[i]!];
-    }
-  }
-  zones.push({ low: Math.min(...group), high: Math.max(...group), mid: group.reduce((a, b) => a + b, 0) / group.length, touches: group.length, type });
-  return zones;
-}
-
-/**
- * Extreme Scalping — Skill Quant REWRITE TOTAL v5 (request user, basis
- * backtest ekstensif di luar app: strategi awal dari saran AI lain gagal
- * total — WR 46.8%, net -0.421R. v1-v3 nunggu M15 rejection+break struktur
- * dulu sebelum entry — WR terbaik yang tervalidasi 46.3% (95 trade).
- *
- * BREAKTHROUGH v4 (ide user): GANTI mekanisme entry — bukan nunggu pola
- * rejection+break M15 (yang jarang terjadi), tapi entry LANGSUNG begitu
- * harga M15 masuk ke zona H1 (kayak limit order), DAN SL pake ATR H1
- * (lebih stabil/lebar dari ATR M15 yang noisy). Efeknya GANDA: sample
- * MELEDAK dari 95 -> 580 trade (7x lipat), DAN winrate NAIK (46.3% ->
- * 53.8%). Ditambah RSI filter (WAJIB searah bias, deviasi dari 50 >=5)
- * -> WR 63.9%, 255 trade.
- *
- * TUNING v5 (request user "kejar WR potensial 87.2%" dari afterlife
- * analysis): SL buffer di-tuning dari 0.3xATR H1 turun ke 0.1xATR H1.
- * Sempat coba 0.05 (WR tertinggi 71.9%, SANGAT konsisten gap 2.6pp),
- * TAPI user pilih 0.1 sebagai titik tengah (SL 0.05 dianggap terlalu
- * sempit, resiko slippage/eksekusi di real trading) — VERSI FINAL:
- * WR 64.7-70.2% (3-way split, gap 5.5pp, KONSISTEN). 5 koin
- * (BTC/ETH/SOL/BNB/XRP), 318 trade.
- *
- * Alur (SEMUA WAJIB):
- * 1. H1 — swing pivot (3 candle) -> merge jadi zona (toleransi 0.5x ATR
- *    H1) -> filter zona (support DAN resistance) yang disentuh >=3x
- * 2. PRIORITAS BUY: cek dulu setup di support (H1 bullish/range). BARU
- *    kalau BUY gak ada, cek SELL di resistance — TAPI SELL CUMA VALID
- *    kalau H1 = range (BUKAN bearish jelas)
- * 3. Entry LANGSUNG kalau candle M15 sekarang overlap sama zona (harga
- *    high/low candle nyentuh range zona) — TANPA nunggu konfirmasi
- *    rejection/break struktur dulu
- * 4. RSI M15 WAJIB searah bias, deviasi dari 50 minimal 5 poin (BUY
- *    butuh RSI>=55, SELL butuh RSI<=45) — momentum udah mulai ke arah
- *    breakout, bukan netral/lawan
- * 5. BTC Correlation
- * 6. Entry di tengah zona (zone.mid), SL luar zona - 0.1xATR H1 (SL
- *    LEBIH SEMPIT dari v4, hasil tuning lanjutan), RR fixed 1:2
- *
- * CATATAN JUJUR: sample masih JAUH lebih kecil dari validasi Menu 8
- * (144+ trade) — di sini 318 trade, TAPI dengan SL yang lebih sempit,
- * eksekusi real-trading BUTUH kehati-hatian ekstra soal slippage/spread
- * dibanding versi v4 (buffer 0.3xATR). Afterlife analysis (WR potensial
- * 87.2%) itu BELUM sepenuhnya "dikejar" — masih ada gap ke potensial,
- * tapi ini versi PALING ROBUST yang pernah ditemukan buat skill ini.
- */
 interface TFClassification {
   bias: 'bullish' | 'bearish' | 'sideways';
   adx: number;
@@ -4853,6 +3649,271 @@ function detectVolumeDivergence(highs: number[], lows: number[], closes: number[
   }
 
   return { bullish, bearish };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FITUR 6 TA PRO — DIVERGENCE & KEKUATAN TREND (request user)
+// MACD Divergence & Stochastic(5,3,3) Divergence -- BARU, pola generic sama
+// kayak detectRSIDivergenceGeneric/detectVolumeDivergence di atas (bandingin
+// 2 swing price terakhir vs nilai indikator di titik yang sama).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function detectMACDDivergenceGeneric(highs: number[], lows: number[], closes: number[]): DivergenceResult {
+  const emaFast = calcEMASeries(closes, 12);
+  const emaSlow = calcEMASeries(closes, 26);
+  const macdLine = emaFast.map((v, i) => v - emaSlow[i]!);
+  const signalLine = calcEMASeries(macdLine, 9);
+  const histSeries = macdLine.map((v, i) => v - signalLine[i]!);
+  const swingHighs = findSwingPointsIdx(highs, 'high', 2);
+  const swingLows = findSwingPointsIdx(lows, 'low', 2);
+
+  let bearish = false;
+  if (swingHighs.length >= 2) {
+    const h1s = swingHighs[swingHighs.length - 2]!;
+    const h2s = swingHighs[swingHighs.length - 1]!;
+    const priceHH = h2s.value > h1s.value;
+    const histAtH1 = histSeries[h1s.idx] ?? 0;
+    const histAtH2 = histSeries[h2s.idx] ?? 0;
+    bearish = priceHH && histAtH2 < histAtH1 && histAtH1 > 0; // histogram masih positif tapi mengecil = momentum melemah
+  }
+
+  let bullish = false;
+  if (swingLows.length >= 2) {
+    const l1 = swingLows[swingLows.length - 2]!;
+    const l2 = swingLows[swingLows.length - 1]!;
+    const priceLL = l2.value < l1.value;
+    const histAtL1 = histSeries[l1.idx] ?? 0;
+    const histAtL2 = histSeries[l2.idx] ?? 0;
+    bullish = priceLL && histAtL2 > histAtL1 && histAtL1 < 0;
+  }
+
+  return { bullish, bearish };
+}
+
+// Stochastic 5,3,3 (lookback=5, smoothK=3, smoothD=3) -- settingan yang sama
+// kayak calcStochasticSlow, tapi di sini butuh SERI %K (bukan cuma nilai
+// terakhir) buat dibandingin di titik-titik swing.
+function detectStochasticDivergenceGeneric(highs: number[], lows: number[], closes: number[]): DivergenceResult {
+  const lookback = 5, smoothK = 3;
+  const n = closes.length;
+  if (n < lookback + smoothK + 5) return { bullish: false, bearish: false };
+
+  const rawK: number[] = [];
+  for (let i = lookback - 1; i < n; i++) {
+    const windowHigh = Math.max(...highs.slice(i - lookback + 1, i + 1));
+    const windowLow = Math.min(...lows.slice(i - lookback + 1, i + 1));
+    const range = windowHigh - windowLow;
+    rawK.push(range > 0 ? ((closes[i]! - windowLow) / range) * 100 : 50);
+  }
+  const kSeries: number[] = new Array(n).fill(50);
+  for (let i = smoothK - 1; i < rawK.length; i++) {
+    const win = rawK.slice(i - smoothK + 1, i + 1);
+    const slowKVal = win.reduce((a, b) => a + b, 0) / win.length;
+    kSeries[i + lookback - 1] = slowKVal; // offset balik ke index closes asli
+  }
+
+  const swingHighs = findSwingPointsIdx(highs, 'high', 2);
+  const swingLows = findSwingPointsIdx(lows, 'low', 2);
+
+  let bearish = false;
+  if (swingHighs.length >= 2) {
+    const h1s = swingHighs[swingHighs.length - 2]!;
+    const h2s = swingHighs[swingHighs.length - 1]!;
+    const priceHH = h2s.value > h1s.value;
+    const kAtH1 = kSeries[h1s.idx] ?? 50;
+    const kAtH2 = kSeries[h2s.idx] ?? 50;
+    bearish = priceHH && kAtH2 < kAtH1 - 2 && kAtH2 > 70; // masih di area jenuh beli tapi %K-nya nurun
+  }
+
+  let bullish = false;
+  if (swingLows.length >= 2) {
+    const l1 = swingLows[swingLows.length - 2]!;
+    const l2 = swingLows[swingLows.length - 1]!;
+    const priceLL = l2.value < l1.value;
+    const kAtL1 = kSeries[l1.idx] ?? 50;
+    const kAtL2 = kSeries[l2.idx] ?? 50;
+    bullish = priceLL && kAtL2 > kAtL1 + 2 && kAtL2 < 30; // masih di area jenuh jual tapi %K-nya naik
+  }
+
+  return { bullish, bearish };
+}
+
+export interface OIPriceVolumeSnapshot {
+  timeframe: 'D1' | 'H4';
+  priceChangePct: number;
+  oiChangePct: number;
+  volumeTrend: 'expanding' | 'contracting';
+  scenario: 'long_baru_masuk' | 'short_covering' | 'short_baru_masuk' | 'long_nutup_posisi' | 'netral';
+  interpretation: string;
+}
+
+// Open Interest + Price + Volume + Funding Rate -- klasifikasi 4-skenario
+// standar (BUKAN divergence swing-comparison kayak 4 di atas, tapi baca
+// KONFLUENSI price-move vs OI-move). Selalu D1 + H4 (request user), gak
+// ngikut TF selector fitur ini -- OI histori Binance emang cuma granularitas
+// 1h/4h/1d, dan D1+H4 dianggap paling relevan buat baca posisi "besar".
+async function analyzeOIPriceVolumeFunding(symbol: string): Promise<{
+  d1: OIPriceVolumeSnapshot | null;
+  h4: OIPriceVolumeSnapshot | null;
+  fundingRate: number | null;
+  fundingInterpretation: string;
+}> {
+  const [d1k, h4k, oiD1, oiH4, funding] = await Promise.all([
+    fetchKlines(symbol, '1d', 10),
+    fetchKlines(symbol, '4h', 10),
+    fetchOpenInterestHist(symbol, '1d', 10),
+    fetchOpenInterestHist(symbol, '4h', 10),
+    fetchFundingRate(symbol),
+  ]);
+
+  const buildSnapshot = (tf: 'D1' | 'H4', k: KlineData, oi: number[] | null): OIPriceVolumeSnapshot | null => {
+    if (!oi || oi.length < 4 || k.closes.length < 5) return null;
+    const lastClosedIdx = k.closes.length - 2;
+    const priceNow = k.closes[lastClosedIdx]!;
+    const priceBaseIdx = Math.max(0, lastClosedIdx - 3);
+    const pricePrev = k.closes[priceBaseIdx]!;
+    const priceChangePct = pricePrev !== 0 ? ((priceNow - pricePrev) / pricePrev) * 100 : 0;
+
+    const oiNow = oi[oi.length - 1]!;
+    const oiPrevIdx = Math.max(0, oi.length - 4);
+    const oiPrev = oi[oiPrevIdx]!;
+    const oiChangePct = oiPrev > 0 ? ((oiNow - oiPrev) / oiPrev) * 100 : 0;
+
+    const volMa = calcSMA(k.volumes.slice(0, lastClosedIdx + 1), Math.min(20, lastClosedIdx + 1));
+    const volumeTrend: 'expanding' | 'contracting' = (k.volumes[lastClosedIdx] ?? 0) > volMa ? 'expanding' : 'contracting';
+
+    let scenario: OIPriceVolumeSnapshot['scenario'];
+    let interpretation: string;
+    if (priceChangePct > 0.1 && oiChangePct > 1) {
+      scenario = 'long_baru_masuk';
+      interpretation = 'Harga naik + OI naik — posisi LONG baru masuk, momentum bullish didukung fresh money (kuat)';
+    } else if (priceChangePct > 0.1) {
+      scenario = 'short_covering';
+      interpretation = 'Harga naik tapi OI turun/flat — kemungkinan short covering, kenaikan kurang solid (rawan reversal)';
+    } else if (priceChangePct < -0.1 && oiChangePct > 1) {
+      scenario = 'short_baru_masuk';
+      interpretation = 'Harga turun + OI naik — posisi SHORT baru masuk, momentum bearish didukung fresh money (kuat)';
+    } else if (priceChangePct < -0.1) {
+      scenario = 'long_nutup_posisi';
+      interpretation = 'Harga turun tapi OI turun/flat — kemungkinan long liquidation/closing, penurunan kurang solid (rawan bounce)';
+    } else {
+      scenario = 'netral';
+      interpretation = 'Harga & OI relatif flat — belum ada sinyal jelas';
+    }
+    return { timeframe: tf, priceChangePct, oiChangePct, volumeTrend, scenario, interpretation };
+  };
+
+  const d1Snap = buildSnapshot('D1', d1k, oiD1);
+  const h4Snap = buildSnapshot('H4', h4k, oiH4);
+
+  let fundingInterpretation = 'Data funding gak tersedia';
+  if (funding !== null) {
+    if (funding > 0.05) fundingInterpretation = `Funding rate ${funding.toFixed(4)}% — positif tinggi, crowd condong LONG (long bayar ke short), waspada potensi long squeeze kalau makin ekstrem`;
+    else if (funding < -0.05) fundingInterpretation = `Funding rate ${funding.toFixed(4)}% — negatif tinggi, crowd condong SHORT (short bayar ke long), waspada potensi short squeeze kalau makin ekstrem`;
+    else fundingInterpretation = `Funding rate ${funding.toFixed(4)}% — netral, gak ada bias crowd signifikan`;
+  }
+
+  return { d1: d1Snap, h4: h4Snap, fundingRate: funding, fundingInterpretation };
+}
+
+export interface TrendStrengthPanel {
+  adx: number;
+  adxClassification: 'lemah/ranging' | 'developing' | 'kuat' | 'sangat kuat';
+  forceIndex: number;
+  forceIndexDirection: 'bullish' | 'bearish';
+  volumeRatio: number; // current vs MA20
+  volumeTrend: 'expanding' | 'contracting';
+  atrRatio: number; // current vs ATR 10 candle lalu
+  volatilityTrend: 'naik' | 'turun';
+}
+
+// Kekuatan Trend -- panel multi-indikator (request user: "pokoknya indikator
+// pembaca kekuatan trend"): ADX, Force Index, Volume vs MA20, ATR vs 10
+// candle lalu. Dihitung di TF yang sama kayak 4 divergence check di atas.
+function analyzeTrendStrength(highs: number[], lows: number[], closes: number[], volumes: number[]): TrendStrengthPanel {
+  const adxResult = calcADXWithDI(highs, lows, closes, 14);
+  let adxClassification: TrendStrengthPanel['adxClassification'];
+  if (adxResult.adx < 20) adxClassification = 'lemah/ranging';
+  else if (adxResult.adx < 25) adxClassification = 'developing';
+  else if (adxResult.adx < 35) adxClassification = 'kuat';
+  else adxClassification = 'sangat kuat';
+
+  const fiSeries = calcForceIndexSeries(closes, volumes);
+  const forceIndex = fiSeries[fiSeries.length - 1] ?? 0;
+  const forceIndexDirection: 'bullish' | 'bearish' = forceIndex > 0 ? 'bullish' : 'bearish';
+
+  const lastIdx = closes.length - 2;
+  const volMa20 = calcSMA(volumes.slice(0, lastIdx + 1), Math.min(20, lastIdx + 1));
+  const volumeRatio = volMa20 > 0 ? (volumes[lastIdx] ?? 0) / volMa20 : 1;
+  const volumeTrend: 'expanding' | 'contracting' = volumeRatio > 1 ? 'expanding' : 'contracting';
+
+  const atrNow = calcATR(highs.slice(0, lastIdx + 2), lows.slice(0, lastIdx + 2), closes.slice(0, lastIdx + 2));
+  const pastEndIdx = Math.max(15, lastIdx - 10);
+  const atrPast = calcATR(highs.slice(0, pastEndIdx + 2), lows.slice(0, pastEndIdx + 2), closes.slice(0, pastEndIdx + 2));
+  const atrRatio = atrPast > 0 ? atrNow / atrPast : 1;
+  const volatilityTrend: 'naik' | 'turun' = atrRatio > 1 ? 'naik' : 'turun';
+
+  return { adx: adxResult.adx, adxClassification, forceIndex, forceIndexDirection, volumeRatio, volumeTrend, atrRatio, volatilityTrend };
+}
+
+export interface DivergenceTrendResult {
+  symbol: string;
+  tf: TFLabelV2;
+  timestamp: string;
+  rsiDivergence: DivergenceResult;
+  macdDivergence: DivergenceResult;
+  volumeDivergence: DivergenceResult;
+  stochasticDivergence: DivergenceResult;
+  trendStrength: TrendStrengthPanel;
+  oiPriceVolumeFunding: Awaited<ReturnType<typeof analyzeOIPriceVolumeFunding>>;
+  filterResults: string[];
+}
+
+// FITUR 6 TA PRO -- gabungan semua di atas. Divergence + kekuatan trend
+// dihitung di TF yang dipilih user (kayak fitur lain); OI+Funding SELALU
+// D1+H4 (request user), gak ngikut TF selector.
+export async function analyzeDivergenceTrend(
+  opens: number[], highs: number[], lows: number[], closes: number[], volumes: number[],
+  tf: TFLabelV2, symbol: string,
+): Promise<DivergenceTrendResult> {
+  const timestamp = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'long', year: 'numeric',
+  }) + ' WIB';
+
+  const rsiDivergence = detectRSIDivergenceGeneric(highs, lows, closes);
+  const macdDivergence = detectMACDDivergenceGeneric(highs, lows, closes);
+  const volumeDivergence = detectVolumeDivergence(highs, lows, closes, volumes);
+  const stochasticDivergence = detectStochasticDivergenceGeneric(highs, lows, closes);
+  const trendStrength = analyzeTrendStrength(highs, lows, closes, volumes);
+  const oiPriceVolumeFunding = await analyzeOIPriceVolumeFunding(symbol);
+
+  const divLabel = (d: DivergenceResult, name: string): string => {
+    if (d.bullish) return `⚠️ ${name} — BULLISH divergence (harga bikin low baru, indikator enggak)`;
+    if (d.bearish) return `⚠️ ${name} — BEARISH divergence (harga bikin high baru, indikator enggak)`;
+    return `ℹ️ ${name} — gak ada divergence`;
+  };
+
+  const filterResults: string[] = [
+    divLabel(rsiDivergence, `RSI Divergence (${tf})`),
+    divLabel(macdDivergence, `MACD Divergence (${tf})`),
+    divLabel(volumeDivergence, `Volume Divergence (${tf})`),
+    divLabel(stochasticDivergence, `Stochastic 5,3,3 Divergence (${tf})`),
+    `ℹ️ Kekuatan Trend (${tf}) — ADX ${trendStrength.adx.toFixed(1)} (${trendStrength.adxClassification}), Force Index ${trendStrength.forceIndex.toFixed(2)} (${trendStrength.forceIndexDirection}), Volume ${trendStrength.volumeRatio.toFixed(2)}x MA20 (${trendStrength.volumeTrend}), ATR ${trendStrength.atrRatio.toFixed(2)}x vs 10 candle lalu (volatilitas ${trendStrength.volatilityTrend})`,
+    oiPriceVolumeFunding.d1
+      ? `ℹ️ OI+Price+Volume D1 — ${oiPriceVolumeFunding.d1.interpretation}`
+      : 'ℹ️ OI+Price+Volume D1 — data gak cukup',
+    oiPriceVolumeFunding.h4
+      ? `ℹ️ OI+Price+Volume H4 — ${oiPriceVolumeFunding.h4.interpretation}`
+      : 'ℹ️ OI+Price+Volume H4 — data gak cukup',
+    `ℹ️ Funding Rate — ${oiPriceVolumeFunding.fundingInterpretation}`,
+  ];
+
+  return {
+    symbol, tf, timestamp,
+    rsiDivergence, macdDivergence, volumeDivergence, stochasticDivergence,
+    trendStrength, oiPriceVolumeFunding, filterResults,
+  };
 }
 
 export interface TFDetail {
@@ -5001,40 +4062,6 @@ export async function scanMultiTFTrendCoin(symbol: string): Promise<MultiTFScanC
   }
 }
 
-/**
- * Menu 8 — Momentum Hunter. Scan 4 pasangan TF (15M→1M, 5M→1M, H1→15M, H4→M30)
- * nyari 3 tipe setup basis Skill 15M (retest > reversal-ekstrem >
- * breakout-antisipasi, urutan prioritas ini + urutan TF sesuai request user),
- * fallback single-TF (15M/5M/H1) kalau market sideways di semua TF trend.
- * Fetch cuma 6x (bukan 15x) — tiap TF unique di-fetch sekali, dipake ulang.
- */
-/**
- * Momentum Hunter — REWRITE TOTAL (request user, basis backtest ekstensif
- * di luar app pakai Binance MCP langsung: 14+ strategi dicoba, WR 58.3%
- * KONSISTEN di 2 periode berbeda, 7 koin, 144 trade — paling stabil dari
- * semua yang dites). Gantiin Pump/Dump Entry lama.
- *
- * Basis: Taker Buy Ratio Breakout — breakout M30 dikonfirmasi arah
- * tekanan transaksi GENUINE (taker buy ratio, bukan cuma harga+volume
- * biasa yang gak bisa bedain arah), plus struktur H4, MACD, dan ekspansi
- * volatilitas. SL pakai ATR H1 (lebih stabil dari ATR M30 sendiri).
- *
- * Alur (SEMUA WAJIB):
- * 1. M30 — breakout (close tembus resistance/support 10 candle) + volume
- *    ≥1.3x MA20 + taker buy ratio ≥52% (bullish) / ≤48% (bearish)
- * 2. H4 — Market Structure V2, WAJIB gak berlawanan arah breakout
- * 3. M30 — MACD histogram searah bias
- * 4. M30 — Volatility Expansion: ATR(14) sekarang ≥1.1x ATR 10 candle
- *    lalu (breakout genuine = volatilitas MELEBAR)
- * 5. BTC Correlation (skip kalau symbol = BTC sendiri)
- * 6. Entry LANGSUNG harga sekarang, SL window low/high 5 candle M30 +
- *    buffer ATR(14) H1 x 0.5, TP RR 1:1
- *
- * CATATAN JUJUR dari hasil backtest: WR 58.3% itu BELUM 60%, dan makin
- * ketat filter yang dicoba (RSI, ADX, threshold lebih tinggi) makin
- * beresiko overfit ke sample kecil — 7 lapis filter ini adalah titik
- * PALING KONSISTEN yang ketemu, bukan yang PALING TINGGI winrate-nya.
- */
 export async function analyzeMultiTFDetail(symbol: string): Promise<MultiTFDetailResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
@@ -5905,8 +4932,8 @@ export interface BreakoutTradingResult {
   // Technical Analysis PRO (Skor Long vs Short) apa enggak. Gak nge-block,
   // cuma info/badge tambahan buat UI.
   taProBonusConfirmed?: boolean;
-  taProBonusWinnerTf?: 'H1' | 'H4' | 'D1' | null;
-  taProBonusWinnerScore?: number;
+  taProBonusClassification?: string | null;
+  taProBonusScore?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5965,27 +4992,38 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
   const maxScore = 100;
 
   try {
-    // Fetch M15 generous (150 candle) -- cukup buat EMA89 + scan-back 26 +
-    // swing lookback + volume MA20, semua di timeframe M15 doang.
-    const [m15, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '15m', 150),
+    // REVISI (request user, balikin ke versi awal sebelum FASE 3b/3c H4
+    // ditambahin -- H4 gak dipake lagi sama sekali). Timeframe eksekusi
+    // dinaikin lagi M30 -> H1 (breakout detection, swing, EMA26/89, Force
+    // Index/RSI, retest, semuanya di H1). 100 candle H1 (~4,2 hari) cukup
+    // buat EMA89 + scan-back 26 + swing lookback + volume MA20.
+    // REVISI (request user): balikin fetch H4 -- dipake khusus buat cek
+    // "level signifikan" (>=2x reaksi jelas di H4), BUKAN buat trend/filter
+    // arah lagi (itu tetep dilepas, sesuai revert sebelumnya). Breakout
+    // detection & entry tetep di H1.
+    const [h1, h4, tickerRes] = await Promise.all([
+      fetchKlines(symbol, '1h', 100),
+      fetchKlines(symbol, '4h', 40),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
       ? parseFloat((await tickerRes.json() as { price: string }).price)
-      : m15.closes[m15.closes.length - 1]!;
+      : h1.closes[h1.closes.length - 1]!;
 
-    if (m15.closes.length < 150) {
-      return { status: 'error', symbol, currentPrice, timestamp, message: 'Data candle gak cukup (butuh M15 150+)', maxScore };
+    if (h1.closes.length < 100) {
+      return { status: 'error', symbol, currentPrice, timestamp, message: 'Data candle gak cukup (butuh H1 100+)', maxScore };
+    }
+    if (h4.closes.length < 30) {
+      return { status: 'error', symbol, currentPrice, timestamp, message: 'Data candle gak cukup (butuh H4 30+)', maxScore };
     }
 
-    const atrM15 = calcATR(m15.highs, m15.lows, m15.closes);
-    if (atrM15 <= 0) {
-      return { status: 'error', symbol, currentPrice, timestamp, message: 'ATR M15 gak valid', maxScore };
+    const atrH1 = calcATR(h1.highs, h1.lows, h1.closes);
+    if (atrH1 <= 0) {
+      return { status: 'error', symbol, currentPrice, timestamp, message: 'ATR H1 gak valid', maxScore };
     }
 
-    // ═══ FASE 1: M15 BREAKOUT DETECTION ════════════════════════════════════
-    const lastClosedIdx = m15.closes.length - 2;
+    // ═══ FASE 1: H1 BREAKOUT DETECTION ════════════════════════════════════
+    const lastClosedIdx = h1.closes.length - 2;
     const swingLookback = 30;
     const swingSlice = Math.max(0, lastClosedIdx - swingLookback - 26); // headroom buat scan-back 26 + window swing
     const swingFractal = 2;
@@ -5995,11 +5033,11 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       let high: { idx: number; price: number } | null = null;
       let low: { idx: number; price: number } | null = null;
       for (let i = idx - swingFractal; i >= Math.max(swingFractal, idx - swingLookback); i--) {
-        if (i - swingFractal < 0 || i + swingFractal >= m15.highs.length) continue;
-        const isHigh = [1, 2].every(k => m15.highs[i]! > m15.highs[i - k]!) && [1, 2].every(k => m15.highs[i]! > m15.highs[i + k]!);
-        const isLow = [1, 2].every(k => m15.lows[i]! < m15.lows[i - k]!) && [1, 2].every(k => m15.lows[i]! < m15.lows[i + k]!);
-        if (isHigh && !high) high = { idx: i, price: m15.highs[i]! };
-        if (isLow && !low) low = { idx: i, price: m15.lows[i]! };
+        if (i - swingFractal < 0 || i + swingFractal >= h1.highs.length) continue;
+        const isHigh = [1, 2].every(k => h1.highs[i]! > h1.highs[i - k]!) && [1, 2].every(k => h1.highs[i]! > h1.highs[i + k]!);
+        const isLow = [1, 2].every(k => h1.lows[i]! < h1.lows[i - k]!) && [1, 2].every(k => h1.lows[i]! < h1.lows[i + k]!);
+        if (isHigh && !high) high = { idx: i, price: h1.highs[i]! };
+        if (isLow && !low) low = { idx: i, price: h1.lows[i]! };
         if (high && low) break;
       }
       return { high, low };
@@ -6007,11 +5045,22 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
 
     const isFreshUntouched = (swingIdx: number, level: number, checkUntilIdx: number, tol: number): boolean => {
       for (let i = swingIdx + 1; i < checkUntilIdx; i++) {
-        const h = m15.highs[i]!, l = m15.lows[i]!;
+        const h = h1.highs[i]!, l = h1.lows[i]!;
         if (Math.abs(h - level) <= tol || Math.abs(l - level) <= tol || (l <= level && h >= level)) return false;
       }
       return true;
     };
+
+    // BARU (request user): pastiin level S/R yang mau ditembus itu BENERAN
+    // SIGNIFIKAN di H4 -- minimal 2x disentuh dengan reaksi jelas (lihat
+    // checkLevelSignificantH4 di atas).
+    const h4LastClosedIdx = h4.closes.length - 2;
+    const h4ClosedHighs = h4.highs.slice(0, h4LastClosedIdx + 1);
+    const h4ClosedLows = h4.lows.slice(0, h4LastClosedIdx + 1);
+    const h4ClosedCloses = h4.closes.slice(0, h4LastClosedIdx + 1);
+    const atrH4 = calcATR(h4ClosedHighs, h4ClosedLows, h4ClosedCloses);
+    const isSignificantLevel = (level: number, bias: 'bullish' | 'bearish'): boolean =>
+      checkLevelSignificantH4(h4ClosedHighs, h4ClosedLows, h4ClosedCloses, level, bias, atrH4).significant;
 
     let found: {
       breakoutIdx: number; bias: 'bullish' | 'bearish'; brokenLevel: number; adxValue: number;
@@ -6019,23 +5068,26 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
 
     for (let breakoutIdx = lastClosedIdx; breakoutIdx >= Math.max(swingSlice + 5, lastClosedIdx - 26); breakoutIdx--) {
       const swings = findFreshSwing(breakoutIdx);
-      const volMa20 = calcSMA(m15.volumes.slice(0, breakoutIdx + 1), 20);
+      const volMa20 = calcSMA(h1.volumes.slice(0, breakoutIdx + 1), 20);
       if (volMa20 <= 0) continue;
-      const volRatio = m15.volumes[breakoutIdx]! / volMa20;
-      if (volRatio < 2.0) continue;
+      const volRatio = h1.volumes[breakoutIdx]! / volMa20;
+      // REVISI (request user): volume gate naik dari >=2x jadi >=2.5x MA20.
+      if (volRatio < 2.5) continue;
 
-      const tol = atrM15 * 0.1;
+      const tol = atrH1 * 0.1;
       const bullishBreakout = swings.high && breakoutIdx > swings.high.idx &&
-        m15.closes[breakoutIdx]! > swings.high.price &&
-        isFreshUntouched(swings.high.idx, swings.high.price, breakoutIdx, tol);
+        h1.closes[breakoutIdx]! > swings.high.price &&
+        isFreshUntouched(swings.high.idx, swings.high.price, breakoutIdx, tol) &&
+        isSignificantLevel(swings.high.price, 'bullish');
       const bearishBreakout = swings.low && breakoutIdx > swings.low.idx &&
-        m15.closes[breakoutIdx]! < swings.low.price &&
-        isFreshUntouched(swings.low.idx, swings.low.price, breakoutIdx, tol);
+        h1.closes[breakoutIdx]! < swings.low.price &&
+        isFreshUntouched(swings.low.idx, swings.low.price, breakoutIdx, tol) &&
+        isSignificantLevel(swings.low.price, 'bearish');
 
       if (!bullishBreakout && !bearishBreakout) continue;
 
       const adx = calcADXWithDI(
-        m15.highs.slice(0, breakoutIdx + 1), m15.lows.slice(0, breakoutIdx + 1), m15.closes.slice(0, breakoutIdx + 1), 14,
+        h1.highs.slice(0, breakoutIdx + 1), h1.lows.slice(0, breakoutIdx + 1), h1.closes.slice(0, breakoutIdx + 1), 14,
       );
       // REVISI (request user): ADX jadi BONUS/info doang, bukan hard filter
       // lagi -- gak nge-block breakout walau ADX <=25.
@@ -6062,36 +5114,36 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
     if (!found) {
       return {
         status: 'waiting', symbol, currentPrice, timestamp,
-        message: 'Belum ada breakout M15 fresh (volume>2x MA20, belum retest) dalam 26 candle terakhir',
+        message: 'Belum ada breakout H1 fresh (level signifikan (>=2x reaksi jelas di H4), volume>2.5x MA20, belum retest) dalam 26 candle terakhir',
         maxScore,
       };
     }
 
     const { bias, brokenLevel, adxValue } = found;
     const filterResults: string[] = [
-      `✅ FASE 1 — Breakout M15 fresh @ ${brokenLevel.toFixed(6)}, volume>2x MA20, belum retest sejak breakout`,
+      `✅ FASE 1 — Breakout H1 fresh @ ${brokenLevel.toFixed(6)}, volume>2.5x MA20, level udah teruji minimal 2x (signifikan), belum retest sejak breakout`,
       `ℹ️ ADX(14) @ breakout: ${adxValue.toFixed(1)} (bonus/info, gak nge-block)${adxValue > 25 ? ' — trend kuat' : ' — trend lemah/ranging, hati-hati'}`,
     ];
 
-    // ═══ FASE 3: STRUKTUR TREND (EMA26 vs EMA89) -- REVISI request user:
-    // bonus/info doang, gak nge-block lagi. Cuma FASE 1 & 2 yang wajib. ════
-    const emaSeries26 = calcEMASeries(m15.closes, 26);
-    const emaSeries89 = calcEMASeries(m15.closes, 89);
+    // ═══ FASE 3: STRUKTUR TREND (EMA26 vs EMA89) -- bonus/info doang, gak
+    // nge-block. Cuma FASE 1 & 2 yang wajib. ══════════════════════════════
+    const emaSeries26 = calcEMASeries(h1.closes, 26);
+    const emaSeries89 = calcEMASeries(h1.closes, 89);
     const ema26Now = emaSeries26[lastClosedIdx]!;
     const ema89Now = emaSeries89[lastClosedIdx]!;
     const structOk = bias === 'bullish' ? ema26Now > ema89Now : ema26Now < ema89Now;
     filterResults.push(`ℹ️ FASE 3 (info) — Struktur EMA26 ${ema26Now.toFixed(6)} ${ema26Now > ema89Now ? '>' : '<'} EMA89 ${ema89Now.toFixed(6)}${structOk ? `, searah ${bias}` : `, BERLAWANAN ${bias} — hati-hati`}`);
 
     // ═══ FASE 4: MOMENTUM (info doang, gak nge-block) ═══════════════════════
-    const forceIndexSeries = calcForceIndexSeries(m15.closes, m15.volumes);
+    const forceIndexSeries = calcForceIndexSeries(h1.closes, h1.volumes);
     const forceIndexNow = forceIndexSeries[forceIndexSeries.length - 1];
-    const rsi = calcRSI(m15.closes, 14);
+    const rsi = calcRSI(h1.closes, 14);
     if (forceIndexNow !== undefined) {
       const forceIndexOk = bias === 'bullish' ? forceIndexNow > 0 : forceIndexNow < 0;
       filterResults.push(`ℹ️ FASE 4 (info) — Force Index ${forceIndexNow.toFixed(2)}${forceIndexOk ? ` searah ${bias}` : ' BERLAWANAN — hati-hati'}, RSI(14) ${rsi.toFixed(1)}${(bias === 'bullish' ? (rsi > 50 && rsi < 80) : (rsi > 20 && rsi < 50)) ? ' dalam range normal' : ' di luar range normal — hati-hati'}`);
     }
 
-    // ═══ FASE 5: ENTRY SETUP — LIMIT di level breakout, SL 1.4x ATR M15 ═════
+    // ═══ FASE 5: ENTRY SETUP — LIMIT di level breakout, SL 1.4x ATR H1 ═════
     const dirMult = bias === 'bullish' ? 1 : -1;
     // REVISI (request user, dari riset presisi retest 3 koin/222 sample):
     // entry digeser 0.05% ke arah "lebih gampang ke-fill" dari level persis
@@ -6110,13 +5162,13 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       };
     }
 
-    const stopLoss = entryPrice - atrM15 * 1.4 * dirMult;
+    const stopLoss = entryPrice - atrH1 * 1.4 * dirMult;
     const risk = Math.abs(entryPrice - stopLoss);
     const takeProfit1 = entryPrice + risk * 2 * dirMult;
     const takeProfit2 = entryPrice + risk * 3 * dirMult;
     const rr1 = 2;
 
-    filterResults.push(`✅ FASE 5 — Entry LIMIT @ ${entryPrice.toFixed(6)} (level ${brokenLevel.toFixed(6)}, digeser 0.05% ke arah lebih gampang ke-fill), SL 1.4×ATR M15 @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
+    filterResults.push(`✅ FASE 5 — Entry LIMIT @ ${entryPrice.toFixed(6)} (level ${brokenLevel.toFixed(6)}, digeser 0.05% ke arah lebih gampang ke-fill), SL 1.4×ATR H1 @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
 
     const taProBonus = await checkTaProBonus(symbol, bias);
 
@@ -6126,8 +5178,8 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       entryPrice, orderType: 'limit', stopLoss,
       takeProfit1, takeProfit2, rr1,
       brokenLevel,
-      taProBonusConfirmed: taProBonus.confirmed, taProBonusWinnerTf: taProBonus.winnerTf, taProBonusWinnerScore: taProBonus.winnerScore,
-      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} — breakout M15 fresh belum retest, struktur EMA26/89 searah, momentum konfirmasi. SL 1.4×ATR, TP1 1:2, TP2 1:3.`,
+      taProBonusConfirmed: taProBonus.confirmed, taProBonusClassification: taProBonus.classification, taProBonusScore: taProBonus.score,
+      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} — breakout H1 fresh belum retest, struktur EMA26/89 searah, momentum konfirmasi. SL 1.4×ATR, TP1 1:2, TP2 1:3.`,
     };
   } catch (err) {
     return {
@@ -6386,56 +5438,6 @@ export async function getRecentPerformance(
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ALL-MENUS ANALYSIS — menu baru, analisa 1 koin di SEMUA menu sekaligus
-// (Breakout Entry x2 skill, Sniper x2 skill, Scalping x2 skill, Extreme
-// Scalping x2 skill, + Multi-TF breakdown). Search-only, gak ada tab Scan
-// sendiri — user cari 1 symbol, langsung liat semua hasil.
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface AllMenusResult {
-  symbol: string;
-  timestamp: string;
-  breakoutCounterStructural: BreakoutTradingResult | null; // Menu Counter Scalping (dulu Breakout Entry)
-  scalpingStructural: ScalpingResult | null;
-  scalpingM15: ScalpingResult | null;
-  multiTf: MultiTFDetailResult | null;
-}
-
-/**
- * Analisa 1 koin di SEMUA menu sekaligus — 4 fungsi dipanggil paralel
- * (request user, Sniper/Momentum Hunter/Extreme Scalping DIHAPUS, fokus
- * cuma Counter Scalping + Scalping). Tiap fungsi dibungkus try-catch
- * individual (Promise.allSettled) biar 1 menu gagal gak bikin SEMUA
- * hasil ilang — yang gagal cukup jadi null, bagian lain tetep tampil.
- */
-export async function analyzeAllMenus(symbol: string): Promise<AllMenusResult> {
-  const timestamp = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
-    day: '2-digit', month: 'long', year: 'numeric',
-  }) + ' WIB';
-
-  const [
-    breakoutCounterStructural,
-    scalpingStructural, scalpingM15,
-    multiTf,
-  ] = await Promise.allSettled([
-    analyzeCounterStructural(symbol),
-    analyzeScalpingEntry(symbol),
-    analyzeScalping15M(symbol),
-    analyzeMultiTFDetail(symbol),
-  ]);
-
-  const pick = <T,>(r: PromiseSettledResult<T>): T | null => r.status === 'fulfilled' ? r.value : null;
-
-  return {
-    symbol, timestamp,
-    breakoutCounterStructural: pick(breakoutCounterStructural),
-    scalpingStructural: pick(scalpingStructural),
-    scalpingM15: pick(scalpingM15),
-    multiTf: pick(multiTf),
-  };
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MONEY MAGNET SCALPING (request user, MENU BARU) -- PERSIS logic Money
@@ -6468,38 +5470,47 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
   const maxScore = 100;
 
   try {
-    const [m30, m5, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '30m', 100), // 100 candle -- cukup buat Market Structure V2 swing detection
+    // REVISI (request user): nambah fetch H4 -- dipake khusus buat cek
+    // "level signifikan" (>=2x reaksi jelas di H4). M30 dinaikin ke 200
+    // candle (dari 100) biar EMA89 (buat konfirmasi trend baru) punya cukup
+    // data buat stabil.
+    const [m30, m5, h4, tickerRes] = await Promise.all([
+      fetchKlines(symbol, '30m', 200),
       fetchKlines(symbol, '5m', 150),
+      fetchKlines(symbol, '4h', 40),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
       ? parseFloat((await tickerRes.json() as { price: string }).price)
       : m5.closes[m5.closes.length - 1]!;
 
-    if (m30.closes.length < 100 || m5.closes.length < 100) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh M30 100+, M5 150+)', maxScore };
+    if (m30.closes.length < 200 || m5.closes.length < 100) {
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh M30 200+, M5 150+)', maxScore };
+    }
+    if (h4.closes.length < 30) {
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh H4 30+)', maxScore };
     }
 
-    // ═══ FASE 1: TREND IDENTIFIKASI (Market Structure V2 + EMA26 M30) ═══════
-    // REVISI (request user): Money Magnet Scalping GAK pake ADX -- requireADX=false
-    const structV2 = analyzeMarketStructureV2(m30.opens, m30.highs, m30.lows, m30.closes, 'M30', m30.volumes, false);
-    if (structV2.bias === 'sideways') {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `Market Structure V2 M30 baca sideways/gak jelas (${structV2.classification}) — belum ada trend buat dipakai`, maxScore };
-    }
-    const biasM30 = structV2.bias;
-
+    // ═══ FASE 1: TREND IDENTIFIKASI (request user: baca trend dari EMA26
+    // M30, Market Structure V2 DILEPAS dari FASE 1) + EMA89 M30 KONFIRMASI
+    // (BARU, request user -- dari tes EMA13/26/34/50/89: M30+EMA89 kebukti
+    // masih dalam batas wajar di semua profil volatilitas koin, beda kayak
+    // H4+EMA89 yang kelamaan) ═══════════════════════════════════════════
     const emaSeries26M30Trend = calcEMASeries(m30.closes, 26);
+    const emaSeries89M30Trend = calcEMASeries(m30.closes, 89);
     const lastM30TrendIdx = m30.closes.length - 2;
     const ema26M30trend = emaSeries26M30Trend[lastM30TrendIdx]!;
+    const ema89M30trend = emaSeries89M30Trend[lastM30TrendIdx]!;
     const closeM30trend = m30.closes[lastM30TrendIdx]!;
-    const ema26M30Bias: 'bullish' | 'bearish' = closeM30trend > ema26M30trend ? 'bullish' : 'bearish';
-    if (ema26M30Bias !== biasM30) {
-      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `Market Structure V2 M30 bilang ${biasM30} (${structV2.classification}), tapi EMA26 M30 bilang ${ema26M30Bias} — gak searah`, maxScore };
+    const closeAboveEma26M30 = closeM30trend > ema26M30trend;
+    const ema26AboveEma89M30 = ema26M30trend > ema89M30trend;
+    if (closeAboveEma26M30 !== ema26AboveEma89M30) {
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: `M30 masih transisi/mixed — Close ${closeM30trend.toFixed(6)} ${closeAboveEma26M30 ? '>' : '<'} EMA26 ${ema26M30trend.toFixed(6)}, tapi EMA26 ${ema26AboveEma89M30 ? '>' : '<'} EMA89 ${ema89M30trend.toFixed(6)} (gak searah)`, maxScore };
     }
+    const biasM30: 'bullish' | 'bearish' = closeAboveEma26M30 ? 'bullish' : 'bearish';
 
     const filterResults: string[] = [
-      `✅ FASE 1 — Market Structure V2 M30: ${structV2.classification}, EMA26 M30 searah (Close ${closeM30trend.toFixed(6)} vs EMA26 ${ema26M30trend.toFixed(6)})`,
+      `✅ FASE 1 — Trend EMA26 M30: Close ${closeM30trend.toFixed(6)} ${closeAboveEma26M30 ? '>' : '<'} EMA26 ${ema26M30trend.toFixed(6)}, EMA26 ${ema26AboveEma89M30 ? '>' : '<'} EMA89 ${ema89M30trend.toFixed(6)} (searah) -> ${biasM30}`,
     ];
 
     // ═══ FASE 2: BREAKOUT M5 (swing S/R fresh ATAU EMA26 M5) ═══════════════
@@ -6535,6 +5546,17 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       return true;
     };
 
+    // BARU (request user, sama kayak Sniper Breakout Skill 1 & Menu
+    // Scalping): level S/R yang mau ditembus harus signifikan di H4 --
+    // minimal 2x disentuh dengan reaksi jelas (checkLevelSignificantH4).
+    const h4LastClosedIdx = h4.closes.length - 2;
+    const h4ClosedHighs = h4.highs.slice(0, h4LastClosedIdx + 1);
+    const h4ClosedLows = h4.lows.slice(0, h4LastClosedIdx + 1);
+    const h4ClosedCloses = h4.closes.slice(0, h4LastClosedIdx + 1);
+    const atrH4 = calcATR(h4ClosedHighs, h4ClosedLows, h4ClosedCloses);
+    const isSignificantLevel = (level: number, bias: 'bullish' | 'bearish'): boolean =>
+      checkLevelSignificantH4(h4ClosedHighs, h4ClosedLows, h4ClosedCloses, level, bias, atrH4).significant;
+
     const forceIndexSeries = calcForceIndexSeries(m5.closes, m5.volumes);
 
     type MoneyMagnetV3Found = {
@@ -6546,21 +5568,27 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     for (let breakoutIdx = lastClosedIdx - 1; breakoutIdx >= Math.max(swingSlice + 5, lastClosedIdx - 24); breakoutIdx--) {
       const closeB = m5.closes[breakoutIdx]!;
       const volRatio = volMa20Series[breakoutIdx]! > 0 ? m5.volumes[breakoutIdx]! / volMa20Series[breakoutIdx]! : 0;
-      if (volRatio < 2.0) continue;
+      if (volRatio < 2.5) continue;
 
-      const resistance = swingHighsList[0]!;
-      const support = swingLowsList[0]!;
+      // FIX (request user, sama kayak bug Menu Scalping "5 hari gak dapet
+      // sinyal" -- dulu selalu pake swing PALING BARU (index 0) buat SEMUA
+      // breakoutIdx yang dites, sekarang tiap breakoutIdx pake swing terbaru
+      // yang UDAH KEBENTUK SEBELUM candle itu sendiri.
+      const resistance = swingHighsList.find(s => s.index < breakoutIdx) ?? swingHighsList[0]!;
+      const support = swingLowsList.find(s => s.index < breakoutIdx) ?? swingLowsList[0]!;
 
       // BULLISH: breakout resistance ATAU EMA26 M5 (cross), searah biasM30
       const emaCrossUp = m5.closes[breakoutIdx - 1]! <= emaSeries26M5[breakoutIdx - 1]! && closeB > emaSeries26M5[breakoutIdx]!;
       const bullishBreakout = biasM30 === 'bullish' && breakoutIdx > resistance.index &&
         ((closeB > resistance.price && isFreshUntouched(resistance.index, resistance.price, breakoutIdx)) || emaCrossUp) &&
-        closeB > resistance.price; // tetep pastiin udah lewatin resistance (biar entry S/R konsisten)
+        closeB > resistance.price && // tetep pastiin udah lewatin resistance (biar entry S/R konsisten)
+        isSignificantLevel(resistance.price, 'bullish');
 
       const emaCrossDown = m5.closes[breakoutIdx - 1]! >= emaSeries26M5[breakoutIdx - 1]! && closeB < emaSeries26M5[breakoutIdx]!;
       const bearishBreakout = biasM30 === 'bearish' && breakoutIdx > support.index &&
         ((closeB < support.price && isFreshUntouched(support.index, support.price, breakoutIdx)) || emaCrossDown) &&
-        closeB < support.price;
+        closeB < support.price &&
+        isSignificantLevel(support.price, 'bearish');
 
       if (!bullishBreakout && !bearishBreakout) continue;
 
@@ -6620,13 +5648,13 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     if (!found) {
       return {
         status: 'waiting', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping',
-        message: `Belum ada breakout+retest M5 valid (breakout searah M30 ${biasM30}, volume>=2x MA20, retest ke S/R dengan Force Index searah tanpa divergence) dalam 24 candle terakhir`,
+        message: `Belum ada breakout+retest M5 valid (breakout searah M30 ${biasM30}, level signifikan (>=2x reaksi jelas di H4), volume>=2.5x MA20, retest ke S/R dengan Force Index searah tanpa divergence) dalam 24 candle terakhir`,
         maxScore, filterResults,
       };
     }
 
     const bias = biasM30;
-    filterResults.push(`✅ FASE 2 — Breakout M5 valid @ ${found.levelPrice.toFixed(6)} (volume>=2x MA20), retest ke S/R, Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
+    filterResults.push(`✅ FASE 2 — Breakout M5 valid @ ${found.levelPrice.toFixed(6)} (level signifikan (>=2x reaksi jelas di H4), volume>=2.5x MA20), retest ke S/R, Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
 
     // ═══ FASE 3: ENTRY SETUP ═════════════════════════════════════════════
     const dirMult = bias === 'bullish' ? 1 : -1;
@@ -6641,7 +5669,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       };
     }
 
-    const stopLoss = found.slBasisPrice;
+    const stopLoss = entryPrice - calcATR(m30.highs, m30.lows, m30.closes) * 1.4 * dirMult; // REVISI (request user): SL swing-basis -> ATR M30 (1.4x, samain Sniper Breakout Skill 1)
     const risk = Math.abs(entryPrice - stopLoss);
     if (risk <= 0) {
       return { status: 'no_setup', symbol, bias, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Risk gak valid (entry & SL kelewat dekat)', maxScore, filterResults };
@@ -6650,7 +5678,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     const takeProfit2 = entryPrice + risk * 3 * dirMult;
     const rr1 = 2;
 
-    filterResults.push(`✅ FASE 3 — Entry LIMIT @ ${entryPrice.toFixed(6)}, SL (swing sebelum level) @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
+    filterResults.push(`✅ FASE 3 — Entry LIMIT @ ${entryPrice.toFixed(6)}, SL 1.4×ATR M30 @ ${stopLoss.toFixed(6)}, TP1 RR1:2 @ ${takeProfit1.toFixed(6)}, TP2 RR1:3 @ ${takeProfit2.toFixed(6)}`);
 
     const taProBonus = await checkTaProBonus(symbol, bias);
 
@@ -6662,7 +5690,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       forceIndexValue: found.forceIndexValue,
       magnetLevelUsed: 'broken_level',
       atr15MPct: (atrM5 / currentPrice) * 100,
-      taProBonusConfirmed: taProBonus.confirmed, taProBonusWinnerTf: taProBonus.winnerTf, taProBonusWinnerScore: taProBonus.winnerScore,
+      taProBonusConfirmed: taProBonus.confirmed, taProBonusClassification: taProBonus.classification, taProBonusScore: taProBonus.score,
       message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} — Market Structure V2+EMA26 M30 ${bias}, breakout+retest M5 confirmed, Force Index ${found.forceIndexValue.toFixed(2)} tanpa divergence, RR 1:2/1:3.`,
     };
   } catch (err) {
@@ -6951,155 +5979,249 @@ export function analyzeBreakoutBounceFilter(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TECHNICAL ANALYSIS PRO -- FITUR 5: Cek kekuatan Short vs Long (REVISI
-// request user: sekarang H1+H4+D1, 3-way, bukan D1 vs H4 doang).
-// Skor dihitung independen per TF (ke arah dominan TF itu sendiri -- arah
-// ditentuin dari Force Index), lalu skor TERTINGGI di antara H1/H4/D1 yang
-// menang.
+// TECHNICAL ANALYSIS PRO -- FITUR 5: Skor Long vs Short (REVISI TOTAL request
+// user -- sekarang TERHUBUNG ke breakout M15, pakai logic deteksi breakout
+// YANG SAMA kayak Sniper Breakout skill 1 FASE 1: swing M15 fresh, volume
+// >=2x MA20, scan-back 26 candle. Kalau lagi GAK ADA breakout M15 valid,
+// Fitur 5 gak bisa ngasih skor (status 'no_breakout').
 //
 // FORMULA POIN BARU (request user):
-//   ADX >=40        : +3        Force Index (searah dir) : +1
-//   ADX 26-40       : +1        RSI (searah dir)          : +1
-//   ADX 10-25       : -1        SNR vs harga sekarang      : +2
-//   ADX <10         : -3
-//   Bonus gabungan (NAMBAH di atas base, gak gantiin):
-//     ADX>=40  + FI searah dir : +4
-//     ADX 30-40 + FI searah dir: +2
+//   ADX H1 >=40         : +2      ADX D1 >=40        : +2
+//   ADX H1 26-40        : -1      ADX D1 <40         : 0
+//   ADX H1 <26          : 0       ADX H4             : TIDAK dipakai (0 selalu)
+//
+//   Force Index H4 searah breakout : +2
+//   Force Index H1 searah breakout : +1
+//   Force Index D1                 : TIDAK dipakai
+//   (searah = POSITIF buat breakout resistance/bullish, NEGATIF buat
+//    breakout support/bearish)
+//
+//   RSI H1 searah breakout (>50 bullish, <50 bearish) : +1
+//   RSI D1 > 60 (arah breakout TIDAK ngaruh)           : +2
+//   RSI H4                                             : TIDAK dipakai
+//
+//   PENALTI: ADX H1 < 20 DAN ADX H4 < 20 bersamaan     : -1
+//
+//   BONUS BTC: BTC dicek breakout M15-nya SENDIRI (logic sama). Kalau BTC
+//   lagi breakout DAN arahnya SEARAH breakout koin yang dianalisa -> +1.
+//   Kalau BTC lagi GAK breakout, atau breakout tapi arahnya beda -> +0
+//   (gak ada penalti, cuma gak dapet bonus).
+//
+//   KLASIFIKASI: skor >=5 -> "Kuat", skor <5 -> "Lemah" (arah ngikut arah
+//   breakout: bullish=LONG, bearish=SHORT).
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface LongShortScoreResult {
-  h1Score: number;
-  h1Direction: 'long' | 'short';
-  h1Breakdown: string[];
-  h4Score: number;
-  h4Direction: 'long' | 'short';
-  h4Breakdown: string[];
-  d1Score: number;
-  d1Direction: 'long' | 'short';
-  d1Breakdown: string[];
-  winner: 'long' | 'short' | 'neutral';
-  winnerTf: 'H1' | 'H4' | 'D1' | null;
+  status: 'ok' | 'no_breakout';
+  breakoutDirection: 'bullish' | 'bearish' | null;
+  brokenLevel: number | null;
+  score: number;
+  classification: 'Long Kuat' | 'Long Lemah' | 'Short Kuat' | 'Short Lemah' | null;
+  breakdown: string[];
+  btcBreakoutDirection: 'bullish' | 'bearish' | null;
+  btcSearah: boolean;
   reasoning: string[];
 }
 
-function tapScoreForTF(
-  opens: number[], highs: number[], lows: number[], closes: number[], volumes: number[]
-): { score: number; direction: 'long' | 'short'; breakdown: string[] } {
-  const breakdown: string[] = [];
-  const adx = calcADXWithDI(highs, lows, closes, 14).adx;
-  const forceIndexSeries = calcForceIndexSeries(closes, volumes);
-  const fi = forceIndexSeries[forceIndexSeries.length - 1] ?? 0;
-  const rsi = calcRSI(closes, 13);
-  const lastIdx = closes.length - 2;
-  const currentClose = closes[lastIdx]!;
+const TAP2_RSI_D1_BONUS_THRESHOLD = 60;
+const TAP2_ADX_H1_STRONG = 40;
+const TAP2_ADX_H1_MID = 26;
+const TAP2_ADX_D1_STRONG = 40;
+const TAP2_ADX_WEAK_PENALTY_THRESHOLD = 20;
+const TAP2_KUAT_THRESHOLD = 5;
 
-  // Arah dominan ditentuin dari Force Index (positif=long, negatif=short)
-  const dir: 'long' | 'short' = fi >= 0 ? 'long' : 'short';
+/**
+ * Deteksi breakout M15 fresh -- PERSIS logic FASE 1 Sniper Breakout skill 1
+ * (analyzeCounterStructural): swing fractal 2-2, volume>=2x MA20, scan-back
+ * 26 candle, belum tersentuh lagi sejak breakout. Dipake bareng buat koin
+ * yang dianalisa DAN buat BTC (bonus correlation).
+ */
+function tap2DetectM15Breakout(
+  highs: number[], lows: number[], closes: number[], volumes: number[]
+): { bias: 'bullish' | 'bearish'; brokenLevel: number } | null {
+  const atrM15 = calcATR(highs, lows, closes);
+  if (atrM15 <= 0) return null;
+
+  const lastClosedIdx = closes.length - 2;
+  const swingLookback = 30;
+  const swingSlice = Math.max(0, lastClosedIdx - swingLookback - 26);
+  const swingFractal = 2;
+
+  const findFreshSwing = (idx: number): { high: { idx: number; price: number } | null; low: { idx: number; price: number } | null } => {
+    let high: { idx: number; price: number } | null = null;
+    let low: { idx: number; price: number } | null = null;
+    for (let i = idx - swingFractal; i >= Math.max(swingFractal, idx - swingLookback); i--) {
+      if (i - swingFractal < 0 || i + swingFractal >= highs.length) continue;
+      const isHigh = [1, 2].every(k => highs[i]! > highs[i - k]!) && [1, 2].every(k => highs[i]! > highs[i + k]!);
+      const isLow = [1, 2].every(k => lows[i]! < lows[i - k]!) && [1, 2].every(k => lows[i]! < lows[i + k]!);
+      if (isHigh && !high) high = { idx: i, price: highs[i]! };
+      if (isLow && !low) low = { idx: i, price: lows[i]! };
+      if (high && low) break;
+    }
+    return { high, low };
+  };
+
+  const isFreshUntouched = (swingIdx: number, level: number, checkUntilIdx: number, tol: number): boolean => {
+    for (let i = swingIdx + 1; i < checkUntilIdx; i++) {
+      const h = highs[i]!, l = lows[i]!;
+      if (Math.abs(h - level) <= tol || Math.abs(l - level) <= tol || (l <= level && h >= level)) return false;
+    }
+    return true;
+  };
+
+  for (let breakoutIdx = lastClosedIdx; breakoutIdx >= Math.max(swingSlice + 5, lastClosedIdx - 26); breakoutIdx--) {
+    const swings = findFreshSwing(breakoutIdx);
+    const volMa20 = calcSMA(volumes.slice(0, breakoutIdx + 1), 20);
+    if (volMa20 <= 0) continue;
+    const volRatio = volumes[breakoutIdx]! / volMa20;
+    if (volRatio < 2.0) continue;
+
+    const tol = atrM15 * 0.1;
+    const bullishBreakout = swings.high && breakoutIdx > swings.high.idx &&
+      closes[breakoutIdx]! > swings.high.price &&
+      isFreshUntouched(swings.high.idx, swings.high.price, breakoutIdx, tol);
+    const bearishBreakout = swings.low && breakoutIdx > swings.low.idx &&
+      closes[breakoutIdx]! < swings.low.price &&
+      isFreshUntouched(swings.low.idx, swings.low.price, breakoutIdx, tol);
+
+    if (!bullishBreakout && !bearishBreakout) continue;
+
+    // Belum retest (fresh sejak breakoutIdx sampai sekarang)
+    const bias: 'bullish' | 'bearish' = bullishBreakout ? 'bullish' : 'bearish';
+    const brokenLevel = bullishBreakout ? swings.high!.price : swings.low!.price;
+    const stillFresh = isFreshUntouched(breakoutIdx, brokenLevel, lastClosedIdx + 1, tol);
+    if (!stillFresh) continue;
+
+    return { bias, brokenLevel };
+  }
+  return null;
+}
+
+/** Hitung skor Fitur 5 (formula baru) buat 1 koin yang UDAH KETAHUAN arah breakout-nya. */
+function tap2ScoreForBreakout(
+  breakoutBias: 'bullish' | 'bearish',
+  h1: { highs: number[]; lows: number[]; closes: number[]; volumes: number[] },
+  h4: { highs: number[]; lows: number[]; closes: number[]; volumes: number[] },
+  d1: { highs: number[]; lows: number[]; closes: number[]; volumes: number[] },
+): { score: number; breakdown: string[] } {
+  const breakdown: string[] = [];
   let score = 0;
 
-  // ADX poin (tier baru)
-  let adxPts: number;
-  if (adx >= 40) adxPts = 3;
-  else if (adx >= 26) adxPts = 1;
-  else if (adx >= 10) adxPts = -1;
-  else adxPts = -3;
-  score += adxPts;
-  breakdown.push(`ADX ${adx.toFixed(1)} -> ${adxPts >= 0 ? '+' : ''}${adxPts} poin`);
+  const adxH1 = calcADXWithDI(h1.highs, h1.lows, h1.closes, 14).adx;
+  const adxH4 = calcADXWithDI(h4.highs, h4.lows, h4.closes, 14).adx;
+  const adxD1 = calcADXWithDI(d1.highs, d1.lows, d1.closes, 14).adx;
+  const fiH1Series = calcForceIndexSeries(h1.closes, h1.volumes);
+  const fiH1 = fiH1Series[fiH1Series.length - 1] ?? 0;
+  const fiH4Series = calcForceIndexSeries(h4.closes, h4.volumes);
+  const fiH4 = fiH4Series[fiH4Series.length - 1] ?? 0;
+  const rsiH1 = calcRSI(h1.closes, 13);
+  const rsiD1 = calcRSI(d1.closes, 13);
 
-  // Force Index poin (searah dir by definition -- selalu +1)
-  const fiPts = 1;
-  score += fiPts;
-  breakdown.push(`Force Index ${fi.toFixed(2)} -> +${fiPts} poin`);
+  // ADX H1
+  let adxH1Pts = 0;
+  if (adxH1 >= TAP2_ADX_H1_STRONG) adxH1Pts = 2;
+  else if (adxH1 >= TAP2_ADX_H1_MID) adxH1Pts = -1;
+  score += adxH1Pts;
+  breakdown.push(`ADX H1 ${adxH1.toFixed(1)} -> ${adxH1Pts >= 0 ? '+' : ''}${adxH1Pts} poin`);
 
-  // RSI poin (searah dir: long butuh RSI>55, short butuh RSI<45, netral 45-55 = 0)
-  let rsiPts = 0;
-  if (dir === 'long' && rsi > 55) rsiPts = 1;
-  else if (dir === 'short' && rsi < 45) rsiPts = 1;
-  score += rsiPts;
-  breakdown.push(`RSI(13) ${rsi.toFixed(1)} -> +${rsiPts} poin`);
+  // ADX D1
+  const adxD1Pts = adxD1 >= TAP2_ADX_D1_STRONG ? 2 : 0;
+  score += adxD1Pts;
+  breakdown.push(`ADX D1 ${adxD1.toFixed(1)} -> +${adxD1Pts} poin`);
 
-  // Harga vs SNR poin
-  const fractal = MSV2_FRACTAL_STRENGTH['H4']; // swing detection generik, TF-agnostic cukup buat SNR kasar
-  const atr = calcATR(highs, lows, closes);
-  const swingHighs = msv2FindSwingPoints(highs, true, fractal.left, fractal.right, atr, MSV2_SWING_MIN_DIST_ATR['H4']);
-  const swingLows = msv2FindSwingPoints(lows, false, fractal.left, fractal.right, atr, MSV2_SWING_MIN_DIST_ATR['H4']);
-  let snrPts = 0;
-  if (swingHighs.length > 0 && swingLows.length > 0) {
-    const resistance = swingHighs[swingHighs.length - 1]!;
-    const support = swingLows[swingLows.length - 1]!;
-    const distToRes = Math.abs(currentClose - resistance.price) / resistance.price * 100;
-    const distToSup = Math.abs(currentClose - support.price) / support.price * 100;
-    if (dir === 'long' && distToSup <= 0.3) snrPts = 2;
-    else if (dir === 'short' && distToRes <= 0.3) snrPts = 2;
-  }
-  score += snrPts;
-  breakdown.push(`Harga vs SNR -> +${snrPts} poin`);
+  breakdown.push(`ADX H4 ${adxH4.toFixed(1)} -> +0 poin (gak dipakai)`);
 
-  // Bonus gabungan (request user: NAMBAH di atas base, gak gantiin)
-  let comboPts = 0;
-  if (adx >= 40) comboPts = 4;
-  else if (adx >= 30 && adx < 40) comboPts = 2;
-  if (comboPts > 0) {
-    score += comboPts;
-    breakdown.push(`Bonus gabungan (ADX${adx >= 40 ? '>=40' : ' 30-40'}+FI searah) -> +${comboPts} poin`);
-  }
+  // Force Index H4 (searah breakout)
+  const fiH4Searah = breakoutBias === 'bullish' ? fiH4 > 0 : fiH4 < 0;
+  const fiH4Pts = fiH4Searah ? 2 : 0;
+  score += fiH4Pts;
+  breakdown.push(`Force Index H4 ${fiH4.toFixed(2)} (${fiH4Searah ? 'searah' : 'gak searah'}) -> +${fiH4Pts} poin`);
 
-  return { score, direction: dir, breakdown };
+  // Force Index H1 (searah breakout)
+  const fiH1Searah = breakoutBias === 'bullish' ? fiH1 > 0 : fiH1 < 0;
+  const fiH1Pts = fiH1Searah ? 1 : 0;
+  score += fiH1Pts;
+  breakdown.push(`Force Index H1 ${fiH1.toFixed(2)} (${fiH1Searah ? 'searah' : 'gak searah'}) -> +${fiH1Pts} poin`);
+
+  // RSI H1 (searah breakout: >50 bullish, <50 bearish)
+  const rsiH1Searah = breakoutBias === 'bullish' ? rsiH1 > 50 : rsiH1 < 50;
+  const rsiH1Pts = rsiH1Searah ? 1 : 0;
+  score += rsiH1Pts;
+  breakdown.push(`RSI H1 ${rsiH1.toFixed(1)} (${rsiH1Searah ? 'searah' : 'gak searah'}) -> +${rsiH1Pts} poin`);
+
+  // RSI D1 > 60 (arah breakout gak ngaruh)
+  const rsiD1Pts = rsiD1 > TAP2_RSI_D1_BONUS_THRESHOLD ? 2 : 0;
+  score += rsiD1Pts;
+  breakdown.push(`RSI D1 ${rsiD1.toFixed(1)} (>${TAP2_RSI_D1_BONUS_THRESHOLD}? ${rsiD1 > TAP2_RSI_D1_BONUS_THRESHOLD}) -> +${rsiD1Pts} poin`);
+
+  // Penalti: ADX H1 < 20 DAN ADX H4 < 20 bersamaan
+  const bothWeak = adxH1 < TAP2_ADX_WEAK_PENALTY_THRESHOLD && adxH4 < TAP2_ADX_WEAK_PENALTY_THRESHOLD;
+  const penaltyPts = bothWeak ? -1 : 0;
+  score += penaltyPts;
+  if (bothWeak) breakdown.push(`PENALTI -- ADX H1 (${adxH1.toFixed(1)}) & ADX H4 (${adxH4.toFixed(1)}) sama-sama <20 -> -1 poin`);
+
+  return { score, breakdown };
 }
 
 export async function analyzeLongShortScore(symbol: string): Promise<LongShortScoreResult> {
+  const m15 = await fetchKlines(symbol, '15m', 150);
+  const breakout = tap2DetectM15Breakout(m15.highs, m15.lows, m15.closes, m15.volumes);
+
+  if (!breakout) {
+    return {
+      status: 'no_breakout', breakoutDirection: null, brokenLevel: null,
+      score: 0, classification: null, breakdown: [],
+      btcBreakoutDirection: null, btcSearah: false,
+      reasoning: ['Gak ada breakout M15 fresh (swing+volume>=2x MA20) buat koin ini saat ini -- Fitur 5 butuh breakout aktif buat ngitung skor.'],
+    };
+  }
+
   const [h1, h4, d1] = await Promise.all([
     fetchKlines(symbol, '1h', 100),
     fetchKlines(symbol, '4h', 100),
     fetchKlines(symbol, '1d', 100),
   ]);
 
-  const h1Result = tapScoreForTF(h1.opens, h1.highs, h1.lows, h1.closes, h1.volumes);
-  const h4Result = tapScoreForTF(h4.opens, h4.highs, h4.lows, h4.closes, h4.volumes);
-  const d1Result = tapScoreForTF(d1.opens, d1.highs, d1.lows, d1.closes, d1.volumes);
+  const { score: baseScore, breakdown } = tap2ScoreForBreakout(breakout.bias, h1, h4, d1);
 
-  const reasoning: string[] = [
-    `H1: ${h1Result.direction} score ${h1Result.score} (${h1Result.breakdown.join(', ')})`,
-    `H4: ${h4Result.direction} score ${h4Result.score} (${h4Result.breakdown.join(', ')})`,
-    `D1: ${d1Result.direction} score ${d1Result.score} (${d1Result.breakdown.join(', ')})`,
-  ];
-
-  const all: { tf: 'H1' | 'H4' | 'D1'; score: number; direction: 'long' | 'short' }[] = [
-    { tf: 'H1', score: h1Result.score, direction: h1Result.direction },
-    { tf: 'H4', score: h4Result.score, direction: h4Result.direction },
-    { tf: 'D1', score: d1Result.score, direction: d1Result.direction },
-  ];
-  const maxScore = Math.max(...all.map(a => a.score));
-  const topTfs = all.filter(a => a.score === maxScore);
-
-  let winner: 'long' | 'short' | 'neutral';
-  let winnerTf: 'H1' | 'H4' | 'D1' | null;
-  if (topTfs.length > 1) {
-    // Skor sama-sama tertinggi di >1 TF -- netral kecuali arahnya kebetulan sama semua
-    const uniqueDirs = new Set(topTfs.map(t => t.direction));
-    if (uniqueDirs.size === 1) {
-      winner = topTfs[0]!.direction;
-      winnerTf = topTfs[0]!.tf;
-    } else {
-      winner = 'neutral';
-      winnerTf = null;
+  // Bonus BTC correlation
+  let btcBreakoutDirection: 'bullish' | 'bearish' | null = null;
+  let btcSearah = false;
+  let btcPts = 0;
+  if (symbol !== 'BTCUSDT') {
+    try {
+      const btcM15 = await fetchKlines('BTCUSDT', '15m', 150);
+      const btcBreakout = tap2DetectM15Breakout(btcM15.highs, btcM15.lows, btcM15.closes, btcM15.volumes);
+      if (btcBreakout) {
+        btcBreakoutDirection = btcBreakout.bias;
+        btcSearah = btcBreakout.bias === breakout.bias;
+        btcPts = btcSearah ? 1 : 0;
+      }
+    } catch {
+      // fail-safe -- BTC gagal fetch, +0 default, gak nge-block skor utama
     }
-  } else {
-    winner = topTfs[0]!.direction;
-    winnerTf = topTfs[0]!.tf;
   }
-
-  reasoning.push(
-    winner === 'neutral'
-      ? 'Skor tertinggi SERI di >1 TF dengan arah beda -> netral, tunggu konfirmasi breakout/bounce'
-      : `Skor tertinggi: ${winnerTf} (${winner.toUpperCase()}) menang`
+  breakdown.push(
+    btcBreakoutDirection === null
+      ? `BTC -- gak lagi breakout M15 -> +0 poin`
+      : `BTC breakout ${btcBreakoutDirection} (${btcSearah ? 'SEARAH' : 'gak searah'}) -> +${btcPts} poin`
   );
 
+  const totalScore = baseScore + btcPts;
+  const dirLabel = breakout.bias === 'bullish' ? 'Long' : 'Short';
+  const classification: LongShortScoreResult['classification'] =
+    totalScore >= TAP2_KUAT_THRESHOLD ? `${dirLabel} Kuat` as const : `${dirLabel} Lemah` as const;
+
+  const reasoning = [
+    `Breakout M15 ${breakout.bias} @ ${breakout.brokenLevel.toFixed(6)}`,
+    `Skor total: ${totalScore} (${breakdown.join(', ')})`,
+    `Klasifikasi: ${classification}`,
+  ];
+
   return {
-    h1Score: h1Result.score, h1Direction: h1Result.direction, h1Breakdown: h1Result.breakdown,
-    h4Score: h4Result.score, h4Direction: h4Result.direction, h4Breakdown: h4Result.breakdown,
-    d1Score: d1Result.score, d1Direction: d1Result.direction, d1Breakdown: d1Result.breakdown,
-    winner, winnerTf, reasoning,
+    status: 'ok', breakoutDirection: breakout.bias, brokenLevel: breakout.brokenLevel,
+    score: totalScore, classification, breakdown,
+    btcBreakoutDirection, btcSearah, reasoning,
   };
 }
 
@@ -7108,24 +6230,24 @@ export async function analyzeLongShortScore(symbol: string): Promise<LongShortSc
 // (Sniper Breakout, Money Magnet, dll) SETELAH sinyal ketemu -- cek apa bias
 // sinyal itu SEARAH sama Fitur 5 (Skor Long vs Short) Technical Analysis
 // PRO. Gak pernah nge-block sinyal (murni info/badge tambahan). Kalau gagal
-// fetch/analisa (misal API TA PRO lagi bermasalah), fail-safe ke "gak ada
-// bonus" -- BUKAN error yang nge-gagalin sinyal utamanya.
+// fetch/analisa, atau Fitur 5 lagi 'no_breakout' (gak applicable), fail-safe
+// ke "gak ada bonus".
 // ═══════════════════════════════════════════════════════════════════════════
 async function checkTaProBonus(
   symbol: string, bias: 'bullish' | 'bearish'
-): Promise<{ confirmed: boolean; winnerTf: 'H1' | 'H4' | 'D1' | null; winnerScore: number }> {
+): Promise<{ confirmed: boolean; classification: string | null; score: number }> {
   try {
     const taPro = await analyzeLongShortScore(symbol);
-    const signalDir: 'long' | 'short' = bias === 'bullish' ? 'long' : 'short';
-    const confirmed = taPro.winner === signalDir;
+    if (taPro.status !== 'ok' || taPro.breakoutDirection === null) {
+      return { confirmed: false, classification: null, score: 0 };
+    }
+    const confirmed = taPro.breakoutDirection === bias;
     return {
       confirmed,
-      winnerTf: confirmed ? taPro.winnerTf : null,
-      winnerScore: confirmed
-        ? (taPro.winnerTf === 'H1' ? taPro.h1Score : taPro.winnerTf === 'H4' ? taPro.h4Score : taPro.d1Score)
-        : 0,
+      classification: confirmed ? taPro.classification : null,
+      score: confirmed ? taPro.score : 0,
     };
   } catch {
-    return { confirmed: false, winnerTf: null, winnerScore: 0 };
+    return { confirmed: false, classification: null, score: 0 };
   }
 }

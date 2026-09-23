@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   analyzeTrendIdentification, analyzeMultiTFReading, analyzeBreakoutBounceFilter,
-  analyzeLongShortScore, analyzeMarketStructureV2, fetchKlines,
+  analyzeLongShortScore, analyzeMarketStructureV2, analyzeDivergenceTrend, fetchKlines,
 } from '../lib/smc';
 import type { TFLabelV2 } from '../lib/smc';
 
@@ -84,6 +84,25 @@ router.get('/technical-analysis-pro/long-short-score', async (req, res) => {
   try {
     const normalized = normalizeSymbol(symbol);
     const result = await analyzeLongShortScore(normalized);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+// GET /api/technical-analysis-pro/divergence-trend?symbol=BTCUSDT&tf=H4 -- FITUR 6
+// (request user): RSI/MACD/Volume/Stochastic(5,3,3) divergence + Kekuatan
+// Trend (ADX/Force Index/Volume/ATR) di TF yang dipilih; OI+Price+Volume+
+// Funding SELALU D1+H4, gak ngikut TF (dihandle di dalam analyzeDivergenceTrend).
+router.get('/technical-analysis-pro/divergence-trend', async (req, res) => {
+  const symbol = req.query['symbol'] as string;
+  const tf = req.query['tf'] as string;
+  if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
+  if (!tf || !TF_TO_INTERVAL[tf]) { res.status(400).json({ error: 'tf required (D1/H4/H1/M30/M15/M5)' }); return; }
+  try {
+    const normalized = normalizeSymbol(symbol);
+    const k = await fetchKlines(normalized, TF_TO_INTERVAL[tf]!, 150);
+    const result = await analyzeDivergenceTrend(k.opens, k.highs, k.lows, k.closes, k.volumes, tf as TFLabelV2, normalized);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });

@@ -22,13 +22,14 @@ const AMBER = '#FFD700';
 type TFOption = 'D1' | 'H4' | 'H1' | 'M30' | 'M15' | 'M5';
 const TF_OPTIONS: TFOption[] = ['D1', 'H4', 'H1', 'M30', 'M15', 'M5'];
 
-type FeatureKey = 'trend' | 'multiTf' | 'transition' | 'breakoutBounce' | 'longShort';
+type FeatureKey = 'trend' | 'multiTf' | 'transition' | 'breakoutBounce' | 'longShort' | 'divergenceTrend';
 const FEATURES: { key: FeatureKey; label: string; needsTf: boolean }[] = [
   { key: 'trend', label: 'Tren', needsTf: true },
   { key: 'multiTf', label: 'Multi-TF', needsTf: false },
   { key: 'transition', label: 'Transisi', needsTf: true },
   { key: 'breakoutBounce', label: 'SNR', needsTf: true },
   { key: 'longShort', label: 'Skor', needsTf: false },
+  { key: 'divergenceTrend', label: 'Divergence', needsTf: true },
 ];
 
 function featureUrl(symbol: string, feature: FeatureKey, tf: TFOption): string {
@@ -39,6 +40,7 @@ function featureUrl(symbol: string, feature: FeatureKey, tf: TFOption): string {
     case 'transition': return `/api/technical-analysis-pro/transition?symbol=${enc}&tf=${tf}`;
     case 'breakoutBounce': return `/api/technical-analysis-pro/breakout-bounce?symbol=${enc}&tf=${tf}`;
     case 'longShort': return `/api/technical-analysis-pro/long-short-score?symbol=${enc}`;
+    case 'divergenceTrend': return `/api/technical-analysis-pro/divergence-trend?symbol=${enc}&tf=${tf}`;
   }
 }
 
@@ -71,7 +73,7 @@ export default function TechnicalAnalysisProScreen() {
 
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Technical Analysis PRO</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Tren, Multi-TF, Transisi, SNR & Skor Long/Short</Text>
+        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Tren, Multi-TF, Transisi, SNR, Skor Long/Short & Divergence</Text>
 
         <View style={[styles.inputArea]}>
           <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -139,16 +141,14 @@ export default function TechnicalAnalysisProScreen() {
 
           {!isLoading && !isError && data && activeFeature === 'longShort' && (
             <LongShortBattleCard
-              d1Score={data.d1Score}
-              d1Direction={data.d1Direction}
-              h4Score={data.h4Score}
-              h4Direction={data.h4Direction}
-              winner={data.winner}
-              summary={
-                data.winner === 'neutral'
-                  ? 'Skor D1 dan H4 sama — netral, tunggu konfirmasi breakout/bounce'
-                  : `${data.d1Score > data.h4Score ? 'D1' : 'H4'} punya skor lebih tinggi saat ini`
-              }
+              status={data.status}
+              breakoutDirection={data.breakoutDirection}
+              brokenLevel={data.brokenLevel}
+              score={data.score}
+              classification={data.classification}
+              breakdown={data.breakdown}
+              btcBreakoutDirection={data.btcBreakoutDirection}
+              btcSearah={data.btcSearah}
             />
           )}
 
@@ -156,6 +156,7 @@ export default function TechnicalAnalysisProScreen() {
           {!isLoading && !isError && data && activeFeature === 'multiTf' && <MultiTfResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'transition' && <TransitionResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'breakoutBounce' && <BreakoutBounceResultView data={data} />}
+          {!isLoading && !isError && data && activeFeature === 'divergenceTrend' && <DivergenceTrendResultView data={data} />}
         </ScrollView>
       )}
     </View>
@@ -272,6 +273,89 @@ function BreakoutBounceResultView({ data }: { data: any }) {
   );
 }
 
+// ═══ FITUR 6: Divergence & Kekuatan Trend ══════════════════════════════════
+function DivergenceBadgeRow({ label, div }: { label: string; div: { bullish: boolean; bearish: boolean } }) {
+  const status = div.bullish ? 'BULLISH' : div.bearish ? 'BEARISH' : 'NONE';
+  const color = div.bullish ? CYAN : div.bearish ? MAGENTA : NEUTRAL;
+  return (
+    <View style={styles.divRow}>
+      <Text style={styles.divRowLabel}>{label}</Text>
+      <CyberBadge label={status} color={color} pulsing={div.bullish || div.bearish} />
+    </View>
+  );
+}
+
+function DivergenceTrendResultView({ data }: { data: any }) {
+  const ts = data.trendStrength ?? {};
+  const oi = data.oiPriceVolumeFunding ?? {};
+  const trendColor = ts.adxClassification === 'sangat kuat' ? CYAN : ts.adxClassification === 'kuat' ? AMBER : NEUTRAL;
+
+  const scenarioColor: Record<string, string> = {
+    long_baru_masuk: CYAN, short_covering: AMBER, short_baru_masuk: MAGENTA, long_nutup_posisi: AMBER, netral: NEUTRAL,
+  };
+  const scenarioLabel: Record<string, string> = {
+    long_baru_masuk: 'LONG BARU MASUK', short_covering: 'SHORT COVERING',
+    short_baru_masuk: 'SHORT BARU MASUK', long_nutup_posisi: 'LONG NUTUP POSISI', netral: 'NETRAL',
+  };
+
+  return (
+    <View>
+      <CyberCard accentColor={MAGENTA} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// DIVERGENCE</Text>
+        </View>
+        <DivergenceBadgeRow label="RSI" div={data.rsiDivergence ?? { bullish: false, bearish: false }} />
+        <DivergenceBadgeRow label="MACD" div={data.macdDivergence ?? { bullish: false, bearish: false }} />
+        <DivergenceBadgeRow label="Volume" div={data.volumeDivergence ?? { bullish: false, bearish: false }} />
+        <DivergenceBadgeRow label="Stochastic 5,3,3" div={data.stochasticDivergence ?? { bullish: false, bearish: false }} />
+      </CyberCard>
+
+      <CyberCard accentColor={trendColor} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// KEKUATAN TREND</Text>
+          <CyberBadge label={(ts.adxClassification ?? '—').toUpperCase()} color={trendColor} pulsing={ts.adxClassification === 'sangat kuat'} />
+        </View>
+        <View style={styles.numRow}>
+          <CyberBigNumber value={ts.adx?.toFixed(1) ?? '—'} label="ADX(14)" color={trendColor} />
+          <View style={styles.statBox}>
+            <Text style={[styles.statValue, { color: ts.forceIndexDirection === 'bullish' ? CYAN : MAGENTA }]}>{ts.forceIndex?.toFixed(2) ?? '—'}</Text>
+            <Text style={styles.statLabel}>FORCE INDEX</Text>
+          </View>
+        </View>
+        <Text style={styles.tfDetail}>Volume: {ts.volumeRatio?.toFixed(2) ?? '—'}x MA20 ({ts.volumeTrend ?? '—'})</Text>
+        <Text style={styles.tfDetail}>ATR: {ts.atrRatio?.toFixed(2) ?? '—'}x vs 10 candle lalu (volatilitas {ts.volatilityTrend ?? '—'})</Text>
+      </CyberCard>
+
+      <CyberCard accentColor={AMBER} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// OPEN INTEREST + FUNDING</Text>
+        </View>
+        {oi.d1 ? (
+          <View style={{ marginBottom: 10 }}>
+            <View style={styles.divRow}>
+              <Text style={styles.divRowLabel}>D1</Text>
+              <CyberBadge label={scenarioLabel[oi.d1.scenario] ?? oi.d1.scenario} color={scenarioColor[oi.d1.scenario] ?? NEUTRAL} pulsing={false} />
+            </View>
+            <Text style={styles.reasoningText}>{oi.d1.interpretation}</Text>
+            <Text style={styles.tfDetail}>Price {oi.d1.priceChangePct >= 0 ? '+' : ''}{oi.d1.priceChangePct?.toFixed(2)}% · OI {oi.d1.oiChangePct >= 0 ? '+' : ''}{oi.d1.oiChangePct?.toFixed(2)}%</Text>
+          </View>
+        ) : <Text style={styles.tfDetail}>D1: data gak cukup</Text>}
+        {oi.h4 ? (
+          <View style={{ marginBottom: 10 }}>
+            <View style={styles.divRow}>
+              <Text style={styles.divRowLabel}>H4</Text>
+              <CyberBadge label={scenarioLabel[oi.h4.scenario] ?? oi.h4.scenario} color={scenarioColor[oi.h4.scenario] ?? NEUTRAL} pulsing={false} />
+            </View>
+            <Text style={styles.reasoningText}>{oi.h4.interpretation}</Text>
+            <Text style={styles.tfDetail}>Price {oi.h4.priceChangePct >= 0 ? '+' : ''}{oi.h4.priceChangePct?.toFixed(2)}% · OI {oi.h4.oiChangePct >= 0 ? '+' : ''}{oi.h4.oiChangePct?.toFixed(2)}%</Text>
+          </View>
+        ) : <Text style={styles.tfDetail}>H4: data gak cukup</Text>}
+        <Text style={[styles.reasoningText, { marginTop: 4 }]}>{oi.fundingInterpretation}</Text>
+      </CyberCard>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -299,4 +383,6 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 10, color: '#B8AEC9', marginTop: 4, fontWeight: '600', letterSpacing: 0.3 },
   reasoningText: { fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 6, lineHeight: 19, color: '#D8D0E4' },
   tfDetail: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 4, color: '#B8AEC9' },
+  divRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  divRowLabel: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#D8D0E4' },
 });

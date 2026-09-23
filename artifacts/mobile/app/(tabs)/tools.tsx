@@ -8,23 +8,22 @@ import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { MENU_COLORS } from '@/constants/theme';
 import CalculatorView from './_calculator-view';
 import InsightView from './_insight-view';
-import BacktestView from './_backtest-view';
 
 const ACCENT = MENU_COLORS.tools;
 
-type Section = 'kalkulator' | 'insight' | 'backtest';
+type Section = 'kalkulator' | 'insight';
 
 /**
  * Menu gabungan — dulu Kalkulator (3), Insight (5), Backtest (6) itu 3 tab
- * terpisah di bottom nav. Sekarang digabung jadi 1 tab dengan switcher
- * internal, biar bottom nav gak kepenuhan (6 → 4 menu).
+ * terpisah di bottom nav, sekarang digabung jadi 1 tab dengan switcher
+ * internal. Backtest (request user) DIHAPUS total dari sini.
  *
- * Sub-view (_calculator-view, _insight-view, _backtest-view) isinya PERSIS
- * sama kayak sebelumnya, gak ada logic yang berubah — cuma dipindah dari
- * route sendiri jadi komponen yang dirender di sini. Params dari navigasi
- * luar (misal tombol "Kalkulator PnL" di Menu 1/2/4) tetap kebaca normal
- * lewat useLocalSearchParams() di masing-masing sub-view, karena itu baca
- * dari URL route ini (tools), bukan per-komponen.
+ * Sub-view (_calculator-view, _insight-view) isinya PERSIS sama kayak
+ * sebelumnya, gak ada logic yang berubah — cuma dipindah dari route sendiri
+ * jadi komponen yang dirender di sini. Params dari navigasi luar (misal
+ * tombol "Kalkulator PnL" di Menu 1/2/4) tetap kebaca normal lewat
+ * useLocalSearchParams() di masing-masing sub-view, karena itu baca dari
+ * URL route ini (tools), bukan per-komponen.
  */
 export default function ToolsScreen() {
   const colors = useColors();
@@ -34,7 +33,7 @@ export default function ToolsScreen() {
   // Default section: kalau ada entryPrice (dari tombol Kalkulator PnL) → kalkulator.
   // Kalau section eksplisit dikasih → pakai itu. Fallback: kalkulator.
   const initialSection: Section =
-    params.section === 'insight' || params.section === 'backtest'
+    params.section === 'insight'
       ? params.section
       : 'kalkulator';
   const [section, setSection] = useState<Section>(initialSection);
@@ -45,7 +44,7 @@ export default function ToolsScreen() {
   // gak double-process pas mount pertama (initialSection udah bener duluan).
   const lastProcessedSection = useRef(initialSection);
   useEffect(() => {
-    const target: Section = params.section === 'insight' || params.section === 'backtest' ? params.section : 'kalkulator';
+    const target: Section = params.section === 'insight' ? params.section : 'kalkulator';
     if (target === lastProcessedSection.current) return;
     lastProcessedSection.current = target;
     setSection(target);
@@ -59,7 +58,6 @@ export default function ToolsScreen() {
           tabs={[
             { key: 'kalkulator', label: 'KALKULATOR' },
             { key: 'insight', label: 'INSIGHT' },
-            { key: 'backtest', label: 'BACKTEST' },
           ]}
           active={section}
           onChange={(key) => setSection(key as Section)}
@@ -70,7 +68,6 @@ export default function ToolsScreen() {
       <View style={{ flex: 1 }}>
         {section === 'kalkulator' && <CalculatorView embedded />}
         {section === 'insight' && <InsightView embedded />}
-        {section === 'backtest' && <BacktestView embedded />}
       </View>
     </View>
   );

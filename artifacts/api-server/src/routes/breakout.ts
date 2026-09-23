@@ -1,31 +1,24 @@
 import { Router } from 'express';
-import { analyzeScalpingEntry, analyzeScalping15M, classifyScalpingMode, fetchKlines, getRecentPerformance } from '../lib/smc';
+import { analyzeScalpingEntry, getRecentPerformance } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
 
-// GET /api/breakout?symbol=BTCUSDT&mode=structural|scalping15m (route name
-// dipertahankan agar tidak perlu ubah index.ts). mode opsional — kalau gak
-// dikasih, classifier (volume M15 vs MA20) yang nentuin otomatis.
+// Menu Scalping (request user): mode "15M" (analyzeScalping15M) DIHAPUS
+// bareng fungsinya di smc.ts -- balik ke 1 mode doang: Structural
+// (analyzeScalpingEntry). Classifier auto-pilih-mode juga DILEPAS (gak
+// relevan lagi given cuma 1 mode). Route name/param 'mode' dipertahankan
+// buat kompatibilitas, tapi sekarang cuma nerima 'structural'.
 router.get('/breakout', async (req, res) => {
   const symbol = req.query['symbol'] as string;
-  const modeParam = req.query['mode'] as string | undefined;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
   const normalized = symbol.toUpperCase().endsWith('USDT')
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
+  const mode = 'structural' as const;
   try {
-    const classifyData = await fetchKlines(normalized, '15m', 250);
-    const classification = classifyScalpingMode(classifyData.closes, classifyData.volumes);
-
-    const mode: 'structural' | 'scalping15m' =
-      modeParam === 'structural' || modeParam === 'scalping15m' ? modeParam : classification.recommendedMode;
-
-    const result = mode === 'scalping15m'
-      ? await analyzeScalping15M(normalized)
-      : await analyzeScalpingEntry(normalized);
-
+    const result = await analyzeScalpingEntry(normalized);
     const recentPerformance = await getRecentPerformance(normalized, mode);
-    res.json({ ...result, mode, recommendedMode: classification.recommendedMode, recentPerformance });
+    res.json({ ...result, mode, recentPerformance });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });
@@ -40,6 +33,8 @@ router.get('/breakout', async (req, res) => {
 // (bukan pakai EventSource/SSE, karena EventSource GAK native-compatible
 // di React Native -- cuma jalan di web. Polling pakai fetch() biasa, jalan
 // sama di web/iOS/Android tanpa dependency baru).
+// REVISI (request user): balik jadi 1 mode doang per koin (mode 15M
+// dihapus dari scan juga).
 // ═══════════════════════════════════════════════════════════════════════════
 type ScalpingScanState = {
   results: Array<Awaited<ReturnType<typeof analyzeScalpingEntry>> & { mode: string; marketMeta?: unknown }>;
@@ -57,18 +52,13 @@ async function runScalpingScan(): Promise<void> {
   scalpingScanRunning = true;
   scalpingScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now() };
   try {
-    // REVISI (request user): naik dari 300 jadi 400 koin
-    // REVISI (request user): naik dari 400 jadi 500 koin
     const universe = await getUniverse(500);
     scalpingScanState.total = universe.length;
-    const batchSize = 2; // FIX (ketemu user, kena rate limit Binance): batch 4 kombinasi 150 koin x 2 skill itu TERLALU AGRESIF (~32 request simultan tiap 300ms). Diturunkan ke 2 + delay diperpanjang jadi 500ms.
+    const batchSize = 3;
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
-        batch.flatMap((s) => [
-          analyzeScalpingEntry(s).then(val => ({ ...val, mode: 'structural' as const })),
-          analyzeScalping15M(s).then(val => ({ ...val, mode: 'scalping15m' as const })),
-        ])
+        batch.map((s) => analyzeScalpingEntry(s).then(val => ({ ...val, mode: 'structural' as const })))
       );
       scalpingScanState.scanned += batch.length;
       const newValid: typeof scalpingScanState.results = [];
@@ -91,7 +81,7 @@ async function runScalpingScan(): Promise<void> {
         if (ao !== bo) return ao - bo;
         return ((b as any).score ?? 0) - ((a as any).score ?? 0);
       });
-      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 500));
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 400));
     }
     scalpingScanState.status = 'complete';
     scalpingScanState.fetchedAt = Date.now();
@@ -103,14 +93,9 @@ async function runScalpingScan(): Promise<void> {
   }
 }
 
-// GET /api/breakout/scan — REVISI (request user, "progresif + notif
-// complete"): sekarang POLLING-BASED. Panggilan PERTAMA (status masih
-// 'idle') mulai scan baru (fire-and-forget, gak di-await penuh) dan
-// langsung return state saat itu (results kosong/scanned=0). Panggilan
-// SELANJUTNYA (poll berkala dari frontend) cuma baca state TERBARU yang
-// terus ke-update di background -- results makin lama makin nambah,
-// sampai status jadi 'complete'. Query ?fresh=true maksa mulai scan baru
-// (buat tombol "Refresh" manual), walau status sebelumnya udah 'complete'.
+// GET /api/breakout/scan — POLLING-BASED (lihat catatan panjang di atas).
+// Query ?fresh=true maksa mulai scan baru (buat tombol "Refresh" manual),
+// walau status sebelumnya udah 'complete'.
 router.get('/breakout/scan', async (req, res) => {
   try {
     const forceFresh = req.query['fresh'] === 'true';

@@ -44,8 +44,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
   const base = coin.symbol.replace('USDT', '');
   const isBuy = coin.bias === 'bullish';
   const biasColor = isBuy ? colors.bullish : colors.bearish;
-  const isScalping15M = (coin as any).mode === 'scalping15m';
-  const modeColor = isScalping15M ? '#14B8A6' : ACCENT;
+  const modeColor = ACCENT;
 
   return (
     <AnimatedCard index={index} onPress={onPress}>
@@ -61,7 +60,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>{isScalping15M ? '🧲 Money Magnet 2' : '🧲 Money Magnet'}</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>🧲 Money Magnet</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
@@ -196,7 +195,9 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
-      const skillLabel = c.mode === 'scalping15m' ? 'Money Magnet 2' : 'Money Magnet';
+      // REVISI (request user): mode 15M/Money Magnet 2 dihapus, Menu Scalping
+      // sekarang 1 mode doang.
+      const skillLabel = 'Money Magnet';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
@@ -224,7 +225,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>2 Skill — Money Magnet (H4→M30) & Money Magnet 2 (H4→M30, cascading)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Money Magnet (H4→M30 breakout+retest)</Text>
       </View>
     );
   }
@@ -259,7 +260,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : '2 Skill — Money Magnet (H4→M30) & Money Magnet 2 (H4→M30, cascading)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Money Magnet (H4→M30 breakout+retest)'}
           </Text>
         </View>
       );
@@ -381,12 +382,10 @@ const scanStyles = StyleSheet.create({
 
 // ─── Analisa Tab ──────────────────────────────────────────────────────────────
 
-function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; initialMode?: 'structural' | 'scalping15m'; pinnedData?: ScalpingResult | null }) {
+function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<typeof useColors>; initialSymbol?: string; pinnedData?: ScalpingResult | null }) {
   const insets = useSafeAreaInsets();
   const [inputSymbol, setInputSymbol] = useState(initialSymbol ?? '');
   const [querySymbol, setQuerySymbol] = useState(initialSymbol ?? '');
-  // undefined = belum dipilih manual, biar classifier backend (volume M15) yang nentuin otomatis
-  const [mode, setMode] = useState<'structural' | 'scalping15m' | undefined>(initialMode);
   // liveMode=false artinya lagi nampilin data yang DI-KUNCI dari hasil Scan (gak
   // auto-fetch ulang) — biar sinyal gak diem-diem berubah pas user transisi ke
   // Binance buat eksekusi. liveMode=true = data fresh (search manual / refresh eksplisit).
@@ -394,14 +393,15 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
 
   useEffect(() => {
     if (initialSymbol) setQuerySymbol(initialSymbol);
-    if (initialMode) setMode(initialMode);
     setLiveMode(!pinnedData); // reset tiap kali coin baru dipilih dari Scan
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSymbol, initialMode, pinnedData]);
+  }, [initialSymbol, pinnedData]);
 
+  // REVISI (request user): mode 15M/Money Magnet 2 & classifier auto-pilih
+  // DIHAPUS -- Menu Scalping sekarang 1 mode doang (Structural).
   const { data: liveData, isLoading, isError, refetch } = useGetScalping(
-    { symbol: querySymbol, ...(mode ? { mode } : {}) },
-    { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol, ...(mode ? { mode } : {}) }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
+    { symbol: querySymbol },
+    { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
   );
   const data = liveMode ? liveData : pinnedData;
 
@@ -424,7 +424,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = data.mode === 'scalping15m' ? 'Money Magnet 2' : 'Money Magnet';
+    const skillLabel = 'Money Magnet';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
@@ -433,7 +433,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: 'H4', tfEksekusi: 'M30',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      orderType: 'limit', // Money Magnet & Money Magnet 2 dua-duanya pasang LIMIT order di zona retest/magnet
+      orderType: 'limit', // Money Magnet pasang LIMIT order di zona retest/magnet
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -445,30 +445,8 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Mode Switcher — Money Magnet (H4->M30, single-level) vs Money Magnet 2 (H4->M30, cascading multi-level) */}
-      <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
-        <View style={[styles.tabSwitcher, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {(['structural', 'scalping15m'] as const).map((m) => {
-            const active = (mode ?? data?.recommendedMode) === m;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => setMode(m)}
-                style={[styles.tabBtn, active && { backgroundColor: `${ACCENT}22` }]}
-              >
-                <Text style={[styles.tabBtnText, { color: active ? ACCENT : colors.mutedForeground }]}>
-                  {m === 'structural' ? 'Money Magnet' : 'Money Magnet 2'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {data?.recommendedMode && mode && data.recommendedMode !== mode && (
-          <Text style={{ fontSize: 10, color: colors.mutedForeground, marginTop: 4, fontStyle: 'italic' }}>
-            💡 Classifier rekomendasiin "{data.recommendedMode === 'structural' ? 'Money Magnet' : 'Money Magnet 2'}" buat koin ini
-          </Text>
-        )}
-      </View>
+      {/* Mode Switcher DIHAPUS (request user) — Money Magnet 2 udah gak ada,
+          Menu Scalping sekarang 1 mode doang, gak perlu toggle. */}
 
       <View style={[styles.inputArea, { borderBottomColor: colors.border }]}>
         <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -501,7 +479,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Money Magnet (H4→M30) atau Money Magnet 2 (H4→M30, cascading)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Money Magnet (H4→M30 breakout+retest)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -595,7 +573,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>
-                  ATR ({data.mode === 'scalping15m' ? 'M15' : 'M30'})
+                  ATR (M30)
                 </Text>
                 <Text style={[styles.infoValue, { color: colors.foreground }]}>
                   {data.atr15MPct ? `${data.atr15MPct.toFixed(2)}%` : '—'}
@@ -629,7 +607,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
             <View style={[styles.section, { backgroundColor: 'rgba(251,191,36,0.06)', borderColor: 'rgba(251,191,36,0.22)' }]}>
               <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER</Text>
               {(data as any).taProBonusConfirmed && (
-                <TaProBonusBanner winnerTf={(data as any).taProBonusWinnerTf} winnerScore={(data as any).taProBonusWinnerScore} />
+                <TaProBonusBanner classification={(data as any).taProBonusClassification} score={(data as any).taProBonusScore} />
               )}
               <View style={[styles.levelCard, {
                 backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10`,
@@ -640,7 +618,7 @@ function AnalisaTab({ colors, initialSymbol, initialMode, pinnedData }: { colors
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — {data.mode === 'scalping15m' ? 'edge zona breakout+retest' : `magnet zone (${data.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'})`}
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — magnet zone ({data.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'})
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -747,7 +725,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>2 Skill — Money Magnet (H4→M30) & Money Magnet 2 (H4→M30, cascading)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Money Magnet (H4→M30 breakout+retest)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -771,7 +749,7 @@ export default function ScalpingScreen() {
       {activeTab === 'scan'
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
-        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} initialMode={pinnedCoin?.mode as 'structural' | 'scalping15m' | undefined} pinnedData={pinnedCoin} />
+        ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} pinnedData={pinnedCoin} />
         : <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />
       }
     </View>

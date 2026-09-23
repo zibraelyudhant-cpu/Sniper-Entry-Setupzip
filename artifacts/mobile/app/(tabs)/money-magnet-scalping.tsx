@@ -401,7 +401,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                 <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#000' }}>Simpan ke Journal</Text>
               </Pressable>
               {(data as any).taProBonusConfirmed && (
-                <TaProBonusBanner winnerTf={(data as any).taProBonusWinnerTf} winnerScore={(data as any).taProBonusWinnerScore} />
+                <TaProBonusBanner classification={(data as any).taProBonusClassification} score={(data as any).taProBonusScore} />
               )}
               <View style={[styles.levelCard, { borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish, backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10` }]}>
                 <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>

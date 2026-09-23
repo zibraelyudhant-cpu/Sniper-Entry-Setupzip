@@ -215,7 +215,7 @@ function ClassicTabLayout() {
       <Tabs.Screen name="_patterns-view" options={{ href: null }} />
       <Tabs.Screen name="_calculator-view" options={{ href: null }} />
       <Tabs.Screen name="_insight-view" options={{ href: null }} />
-      <Tabs.Screen name="_backtest-view" options={{ href: null }} />
+      {/* _backtest-view DIHAPUS (request user) */}
       <Tabs.Screen name="monitoring-helpers" options={{ href: null }} />
     </Tabs>
   );
