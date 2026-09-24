@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   analyzeTrendIdentification, analyzeMultiTFReading, analyzeBreakoutBounceFilter,
-  analyzeLongShortScore, analyzeMarketStructureV2, analyzeDivergenceTrend, fetchKlines,
+  analyzeLongShortScore, analyzeMarketStructureV2, analyzeDivergenceTrend, analyzeBtcCorrelation, fetchKlines,
 } from '../lib/smc';
 import type { TFLabelV2 } from '../lib/smc';
 
@@ -103,6 +103,18 @@ router.get('/technical-analysis-pro/divergence-trend', async (req, res) => {
     const normalized = normalizeSymbol(symbol);
     const k = await fetchKlines(normalized, TF_TO_INTERVAL[tf]!, 150);
     const result = await analyzeDivergenceTrend(k.opens, k.highs, k.lows, k.closes, k.volumes, tf as TFLabelV2, normalized);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+// GET /api/technical-analysis-pro/btc-correlation -- FITUR 7 (request user:
+// "sebelum analisa koin wajib liat outlook BTC dulu"). BTC-only, gak perlu
+// symbol/tf param -- selalu H4+D1.
+router.get('/technical-analysis-pro/btc-correlation', async (_req, res) => {
+  try {
+    const result = await analyzeBtcCorrelation();
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });

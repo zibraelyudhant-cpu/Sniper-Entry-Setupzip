@@ -22,8 +22,9 @@ const AMBER = '#FFD700';
 type TFOption = 'D1' | 'H4' | 'H1' | 'M30' | 'M15' | 'M5';
 const TF_OPTIONS: TFOption[] = ['D1', 'H4', 'H1', 'M30', 'M15', 'M5'];
 
-type FeatureKey = 'trend' | 'multiTf' | 'transition' | 'breakoutBounce' | 'longShort' | 'divergenceTrend';
-const FEATURES: { key: FeatureKey; label: string; needsTf: boolean }[] = [
+type FeatureKey = 'trend' | 'multiTf' | 'transition' | 'breakoutBounce' | 'longShort' | 'divergenceTrend' | 'btcCorrelation';
+const FEATURES: { key: FeatureKey; label: string; needsTf: boolean; noSymbolNeeded?: boolean }[] = [
+  { key: 'btcCorrelation', label: 'BTC', noSymbolNeeded: true, needsTf: false },
   { key: 'trend', label: 'Tren', needsTf: true },
   { key: 'multiTf', label: 'Multi-TF', needsTf: false },
   { key: 'transition', label: 'Transisi', needsTf: true },
@@ -35,6 +36,7 @@ const FEATURES: { key: FeatureKey; label: string; needsTf: boolean }[] = [
 function featureUrl(symbol: string, feature: FeatureKey, tf: TFOption): string {
   const enc = encodeURIComponent(symbol);
   switch (feature) {
+    case 'btcCorrelation': return `/api/technical-analysis-pro/btc-correlation`;
     case 'trend': return `/api/technical-analysis-pro/trend?symbol=${enc}&tf=${tf}`;
     case 'multiTf': return `/api/technical-analysis-pro/multi-tf?symbol=${enc}`;
     case 'transition': return `/api/technical-analysis-pro/transition?symbol=${enc}&tf=${tf}`;
@@ -54,9 +56,9 @@ export default function TechnicalAnalysisProScreen() {
   const [tf, setTf] = useState<TFOption>('H4');
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['technical-analysis-pro', activeSymbol, activeFeature, tf],
-    queryFn: () => customFetch<any>(featureUrl(activeSymbol!, activeFeature, tf)),
-    enabled: !!activeSymbol,
+    queryKey: ['technical-analysis-pro', activeFeature === 'btcCorrelation' ? 'BTC' : activeSymbol, activeFeature, tf],
+    queryFn: () => customFetch<any>(featureUrl(activeSymbol ?? '', activeFeature, tf)),
+    enabled: activeFeature === 'btcCorrelation' || !!activeSymbol,
   });
 
   const currentFeatureMeta = FEATURES.find(f => f.key === activeFeature)!;
@@ -94,23 +96,21 @@ export default function TechnicalAnalysisProScreen() {
           </TouchableOpacity>
         </View>
 
-        {activeSymbol && (
-          <View style={{ marginTop: 12 }}>
-            <AnimatedTabSwitcher
-              tabs={FEATURES.map(f => ({ key: f.key, label: f.label }))}
-              active={activeFeature}
-              onChange={(k) => setActiveFeature(k as FeatureKey)}
-              accentColor={ACCENT}
-            />
-          </View>
-        )}
+        <View style={{ marginTop: 12 }}>
+          <AnimatedTabSwitcher
+            tabs={FEATURES.map(f => ({ key: f.key, label: f.label }))}
+            active={activeFeature}
+            onChange={(k) => setActiveFeature(k as FeatureKey)}
+            accentColor={ACCENT}
+          />
+        </View>
       </View>
 
-      {!activeSymbol ? (
+      {!activeSymbol && activeFeature !== 'btcCorrelation' ? (
         <View style={styles.emptyState}>
           <Feather name="bar-chart-2" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Pilih koin dulu</Text>
-          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Ketik simbol koin di atas, lalu tekan Analisa</Text>
+          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Ketik simbol koin di atas, lalu tekan Analisa — atau buka tab BTC buat liat outlook BTC dulu (gak perlu pilih koin)</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -157,6 +157,7 @@ export default function TechnicalAnalysisProScreen() {
           {!isLoading && !isError && data && activeFeature === 'transition' && <TransitionResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'breakoutBounce' && <BreakoutBounceResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'divergenceTrend' && <DivergenceTrendResultView data={data} />}
+          {!isLoading && !isError && data && activeFeature === 'btcCorrelation' && <BtcCorrelationResultView data={data} />}
         </ScrollView>
       )}
     </View>
@@ -351,6 +352,99 @@ function DivergenceTrendResultView({ data }: { data: any }) {
           </View>
         ) : <Text style={styles.tfDetail}>H4: data gak cukup</Text>}
         <Text style={[styles.reasoningText, { marginTop: 4 }]}>{oi.fundingInterpretation}</Text>
+      </CyberCard>
+    </View>
+  );
+}
+
+// ═══ FITUR 7: BTC Correlation ═══════════════════════════════════════════
+function BtcCorrelationResultView({ data }: { data: any }) {
+  const phaseColor = (data.phase ?? '').includes('BULLISH') || (data.phase ?? '').includes('SEHAT') ? CYAN
+    : (data.phase ?? '').includes('WASPADA') ? AMBER
+    : (data.phase ?? '').includes('DOWNTREND') ? MAGENTA
+    : NEUTRAL;
+
+  const divRows = (label: string, tf: string, div: { bullish: boolean; bearish: boolean }) => (
+    <View style={styles.divRow} key={`${label}-${tf}`}>
+      <Text style={styles.divRowLabel}>{label} ({tf})</Text>
+      <CyberBadge label={div.bullish ? 'BULLISH' : div.bearish ? 'BEARISH' : 'NONE'} color={div.bullish ? CYAN : div.bearish ? MAGENTA : NEUTRAL} pulsing={div.bullish || div.bearish} />
+    </View>
+  );
+
+  const strengthBlock = (label: string, s: any) => (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={[styles.divRowLabel, { marginBottom: 4 }]}>{label} — bias {s?.bias ?? '—'}</Text>
+      <Text style={styles.tfDetail}>RSI {s?.rsi?.toFixed(1) ?? '—'} · MACD hist {s?.macdHistogram?.toFixed(1) ?? '—'} · ADX {s?.adx?.toFixed(1) ?? '—'} (+DI {s?.plusDI?.toFixed(1) ?? '—'}/-DI {s?.minusDI?.toFixed(1) ?? '—'})</Text>
+      <Text style={styles.tfDetail}>EMA13/26/50/100/200: {s?.emaAlignment ?? '—'} · Stoch %K {s?.stochK?.toFixed(1) ?? '—'} · Vol {s?.volumeRatio?.toFixed(2) ?? '—'}x · ATR {s?.atrRatio?.toFixed(2) ?? '—'}x</Text>
+    </View>
+  );
+
+  return (
+    <View>
+      <CyberCard accentColor={phaseColor} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// FASE BTC SAAT INI</Text>
+        </View>
+        <CyberBadge label={data.phase ?? '—'} color={phaseColor} pulsing />
+        <Text style={[styles.reasoningText, { marginTop: 8 }]}>{data.phaseDetail}</Text>
+        <Text style={[styles.tfDetail, { marginTop: 6 }]}>Harga sekarang: {data.currentPrice?.toFixed(0) ?? '—'}</Text>
+      </CyberCard>
+
+      <CyberCard accentColor={ACCENT} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// KEKUATAN TREND</Text>
+        </View>
+        {strengthBlock('D1', data.trendStrength?.d1)}
+        {strengthBlock('H4', data.trendStrength?.h4)}
+      </CyberCard>
+
+      <CyberCard accentColor={MAGENTA} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// DIVERGENCE (D1 + H4)</Text>
+        </View>
+        {divRows('RSI', 'D1', data.divergence?.d1?.rsi ?? {})}
+        {divRows('MACD', 'D1', data.divergence?.d1?.macd ?? {})}
+        {divRows('Volume', 'D1', data.divergence?.d1?.volume ?? {})}
+        {divRows('Stochastic', 'D1', data.divergence?.d1?.stochastic ?? {})}
+        {divRows('ADX/DI', 'D1', data.divergence?.d1?.adxDi ?? {})}
+        {divRows('OI', 'D1', data.divergence?.d1?.openInterest ?? {})}
+        <View style={{ height: 8 }} />
+        {divRows('RSI', 'H4', data.divergence?.h4?.rsi ?? {})}
+        {divRows('MACD', 'H4', data.divergence?.h4?.macd ?? {})}
+        {divRows('Volume', 'H4', data.divergence?.h4?.volume ?? {})}
+        {divRows('Stochastic', 'H4', data.divergence?.h4?.stochastic ?? {})}
+        {divRows('ADX/DI', 'H4', data.divergence?.h4?.adxDi ?? {})}
+        {divRows('OI', 'H4', data.divergence?.h4?.openInterest ?? {})}
+      </CyberCard>
+
+      <CyberCard accentColor={AMBER} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// KEY LEVEL D1 (terdekat)</Text>
+        </View>
+        {(data.keyLevelsD1 ?? []).slice(0, 6).map((lvl: any, idx: number) => (
+          <View style={styles.divRow} key={idx}>
+            <Text style={styles.divRowLabel}>{lvl.type === 'resistance' ? 'Resistance' : 'Support'}</Text>
+            <Text style={[styles.tfDetail, { marginTop: 0 }]}>{lvl.price?.toFixed(0)} ({lvl.touches}x)</Text>
+          </View>
+        ))}
+        <View style={{ height: 10 }} />
+        <Text style={[styles.divRowLabel, { marginBottom: 4 }]}>Level Fresh (belum teruji 2x, hati-hati)</Text>
+        <View style={styles.divRow}>
+          <Text style={styles.tfDetail}>Resistance</Text>
+          <Text style={[styles.tfDetail, { marginTop: 0 }]}>{data.nearestLevelsD1?.resistance ? `${data.nearestLevelsD1.resistance.price?.toFixed(0)} (${data.nearestLevelsD1.resistance.touches}x)` : 'gak ada'}</Text>
+        </View>
+        <View style={styles.divRow}>
+          <Text style={styles.tfDetail}>Support</Text>
+          <Text style={[styles.tfDetail, { marginTop: 0 }]}>{data.nearestLevelsD1?.support ? `${data.nearestLevelsD1.support.price?.toFixed(0)} (${data.nearestLevelsD1.support.touches}x)` : 'gak ada'}</Text>
+        </View>
+      </CyberCard>
+
+      <CyberCard accentColor={data.btcGold?.trend === 'bullish' ? CYAN : MAGENTA} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// BTC / GOLD (proxy PAXG)</Text>
+          <CyberBadge label={(data.btcGold?.trend ?? '—').toUpperCase()} color={data.btcGold?.trend === 'bullish' ? CYAN : MAGENTA} pulsing={false} />
+        </View>
+        <Text style={styles.reasoningText}>{data.btcGold?.interpretation}</Text>
       </CyberCard>
     </View>
   );
