@@ -225,7 +225,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Money Magnet (H4→M30 breakout+retest)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Breakout H1 + RSI D1 filter</Text>
       </View>
     );
   }
@@ -260,7 +260,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Money Magnet (H4→M30 breakout+retest)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Breakout H1 + RSI D1 filter'}
           </Text>
         </View>
       );
@@ -479,7 +479,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Money Magnet (H4→M30 breakout+retest)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Breakout H1 + RSI D1 filter</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -725,7 +725,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Money Magnet (H4→M30 breakout+retest)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout H1 + RSI D1 filter</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -750,9 +750,36 @@ export default function ScalpingScreen() {
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
         ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} pinnedData={pinnedCoin} />
-        : <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />
+        : <ScalpingRingkasanTab colors={colors} />
       }
     </View>
+  );
+}
+
+// ─── Ringkasan Tab ──────────────────────────────────────────────────────────
+
+function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: insets.bottom + 80 }}>
+      <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Menu Scalping</Text>
+        <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
+          Arah sinyal murni dari breakout H1 sendiri (gak ada trend gate H4 lagi). Level S/R harus signifikan (min. 2x reaksi jelas di H4). Filter RSI(14) D1 nolak sinyal kalau udah overbought/oversold. SL pakai swing high/low terdekat.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
+        <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
+          1. Breakout H1 fresh & untouched, volume ≥2x MA20{'\n'}
+          2. Level signifikan — min. 2x reaksi jelas di H4 (toleransi ATR×0,15){'\n'}
+          3. Retest ke level (toleransi 0,3%), Force Index berlawanan (tanda genuine menuju retest), tanpa divergence{'\n'}
+          4. Filter RSI(14) D1 — ≥65 tolak BUY (overbought), ≤35 tolak SELL (oversold){'\n'}
+          5. Entry limit, SL = swing high/low terdekat sebelum level, TP1 RR 1:2, TP2 RR 1:3
+        </Text>
+      </View>
+      <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />
+    </ScrollView>
   );
 }
 

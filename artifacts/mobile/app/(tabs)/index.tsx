@@ -285,7 +285,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — M30 fresh breakout, belum retest</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — breakout M30 + RSI D1 filter</Text>
       </View>
     );
   }
@@ -314,7 +314,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — M30 fresh breakout, belum retest'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — breakout M30 + RSI D1 filter'}
           </Text>
         </View>
       );
@@ -770,7 +770,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M30 fresh breakout (belum retest) + struktur EMA26/89 — entry pakai buy/sell LIMIT</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout M30 + level signifikan H4 + RSI D1 filter — entry pakai buy/sell LIMIT</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -795,9 +795,37 @@ export default function BreakoutEntryScreen() {
         ? <ScanTab colors={colors} onSelectCoin={handleSelectCoin} />
         : activeTab === 'analisa'
         ? <AnalisaTab colors={colors} initialSymbol={pinnedCoin?.symbol} pinnedData={pinnedCoin} />
-        : <MenuJournalSummary sourceMenu="Sniper Breakout" accentColor={ACCENT} />
+        : <SniperRingkasanTab colors={colors} />
       }
     </View>
+  );
+}
+
+// ─── Ringkasan Tab ──────────────────────────────────────────────────────────
+
+function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: insets.bottom + 80 }}>
+      <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Sniper Breakout</Text>
+        <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
+          Arah sinyal murni dari breakout M30 sendiri (gak ada trend gate H4). Level S/R harus signifikan (min. 2x reaksi jelas di H4). Filter RSI(14) D1 nolak sinyal kalau udah overbought/oversold. Struktur EMA26/89 & Force Index M30 cuma info, gak nge-block.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+        <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
+        <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
+          1. Breakout M30 fresh (fractal 2-2, scan mundur 26 candle), volume ≥2,5x MA20{'\n'}
+          2. Level signifikan — min. 2x reaksi jelas di H4 (toleransi ATR×0,15){'\n'}
+          3. Belum di-retest lagi sejak breakout{'\n'}
+          4. Filter RSI(14) D1 — ≥65 tolak BUY (overbought), ≤35 tolak SELL (oversold){'\n'}
+          5. EMA26/89 & Force Index M30 — info doang, gak nge-block{'\n'}
+          6. Entry LIMIT di level (±0,05%), SL = 1,4×ATR M30, TP1 RR 1:2, TP2 RR 1:3
+        </Text>
+      </View>
+      <MenuJournalSummary sourceMenu="Sniper Breakout" accentColor={ACCENT} />
+    </ScrollView>
   );
 }
 

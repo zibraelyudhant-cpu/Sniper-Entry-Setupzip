@@ -2736,6 +2736,51 @@ function checkLevelSignificantH4(
   return { significant: touches >= minTouch, touches };
 }
 
+// BARU (request user, samain di 3 menu: Sniper Breakout, Menu Scalping,
+// Money Magnet Scalping): filter D1 gabungan RSI + ADX + arah -- gantiin
+// filter RSI D1 doang. Kasus asli yang jadi alasan: sinyal SELL keluar
+// padahal D1 lagi UPTREND KUAT (ADX D1 39+, +DI dominan) -- RSI D1 doang
+// gak nangkep ini karena RSI-nya kebetulan masih netral. FIX SEKALIAN: dulu
+// RSI D1 dihitung dari d1.closes MENTAH (nyertain candle hari ini yang
+// BELUM closed) -- kalau harga lagi gerak kenceng hari itu (kayak kasus
+// THETA +5,4%), angkanya keburu berubah sebelum hari kelar. Sekarang selalu
+// exclude candle yang masih forming.
+//
+// Urutan cek: (1) RSI D1 overbought/oversold -- hard block. (2) ADX D1 <20
+// -- market D1 gak punya arah jelas sama sekali, block. (3) ADX D1 >=20 tapi
+// arahnya (+DI vs -DI) BERLAWANAN sama bias sinyal -- block (ini yang
+// nangkep kasus ETC: D1 trending kuat TAPI ke arah yang beda dari sinyal).
+function checkD1TrendFilter(
+  d1Highs: number[], d1Lows: number[], d1Closes: number[], bias: 'bullish' | 'bearish',
+): { blocked: boolean; reason: string; rsi: number; adx: number; plusDI: number; minusDI: number; label: string } {
+  const lastClosedIdx = d1Closes.length - 2; // exclude candle hari ini yang masih forming
+  const closedHighs = d1Highs.slice(0, lastClosedIdx + 1);
+  const closedLows = d1Lows.slice(0, lastClosedIdx + 1);
+  const closedCloses = d1Closes.slice(0, lastClosedIdx + 1);
+
+  const rsi = calcRSI(closedCloses, 14);
+  const adxRes = calcADXWithDI(closedHighs, closedLows, closedCloses, 14);
+  const d1DirBullish = adxRes.plusDI > adxRes.minusDI;
+
+  if (bias === 'bullish' && rsi >= 65) {
+    return { blocked: true, reason: `RSI D1 (${rsi.toFixed(1)}) OVERBOUGHT (>=65) — rawan pembalikan arah`, rsi, adx: adxRes.adx, plusDI: adxRes.plusDI, minusDI: adxRes.minusDI, label: '' };
+  }
+  if (bias === 'bearish' && rsi <= 35) {
+    return { blocked: true, reason: `RSI D1 (${rsi.toFixed(1)}) OVERSOLD (<=35) — rawan pembalikan arah`, rsi, adx: adxRes.adx, plusDI: adxRes.plusDI, minusDI: adxRes.minusDI, label: '' };
+  }
+  if (adxRes.adx < 20) {
+    return { blocked: true, reason: `ADX D1 (${adxRes.adx.toFixed(1)}) di bawah 20 — market D1 gak punya arah jelas`, rsi, adx: adxRes.adx, plusDI: adxRes.plusDI, minusDI: adxRes.minusDI, label: '' };
+  }
+  if ((bias === 'bullish' && !d1DirBullish) || (bias === 'bearish' && d1DirBullish)) {
+    return { blocked: true, reason: `D1 lagi trending KUAT (ADX ${adxRes.adx.toFixed(1)}) TAPI arahnya ${d1DirBullish ? 'bullish' : 'bearish'} — BERLAWANAN sama sinyal ${bias}`, rsi, adx: adxRes.adx, plusDI: adxRes.plusDI, minusDI: adxRes.minusDI, label: '' };
+  }
+
+  const label = bias === 'bullish'
+    ? (rsi >= 55 ? 'trend bullish sehat' : rsi <= 45 ? 'lemah, hati-hati' : 'netral')
+    : (rsi <= 45 ? 'trend bearish sehat' : rsi >= 55 ? 'lemah, hati-hati' : 'netral');
+  return { blocked: false, reason: '', rsi, adx: adxRes.adx, plusDI: adxRes.plusDI, minusDI: adxRes.minusDI, label };
+}
+
 export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
@@ -2750,7 +2795,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     // 1). TF eksekusi naik M30 -> H1.
     const [h1, d1, tickerRes] = await Promise.all([
       fetchKlines(symbol, '1h', 100),
-      fetchKlines(symbol, '1d', 30),
+      fetchKlines(symbol, '1d', 150), // BARU (request user): 150 candle biar ADX D1 punya cukup warm-up buat konvergen (30 kekecilan, ADX bisa keliatan lebih tinggi dari yang bener abis lonjakan volatilitas)
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -2760,8 +2805,8 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     if (h1.closes.length < 100) {
       return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: 'Data candle gak cukup (butuh H1 100+)', maxScore };
     }
-    if (d1.closes.length < 15) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: 'Data candle gak cukup (butuh D1 15+)', maxScore };
+    if (d1.closes.length < 100) {
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: 'Data candle gak cukup (butuh D1 100+)', maxScore };
     }
 
     const filterResults: string[] = [];
@@ -2904,31 +2949,22 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     }
 
     // BARU (request user): RSI(14) D1 HARD FILTER -- gantiin trend gate H4
-    // (EMA26+ADX) yang dihapus. Sama persis pola Sniper Breakout Skill 1:
-    // >=65 overbought tolak BUY, <=35 oversold tolak SELL, 55-65/35-45 cuma
-    // label info.
+    // (EMA26+ADX) yang dihapus. Sama persis pola Sniper Breakout Skill 1,
+    // sekarang gabungan RSI+ADX+arah D1 (checkD1TrendFilter).
     const bias = found.bias;
-    const rsiD1 = calcRSI(d1.closes, 14);
-    if (bias === 'bullish' && rsiD1 >= 65) {
+    const d1Filter = checkD1TrendFilter(d1.highs, d1.lows, d1.closes, bias);
+    if (d1Filter.blocked) {
       return {
         status: 'waiting', symbol, bias, currentPrice, timestamp, mode: 'structural',
-        message: `Breakout+retest H1 valid TAPI RSI D1 (${rsiD1.toFixed(1)}) udah OVERBOUGHT (>=65) — rawan pembalikan arah, sinyal BUY ditolak`,
-        maxScore, filterResults: [`🚫 RSI D1 (BLOCK) — ${rsiD1.toFixed(1)} overbought (>=65), BUY ditolak`],
+        message: `Breakout+retest H1 valid TAPI D1 ditolak — ${d1Filter.reason}`,
+        maxScore, filterResults: [`🚫 Filter D1 (BLOCK) — ${d1Filter.reason}`],
       };
     }
-    if (bias === 'bearish' && rsiD1 <= 35) {
-      return {
-        status: 'waiting', symbol, bias, currentPrice, timestamp, mode: 'structural',
-        message: `Breakout+retest H1 valid TAPI RSI D1 (${rsiD1.toFixed(1)}) udah OVERSOLD (<=35) — rawan pembalikan arah, sinyal SELL ditolak`,
-        maxScore, filterResults: [`🚫 RSI D1 (BLOCK) — ${rsiD1.toFixed(1)} oversold (<=35), SELL ditolak`],
-      };
-    }
-    const rsiD1Label = bias === 'bullish'
-      ? (rsiD1 >= 55 ? 'trend bullish sehat' : rsiD1 <= 45 ? 'lemah, hati-hati' : 'netral')
-      : (rsiD1 <= 45 ? 'trend bearish sehat' : rsiD1 >= 55 ? 'lemah, hati-hati' : 'netral');
+    const rsiD1 = d1Filter.rsi;
+    const rsiD1Label = d1Filter.label;
 
     filterResults.push(`✅ FASE 1 — Breakout+retest H1 valid @ ${found.levelPrice.toFixed(6)} (level signifikan (>=2x reaksi jelas di H4), volume>=2x MA20), retest ke S/R, Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
-    filterResults.push(`✅ RSI(14) D1 — ${rsiD1.toFixed(1)} (${rsiD1Label}), belum overbought/oversold`);
+    filterResults.push(`✅ Filter D1 — RSI ${rsiD1.toFixed(1)} (${rsiD1Label}), ADX ${d1Filter.adx.toFixed(1)} (+DI ${d1Filter.plusDI.toFixed(1)}/-DI ${d1Filter.minusDI.toFixed(1)}), searah & belum jenuh`);
 
     // ═══ FASE 2: ENTRY SETUP ═════════════════════════════════════════════
     const dirMult = bias === 'bullish' ? 1 : -1;
@@ -3615,11 +3651,43 @@ function detectRSIDivergenceGeneric(highs: number[], lows: number[], closes: num
   return { bullish, bearish };
 }
 
-/**
- * Volume Divergence — BARU, belum pernah ada di project. Konsep: harga bikin
- * level baru (HH/LL) tapi volume di titik itu malah lebih rendah dari titik
- * sebelumnya = momentum gak dikonfirmasi volume, warning potensi lemah/reversal.
- */
+// BARU (request user): Force Index Divergence -- pake EMA(2) yang sama kayak
+// calcForceIndexSeries (setting TradingView EFI panjang=2). calcForceIndexSeries
+// balikin array yang OFFSET (index 0 = candle asli index 1), jadi di-align
+// dulu ke index candle asli sebelum dibandingin ke swing high/low.
+function detectForceIndexDivergence(highs: number[], lows: number[], closes: number[], volumes: number[]): DivergenceResult {
+  const fiRaw = calcForceIndexSeries(closes, volumes);
+  const n = closes.length;
+  const fiSeries: number[] = new Array(n).fill(0);
+  for (let j = 0; j < fiRaw.length; j++) fiSeries[j + 1] = fiRaw[j]!;
+
+  const swingHighs = findSwingPointsIdx(highs, 'high', 2);
+  const swingLows = findSwingPointsIdx(lows, 'low', 2);
+
+  let bullish = false;
+  if (swingLows.length >= 2) {
+    const l1 = swingLows[swingLows.length - 2]!;
+    const l2 = swingLows[swingLows.length - 1]!;
+    const priceLL = l2.value < l1.value;
+    const fiAtL1 = fiSeries[l1.idx] ?? 0;
+    const fiAtL2 = fiSeries[l2.idx] ?? 0;
+    bullish = priceLL && fiAtL2 > fiAtL1; // harga LL tapi Force Index gak ikut bikin low baru (lebih tinggi)
+  }
+
+  let bearish = false;
+  if (swingHighs.length >= 2) {
+    const h1s = swingHighs[swingHighs.length - 2]!;
+    const h2s = swingHighs[swingHighs.length - 1]!;
+    const priceHH = h2s.value > h1s.value;
+    const fiAtH1 = fiSeries[h1s.idx] ?? 0;
+    const fiAtH2 = fiSeries[h2s.idx] ?? 0;
+    bearish = priceHH && fiAtH2 < fiAtH1; // harga HH tapi Force Index gak ikut bikin high baru (lebih rendah)
+  }
+
+  return { bullish, bearish };
+}
+
+
 function detectVolumeDivergence(highs: number[], lows: number[], closes: number[], volumes: number[]): DivergenceResult {
   const swingHighs = findSwingPointsIdx(highs, 'high', 2);
   const swingLows = findSwingPointsIdx(lows, 'low', 2);
@@ -5393,7 +5461,7 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
     const [m30, h4, d1, tickerRes] = await Promise.all([
       fetchKlines(symbol, '30m', 100),
       fetchKlines(symbol, '4h', 40),
-      fetchKlines(symbol, '1d', 30), // BARU (request user): RSI(14) D1 filter overbought/oversold
+      fetchKlines(symbol, '1d', 150), // BARU (request user): filter D1 (RSI+ADX+arah). 150 candle -- ADX Wilder-smoothing butuh warm-up panjang, apalagi abis lonjakan volatilitas gede (30 candle kebukti ADX-nya masih belum konvergen, keliatan lebih tinggi dari yang bener)
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -5406,8 +5474,8 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
     if (h4.closes.length < 30) {
       return { status: 'error', symbol, currentPrice, timestamp, message: 'Data candle gak cukup (butuh H4 30+)', maxScore };
     }
-    if (d1.closes.length < 15) {
-      return { status: 'error', symbol, currentPrice, timestamp, message: 'Data candle gak cukup (butuh D1 15+)', maxScore };
+    if (d1.closes.length < 100) {
+      return { status: 'error', symbol, currentPrice, timestamp, message: 'Data candle gak cukup (butuh D1 100+)', maxScore };
     }
 
     const atrM30 = calcATR(m30.highs, m30.lows, m30.closes);
@@ -5456,7 +5524,8 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       checkLevelSignificantH4(h4ClosedHighs, h4ClosedLows, h4ClosedCloses, level, bias, atrH4).significant;
 
     let found: {
-      breakoutIdx: number; bias: 'bullish' | 'bearish'; brokenLevel: number; adxValue: number;
+      breakoutIdx: number; bias: 'bullish' | 'bearish'; brokenLevel: number; adxValue: number; rsiM30: number;
+      fiDivChecked: DivergenceResult; rsiDivChecked: DivergenceResult; stochDivChecked: DivergenceResult;
     } | null = null;
 
     for (let breakoutIdx = lastClosedIdx; breakoutIdx >= Math.max(swingSlice + 5, lastClosedIdx - 26); breakoutIdx--) {
@@ -5479,16 +5548,27 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
 
       if (!bullishBreakout && !bearishBreakout) continue;
 
+      const bias: 'bullish' | 'bearish' = bullishBreakout ? 'bullish' : 'bearish';
+
+      // BARU (request user, tervalidasi backtest 3 koin: WR naik 46,3%->47,2%
+      // tanpa ngorbanin banyak sample): RSI(14) M30 di CANDLE BREAKOUT itu
+      // sendiri belum boleh ekstrem -- kalau breakout BUY tapi momentum M30
+      // udah kepanasan (>=75) atau breakout SELL tapi udah oversold (<=25),
+      // rawan exhaustion cepet, skip.
+      const rsiM30AtBreakout = calcRSI(m30.closes.slice(0, breakoutIdx + 1), 14);
+      if (bias === 'bullish' && rsiM30AtBreakout >= 75) continue;
+      if (bias === 'bearish' && rsiM30AtBreakout <= 25) continue;
+
       const adx = calcADXWithDI(
         m30.highs.slice(0, breakoutIdx + 1), m30.lows.slice(0, breakoutIdx + 1), m30.closes.slice(0, breakoutIdx + 1), 14,
       );
       // REVISI (request user): ADX jadi BONUS/info doang, bukan hard filter
       // lagi -- gak nge-block breakout walau ADX <=25.
 
-      const bias: 'bullish' | 'bearish' = bullishBreakout ? 'bullish' : 'bearish';
       const brokenLevel = bullishBreakout ? swings.high!.price : swings.low!.price;
 
-      // ═══ FASE 2: BELUM RETEST (binary) ═══════════════════════════════════
+      // ═══ FASE 2: BELUM RETEST (binary) + NO DIVERGENCE M30 (hard filter,
+      // BARU request user) ═══════════════════════════════════════════════
       // FIX BUG (audit user, "kenapa gak pernah dapet sinyal"): dulu ngecek
       // ulang dari swingIdx+1, range-nya IKUT NYENGGOL candle breakout itu
       // SENDIRI (karena breakoutIdx <= lastClosedIdx). Candle breakout wajar
@@ -5500,7 +5580,25 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       const stillFresh = isFreshUntouched(breakoutIdx, brokenLevel, lastClosedIdx + 1, tol);
       if (!stillFresh) continue; // udah keretest SETELAH breakout, bukan kandidat "belum retest" lagi
 
-      found = { breakoutIdx, bias, brokenLevel, adxValue: adx.adx };
+      // REVISI (request user, tervalidasi backtest 3 koin: hard block bikin
+      // WR TURUN 47,2%->44,3% + motong 24% sample -- kebukti ngerusak,
+      // BUKAN nolong). GANTI jadi bonus/info doang: divergence M30 (Force
+      // Index EMA2, RSI, Stochastic 5,3,3) dicek, kalau KEBETULAN searah
+      // sama sinyal itu bonus (subset ini WR-nya 52,6% vs baseline 47,2% --
+      // genuinely lebih baik), tapi GAK ADA divergence sama sekali (netral)
+      // TETEP LOLOS -- cuma divergence BERLAWANAN gak dicek/gak nge-block.
+      const m30HighsUpToBreakout = m30.highs.slice(0, breakoutIdx + 1);
+      const m30LowsUpToBreakout = m30.lows.slice(0, breakoutIdx + 1);
+      const m30ClosesUpToBreakout = m30.closes.slice(0, breakoutIdx + 1);
+      const m30VolumesUpToBreakout = m30.volumes.slice(0, breakoutIdx + 1);
+      const fiDivM30 = detectForceIndexDivergence(m30HighsUpToBreakout, m30LowsUpToBreakout, m30ClosesUpToBreakout, m30VolumesUpToBreakout);
+      const rsiDivM30 = detectRSIDivergenceGeneric(m30HighsUpToBreakout, m30LowsUpToBreakout, m30ClosesUpToBreakout);
+      const stochDivM30 = detectStochasticDivergenceGeneric(m30HighsUpToBreakout, m30LowsUpToBreakout, m30ClosesUpToBreakout);
+
+      found = {
+        breakoutIdx, bias, brokenLevel, adxValue: adx.adx, rsiM30: rsiM30AtBreakout,
+        fiDivChecked: fiDivM30, rsiDivChecked: rsiDivM30, stochDivChecked: stochDivM30,
+      };
       break;
     }
 
@@ -5514,38 +5612,41 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
 
     const { bias, brokenLevel, adxValue } = found;
 
-    // BARU (request user): RSI(14) D1 HARD FILTER -- tolak sinyal kalau D1
-    // udah overbought (BUY) atau oversold (SELL), biar gak entry pas harga
-    // rawan pembalikan arah (kasus asli: lose kebanyakan kejadian pas entry
-    // BUY deket resistance D1 padahal D1 udah jenuh naik). >=65 overbought,
-    // <=35 oversold -- di luar itu (55-65 / 35-45) cuma label info "trend
-    // sehat", gak nge-block.
-    const rsiD1 = calcRSI(d1.closes, 14);
-    if (bias === 'bullish' && rsiD1 >= 65) {
+    // BARU (request user): filter D1 gabungan RSI+ADX+arah (checkD1TrendFilter)
+    // -- tolak sinyal kalau D1 overbought/oversold, ATAU D1 gak punya arah
+    // jelas (ADX<20), ATAU D1 trending kuat tapi arahnya BERLAWANAN sama
+    // sinyal (kasus asli: SELL keluar padahal D1 uptrend kuat ADX 39+).
+    const d1Filter = checkD1TrendFilter(d1.highs, d1.lows, d1.closes, bias);
+    if (d1Filter.blocked) {
       return {
         status: 'waiting', symbol, bias, currentPrice, timestamp,
-        message: `Breakout M30 valid TAPI RSI D1 (${rsiD1.toFixed(1)}) udah OVERBOUGHT (>=65) — rawan pembalikan arah, sinyal BUY ditolak`,
+        message: `Breakout M30 valid TAPI D1 ditolak — ${d1Filter.reason}`,
         maxScore,
-        filterResults: [`🚫 RSI D1 (BLOCK) — ${rsiD1.toFixed(1)} overbought (>=65), BUY ditolak`],
+        filterResults: [`🚫 Filter D1 (BLOCK) — ${d1Filter.reason}`],
       };
     }
-    if (bias === 'bearish' && rsiD1 <= 35) {
-      return {
-        status: 'waiting', symbol, bias, currentPrice, timestamp,
-        message: `Breakout M30 valid TAPI RSI D1 (${rsiD1.toFixed(1)}) udah OVERSOLD (<=35) — rawan pembalikan arah, sinyal SELL ditolak`,
-        maxScore,
-        filterResults: [`🚫 RSI D1 (BLOCK) — ${rsiD1.toFixed(1)} oversold (<=35), SELL ditolak`],
-      };
-    }
-    const rsiD1Label = bias === 'bullish'
-      ? (rsiD1 >= 55 ? 'trend bullish sehat' : rsiD1 <= 45 ? 'lemah, hati-hati' : 'netral')
-      : (rsiD1 <= 45 ? 'trend bearish sehat' : rsiD1 >= 55 ? 'lemah, hati-hati' : 'netral');
+    const rsiD1 = d1Filter.rsi;
+    const rsiD1Label = d1Filter.label;
 
     const filterResults: string[] = [
-      `✅ FASE 1 — Breakout M30 fresh @ ${brokenLevel.toFixed(6)}, volume>2.5x MA20, level udah teruji minimal 2x (signifikan), belum retest sejak breakout`,
+      `✅ FASE 1 — Breakout M30 fresh @ ${brokenLevel.toFixed(6)}, volume>2.5x MA20, level udah teruji minimal 2x (signifikan), RSI M30 ${found.rsiM30.toFixed(1)} belum ekstrem, belum retest sejak breakout`,
       `ℹ️ ADX(14) @ breakout: ${adxValue.toFixed(1)} (bonus/info, gak nge-block)${adxValue > 25 ? ' — trend kuat' : ' — trend lemah/ranging, hati-hati'}`,
-      `✅ RSI(14) D1 — ${rsiD1.toFixed(1)} (${rsiD1Label}), belum overbought/oversold`,
+      `✅ Filter D1 — RSI ${rsiD1.toFixed(1)} (${rsiD1Label}), ADX ${d1Filter.adx.toFixed(1)} (+DI ${d1Filter.plusDI.toFixed(1)}/-DI ${d1Filter.minusDI.toFixed(1)}), searah & belum jenuh`,
     ];
+
+    // BARU (request user): BONUS (info doang, gak nge-block) kalau KEBETULAN
+    // ada divergence M30 yang SEARAH sinyal (Force Index EMA2/RSI/Stochastic
+    // 5,3,3) -- tervalidasi backtest: subset sinyal yang dapet bonus ini
+    // WR-nya 52,6% vs baseline 47,2% (naik ~5,4pp), jadi worth dicatet
+    // sebagai confidence tambahan tanpa nge-block sinyal yang netral (gak
+    // ada divergence sama sekali).
+    const divergenceWithSignal = found.bias === 'bullish'
+      ? [found.fiDivChecked.bullish && 'Force Index EMA2', found.rsiDivChecked.bullish && 'RSI', found.stochDivChecked.bullish && 'Stochastic 5,3,3']
+      : [found.fiDivChecked.bearish && 'Force Index EMA2', found.rsiDivChecked.bearish && 'RSI', found.stochDivChecked.bearish && 'Stochastic 5,3,3'];
+    const divergenceWithSignalList = divergenceWithSignal.filter((x): x is string => !!x);
+    if (divergenceWithSignalList.length > 0) {
+      filterResults.push(`⭐ BONUS — divergence M30 SEARAH sinyal ${found.bias} ketemu di: ${divergenceWithSignalList.join(', ')} (confidence tambahan)`);
+    }
 
     // ═══ FASE 3: STRUKTUR TREND (EMA26 vs EMA89) -- bonus/info doang, gak
     // nge-block. Cuma FASE 1 & 2 yang wajib. ══════════════════════════════
@@ -5601,7 +5702,7 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       takeProfit1, takeProfit2, rr1,
       brokenLevel,
       taProBonusConfirmed: taProBonus.confirmed, taProBonusClassification: taProBonus.classification, taProBonusScore: taProBonus.score,
-      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} — breakout M30 fresh belum retest, struktur EMA26/89 searah, momentum konfirmasi. SL 1.4×ATR, TP1 1:2, TP2 1:3.`,
+      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} — breakout M30 fresh belum retest, level signifikan H4, RSI D1 ${rsiD1.toFixed(1)} (belum jenuh), struktur EMA26/89 searah, momentum konfirmasi. SL 1.4×ATR, TP1 1:2, TP2 1:3.`,
     };
   } catch (err) {
     return {
@@ -5899,7 +6000,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     const [h4, m15, d1, tickerRes] = await Promise.all([
       fetchKlines(symbol, '4h', 40),
       fetchKlines(symbol, '15m', 150),
-      fetchKlines(symbol, '1d', 30),
+      fetchKlines(symbol, '1d', 150), // BARU (request user): 150 candle biar ADX D1 punya cukup warm-up buat konvergen (30 kekecilan, ADX bisa keliatan lebih tinggi dari yang bener abis lonjakan volatilitas)
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -5912,8 +6013,8 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     if (m15.closes.length < 100) {
       return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh M15 150+)', maxScore };
     }
-    if (d1.closes.length < 15) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh D1 15+)', maxScore };
+    if (d1.closes.length < 100) {
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Data candle gak cukup (butuh D1 100+)', maxScore };
     }
 
     const filterResults: string[] = [];
@@ -6050,32 +6151,23 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       };
     }
 
-    // BARU (request user): RSI(14) D1 HARD FILTER -- gantiin trend gate H4
-    // (EMA26) yang dihapus. Sama persis pola Sniper Breakout Skill 1 & Menu
-    // Scalping: >=65 overbought tolak BUY, <=35 oversold tolak SELL,
-    // 55-65/35-45 cuma label info.
+    // BARU (request user): filter D1 gabungan RSI+ADX+arah -- gantiin trend
+    // gate H4 (EMA26) yang dihapus, sama persis pola Sniper Breakout Skill
+    // 1 & Menu Scalping (checkD1TrendFilter).
     const bias = found.bias;
-    const rsiD1 = calcRSI(d1.closes, 14);
-    if (bias === 'bullish' && rsiD1 >= 65) {
+    const d1Filter = checkD1TrendFilter(d1.highs, d1.lows, d1.closes, bias);
+    if (d1Filter.blocked) {
       return {
         status: 'waiting', symbol, bias, currentPrice, timestamp, mode: 'moneymagnetscalping',
-        message: `Breakout+retest M15 valid TAPI RSI D1 (${rsiD1.toFixed(1)}) udah OVERBOUGHT (>=65) — rawan pembalikan arah, sinyal BUY ditolak`,
-        maxScore, filterResults: [`🚫 RSI D1 (BLOCK) — ${rsiD1.toFixed(1)} overbought (>=65), BUY ditolak`],
+        message: `Breakout+retest M15 valid TAPI D1 ditolak — ${d1Filter.reason}`,
+        maxScore, filterResults: [`🚫 Filter D1 (BLOCK) — ${d1Filter.reason}`],
       };
     }
-    if (bias === 'bearish' && rsiD1 <= 35) {
-      return {
-        status: 'waiting', symbol, bias, currentPrice, timestamp, mode: 'moneymagnetscalping',
-        message: `Breakout+retest M15 valid TAPI RSI D1 (${rsiD1.toFixed(1)}) udah OVERSOLD (<=35) — rawan pembalikan arah, sinyal SELL ditolak`,
-        maxScore, filterResults: [`🚫 RSI D1 (BLOCK) — ${rsiD1.toFixed(1)} oversold (<=35), SELL ditolak`],
-      };
-    }
-    const rsiD1Label = bias === 'bullish'
-      ? (rsiD1 >= 55 ? 'trend bullish sehat' : rsiD1 <= 45 ? 'lemah, hati-hati' : 'netral')
-      : (rsiD1 <= 45 ? 'trend bearish sehat' : rsiD1 >= 55 ? 'lemah, hati-hati' : 'netral');
+    const rsiD1 = d1Filter.rsi;
+    const rsiD1Label = d1Filter.label;
 
     filterResults.push(`✅ FASE 1 — Breakout+retest M15 valid @ ${found.levelPrice.toFixed(6)} (level signifikan (>=2x reaksi jelas di H4), volume>=2.5x MA20), retest ke S/R, Force Index ${found.forceIndexValue.toFixed(2)} searah ${bias}, TANPA divergence`);
-    filterResults.push(`✅ RSI(14) D1 — ${rsiD1.toFixed(1)} (${rsiD1Label}), belum overbought/oversold`);
+    filterResults.push(`✅ Filter D1 — RSI ${rsiD1.toFixed(1)} (${rsiD1Label}), ADX ${d1Filter.adx.toFixed(1)} (+DI ${d1Filter.plusDI.toFixed(1)}/-DI ${d1Filter.minusDI.toFixed(1)}), searah & belum jenuh`);
 
     // ═══ FASE 2: ENTRY SETUP ═════════════════════════════════════════════
     const dirMult = bias === 'bullish' ? 1 : -1;

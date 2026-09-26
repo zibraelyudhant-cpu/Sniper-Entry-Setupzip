@@ -167,7 +167,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING MONEY MAGNET" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Money Magnet Scalping — M30 trend + M5 breakout+retest</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Money Magnet Scalping — breakout M15 + RSI D1 filter</Text>
       </View>
     );
   }
@@ -190,7 +190,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING MONEY MAGNET" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Money Magnet Scalping — M30 trend + M5 breakout+retest'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Money Magnet Scalping — breakout M15 + RSI D1 filter'}
           </Text>
         </View>
       );
@@ -351,7 +351,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="target" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Money Magnet Scalping</Text>
-          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>M30 trend + M5 breakout+retest, SL swing terdekat</Text>
+          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Breakout M15 + level signifikan H4 + RSI D1 filter</Text>
         </View>
       ) : isLoading ? (
         <View style={styles.emptyState}>
@@ -458,7 +458,7 @@ export default function MoneyMagnetScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Money Magnet Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M30 trend + M5 breakout+retest, SL swing terdekat</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout M15 + level signifikan H4 + RSI D1 filter</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -497,16 +497,17 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Money Magnet Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Skill Money Magnet (single-level) dengan timeframe diganti: trend dari M30 (bukan H4), eksekusi di M5 (bukan M30). SL pakai swing high/low terdekat, bukan ATR.
+          Arah sinyal murni dari breakout M15 sendiri (gak ada trend gate H4 lagi). Level S/R harus signifikan (min. 2x reaksi jelas di H4). Filter RSI(14) D1 nolak sinyal kalau udah overbought/oversold. SL pakai 1,4×ATR M15 (TF eksekusi).
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. M30 trend (EMA26 + momentum + filter fresh){'\n'}
-          2. M5 breakout level fresh & untouched{'\n'}
-          3. Retest ke magnet zone (confluence + EMA26 + Force Index){'\n'}
-          4. Entry limit, SL = swing high/low terdekat, TP RR 1:2
+          1. Breakout M15 fresh & untouched, volume ≥2,5x MA20{'\n'}
+          2. Level signifikan — min. 2x reaksi jelas di H4 (toleransi ATR×0,15){'\n'}
+          3. Retest ke level (toleransi 0,3%), Force Index berlawanan (tanda genuine menuju retest), tanpa divergence{'\n'}
+          4. Filter RSI(14) D1 — ≥65 tolak BUY (overbought), ≤35 tolak SELL (oversold){'\n'}
+          5. Entry limit, SL = 1,4×ATR M15, TP1 RR 1:2, TP2 RR 1:3
         </Text>
       </View>
       <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center', marginTop: 8 }}>
