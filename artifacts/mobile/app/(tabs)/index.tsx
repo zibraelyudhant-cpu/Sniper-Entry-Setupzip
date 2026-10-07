@@ -285,7 +285,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — breakout M30 + RSI D1 filter</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — H4→M15 CRT</Text>
       </View>
     );
   }
@@ -314,7 +314,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — breakout M30 + RSI D1 filter'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — H4→M15 CRT'}
           </Text>
         </View>
       );
@@ -662,7 +662,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
               </View>
               {data.takeProfit2 !== undefined && (
                 <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP2 — R:R 1:${((data.rr1 ?? 2) + 1).toFixed(1)}`}</Text>
+                  <Text style={[styles.infoLabel, { color: colors.bullish }]}>{`TP2 — R:R 1:${(data.rr2 ?? (data.rr1 ?? 2) + 1).toFixed(1)}`}</Text>
                   <Text style={[styles.infoValue, { color: colors.bullish }]}>{formatPrice(data.takeProfit2)}</Text>
                 </View>
               )}
@@ -770,7 +770,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout M30 + level signifikan H4 + RSI D1 filter — entry pakai buy/sell LIMIT</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4→M15 CRT (Candle Range Theory + ICT) — entry pakai buy/sell LIMIT</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -810,18 +810,18 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Sniper Breakout</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Arah sinyal murni dari breakout M30 sendiri (gak ada trend gate H4). Level S/R harus signifikan (min. 2x reaksi jelas di H4). Filter RSI(14) D1 nolak sinyal kalau udah overbought/oversold. Struktur EMA26/89 & Force Index M30 cuma info, gak nge-block.
+          H4 nentuin bias (Discount/Premium dari posisi harga dalam range H4, Range/ATR14 nentuin validitas). Di M15, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H4 max 5, M15 max 11), minimum 12/16 baru dieksekusi.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. Breakout M30 fresh (fractal 2-2, scan mundur 26 candle), volume ≥2,5x MA20{'\n'}
-          2. Level signifikan — min. 2x reaksi jelas di H4 (toleransi ATR×0,15){'\n'}
-          3. Belum di-retest lagi sejak breakout{'\n'}
-          4. Filter RSI(14) D1 — ≥65 tolak BUY (overbought), ≤35 tolak SELL (oversold){'\n'}
-          5. EMA26/89 & Force Index M30 — info doang, gak nge-block{'\n'}
-          6. Entry LIMIT di level (±0,05%), SL = 1,4×ATR M30, TP1 RR 1:2, TP2 RR 1:3
+          1. H4 Bias — posisi harga dalam range H4 (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
+          2. M15 Liquidity Sweep — nembus swing high/low ≥0,10x ATR M15{'\n'}
+          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
+          4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
+          5. Scoring 16 poin (H4 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M15 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
+          6. Entry LIMIT di 50% FVG (CE), SL = extreme sweep ± buffer 0,15x ATR, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 12 candle M15 (~3 jam)
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Sniper Breakout" accentColor={ACCENT} />

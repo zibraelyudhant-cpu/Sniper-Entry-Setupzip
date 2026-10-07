@@ -167,7 +167,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING MONEY MAGNET" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Money Magnet Scalping — breakout M15 + RSI D1 filter</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Money Magnet Scalping — H1→M5 CRT</Text>
       </View>
     );
   }
@@ -190,7 +190,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING MONEY MAGNET" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Money Magnet Scalping — breakout M15 + RSI D1 filter'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Money Magnet Scalping — H1→M5 CRT'}
           </Text>
         </View>
       );
@@ -309,10 +309,11 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Money Magnet Scalping', sourceSkill: 'Money Magnet Scalping (M30→M5)',
+      sourceMenu: 'Money Magnet Scalping', sourceSkill: 'Money Magnet Scalping (H1→M5 CRT)',
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
+      takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: 'M30', tfEksekusi: '5M',
+      tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: data.technicalSnapshot,
       orderType: 'limit',
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
@@ -351,7 +352,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="target" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Money Magnet Scalping</Text>
-          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>Breakout M15 + level signifikan H4 + RSI D1 filter</Text>
+          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>H1→M5 CRT (Candle Range Theory + ICT)</Text>
         </View>
       ) : isLoading ? (
         <View style={styles.emptyState}>
@@ -416,6 +417,12 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                 <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 (RR 1:{data.rr1?.toFixed(1) ?? '2.0'})</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1?.toFixed(6) ?? '—'}</Text>
               </View>
+              {data.takeProfit2 !== undefined && (
+                <View style={styles.infoRow}>
+                  <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1) ?? '—'})</Text>
+                  <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2?.toFixed(6) ?? '—'}</Text>
+                </View>
+              )}
             </>
           )}
 
@@ -458,7 +465,7 @@ export default function MoneyMagnetScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Money Magnet Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout M15 + level signifikan H4 + RSI D1 filter</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H1→M5 CRT (Candle Range Theory + ICT)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -497,17 +504,18 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Money Magnet Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Arah sinyal murni dari breakout M15 sendiri (gak ada trend gate H4 lagi). Level S/R harus signifikan (min. 2x reaksi jelas di H4). Filter RSI(14) D1 nolak sinyal kalau udah overbought/oversold. SL pakai 1,4×ATR M15 (TF eksekusi).
+          H1 nentuin bias (Discount/Premium dari posisi harga dalam range H1 candle yang udah closed, Range/ATR14 nentuin validitas). Di M5, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H1 max 5, M5 max 11), minimum 12/16 baru dieksekusi.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. Breakout M15 fresh & untouched, volume ≥2,5x MA20{'\n'}
-          2. Level signifikan — min. 2x reaksi jelas di H4 (toleransi ATR×0,15){'\n'}
-          3. Retest ke level (toleransi 0,3%), Force Index berlawanan (tanda genuine menuju retest), tanpa divergence{'\n'}
-          4. Filter RSI(14) D1 — ≥65 tolak BUY (overbought), ≤35 tolak SELL (oversold){'\n'}
-          5. Entry limit, SL = 1,4×ATR M15, TP1 RR 1:2, TP2 RR 1:3
+          1. H1 Bias — posisi harga dalam range H1 closed (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
+          2. M5 Liquidity Sweep — nembus swing high/low ≥0,10x ATR M5{'\n'}
+          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
+          4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
+          5. Scoring 16 poin (H1 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M5 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
+          6. Entry LIMIT di 50% FVG (CE), SL = extreme sweep ± buffer 0,15x ATR, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 36 candle M5 (~3 jam)
         </Text>
       </View>
       <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center', marginTop: 8 }}>

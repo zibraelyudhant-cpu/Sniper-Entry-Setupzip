@@ -53,7 +53,7 @@ async function runSniperScan(): Promise<void> {
   try {
     const universe = await getUniverse(500);
     sniperScanState.total = universe.length;
-    const batchSize = 3;
+    const batchSize = 3; // REVERT (request user): batch 5 + delay pendek bikin rate-limit cascade, hasil scan jadi 0 sinyal sama sekali
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
@@ -78,7 +78,7 @@ async function runSniperScan(): Promise<void> {
         const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
         return ao - bo;
       });
-      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300));
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 300)); // REVERT: balik ke 300ms, batch 5 kena rate-limit Binance
     }
     sniperScanState.status = 'complete';
     sniperScanState.fetchedAt = Date.now();

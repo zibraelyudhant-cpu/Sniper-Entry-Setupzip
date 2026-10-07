@@ -54,7 +54,7 @@ async function runScalpingScan(): Promise<void> {
   try {
     const universe = await getUniverse(500);
     scalpingScanState.total = universe.length;
-    const batchSize = 3;
+    const batchSize = 3; // REVERT (request user): batch 5 + delay pendek bikin rate-limit cascade, hasil scan jadi 0 sinyal sama sekali
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
@@ -81,7 +81,7 @@ async function runScalpingScan(): Promise<void> {
         if (ao !== bo) return ao - bo;
         return ((b as any).score ?? 0) - ((a as any).score ?? 0);
       });
-      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 400));
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 400)); // REVERT: balik ke 400ms, batch 5 kena rate-limit Binance
     }
     scalpingScanState.status = 'complete';
     scalpingScanState.fetchedAt = Date.now();

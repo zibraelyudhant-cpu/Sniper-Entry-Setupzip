@@ -47,7 +47,7 @@ async function runMoneyMagnetScalpingScan(): Promise<void> {
     // REVISI (request user): naik dari 300 jadi 500 koin
     const universe = await getUniverse(500);
     mmScalpingScanState.total = universe.length;
-    const batchSize = 3; // 1 skill doang, bisa agak lebih agresif dari 2-skill menu lain
+    const batchSize = 3; // REVERT (request user): batch 5 + delay pendek bikin rate-limit cascade, hasil scan jadi 0 sinyal sama sekali
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
@@ -72,7 +72,7 @@ async function runMoneyMagnetScalpingScan(): Promise<void> {
         const ao = order[a.status] ?? 2, bo = order[b.status] ?? 2;
         return ao - bo;
       });
-      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 500));
+      if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, 500)); // REVERT: balik ke 500ms, batch 5 kena rate-limit Binance
     }
     mmScalpingScanState.status = 'complete';
     mmScalpingScanState.fetchedAt = Date.now();

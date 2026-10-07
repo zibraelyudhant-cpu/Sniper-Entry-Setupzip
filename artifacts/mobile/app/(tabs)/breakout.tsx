@@ -60,7 +60,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>🧲 Money Magnet</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ Breakout Scalping</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
@@ -197,14 +197,14 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     const entries: JournalEntry[] = eligible.map(c => {
       // REVISI (request user): mode 15M/Money Magnet 2 dihapus, Menu Scalping
       // sekarang 1 mode doang.
-      const skillLabel = 'Money Magnet';
+      const skillLabel = 'Breakout Scalping';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
         sourceMenu: 'Scalping', sourceSkill: skillLabel,
         entryPrice: c.entryPrice!, stopLoss: c.stopLoss!, takeProfit1: c.takeProfit1!,
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
-        tfStruktur: 'H4', tfEksekusi: 'M30',
+        tfStruktur: 'H4', tfEksekusi: 'H4',
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         orderType: 'limit',
         btcAligned: c.btcAligned, btcBias: c.btcBias,
@@ -225,7 +225,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Breakout H1 + RSI D1 filter</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>D1→H1 CRT (Candle Range Theory + ICT)</Text>
       </View>
     );
   }
@@ -260,7 +260,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Breakout H1 + RSI D1 filter'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'D1→H1 CRT (Candle Range Theory + ICT)'}
           </Text>
         </View>
       );
@@ -424,14 +424,14 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = 'Money Magnet';
+    const skillLabel = 'Breakout Scalping';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
       sourceMenu: 'Scalping', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: 'H4', tfEksekusi: 'M30',
+      tfStruktur: 'H4', tfEksekusi: 'H4',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       orderType: 'limit', // Money Magnet pasang LIMIT order di zona retest/magnet
       btcAligned: data.btcAligned, btcBias: data.btcBias,
@@ -479,7 +479,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Breakout H1 + RSI D1 filter</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — D1→H1 CRT (Candle Range Theory + ICT)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -725,7 +725,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Breakout H1 + RSI D1 filter</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>D1→H1 CRT (Candle Range Theory + ICT)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -765,17 +765,18 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Menu Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Arah sinyal murni dari breakout H1 sendiri (gak ada trend gate H4 lagi). Level S/R harus signifikan (min. 2x reaksi jelas di H4). Filter RSI(14) D1 nolak sinyal kalau udah overbought/oversold. SL pakai swing high/low terdekat.
+          D1 nentuin bias (Discount/Premium dari posisi harga dalam range D1, Range/ATR14 nentuin validitas hari ini). Di H1, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (D1 max 5, H1 max 11), minimum 12/16 baru dieksekusi.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. Breakout H1 fresh & untouched, volume ≥2x MA20{'\n'}
-          2. Level signifikan — min. 2x reaksi jelas di H4 (toleransi ATR×0,15){'\n'}
-          3. Retest ke level (toleransi 0,3%), Force Index berlawanan (tanda genuine menuju retest), tanpa divergence{'\n'}
-          4. Filter RSI(14) D1 — ≥65 tolak BUY (overbought), ≤35 tolak SELL (oversold){'\n'}
-          5. Entry limit, SL = swing high/low terdekat sebelum level, TP1 RR 1:2, TP2 RR 1:3
+          1. D1 Bias — posisi harga dalam range D1 (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
+          2. H1 Liquidity Sweep — nembus swing high/low ≥0,10x ATR H1{'\n'}
+          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
+          4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
+          5. Scoring 16 poin (D1 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | H1 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR≥2,5 +2){'\n'}
+          6. Entry limit di 50% FVG (CE), SL = extreme sweep ± buffer 0,15x ATR, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 3 candle H1
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />
