@@ -2912,14 +2912,25 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       const reversalDir: 'bullish' | 'bearish' = sweptSide === 'high' ? 'bearish' : 'bullish';
       const continuationDir: 'bullish' | 'bearish' = sweptSide === 'high' ? 'bullish' : 'bearish';
 
+      // FIX (request user, kasus asli NEARUSDT: SL kebalik posisi sama
+      // entry). CE WAJIB di sisi yang bener dari sweepExtreme (searah
+      // sinyal), kalau enggak, setup ditolak -- lihat penjelasan lengkap di
+      // Money Magnet Scalping.
+      const sweepExtremeCheck = sweptSide === 'high' ? h1.highs[sweepIdx]! : h1.lows[sweepIdx]!;
       for (let i = sweepIdx; i <= Math.min(sweepIdx + 5, lastClosedIdx); i++) {
         const reclaimed = reversalDir === 'bearish' ? h1.closes[i]! < level : h1.closes[i]! > level;
         if (!reclaimed) continue;
         const disp = findDisplacementFVG(i, i + 3, reversalDir);
-        if (disp) return { type: 'reversal', direction: reversalDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
+        if (!disp) continue;
+        const ceOnCorrectSide = reversalDir === 'bullish' ? disp.ce > sweepExtremeCheck : disp.ce < sweepExtremeCheck;
+        if (!ceOnCorrectSide) continue;
+        return { type: 'reversal', direction: reversalDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
       }
-      const disp = findDisplacementFVG(sweepIdx, sweepIdx + 6, continuationDir);
-      if (disp) return { type: 'failure_to_manipulate', direction: continuationDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
+      const disp2 = findDisplacementFVG(sweepIdx, sweepIdx + 6, continuationDir);
+      if (disp2) {
+        const ceOnCorrectSide2 = continuationDir === 'bullish' ? disp2.ce > sweepExtremeCheck : disp2.ce < sweepExtremeCheck;
+        if (ceOnCorrectSide2) return { type: 'failure_to_manipulate', direction: continuationDir, sweepIdx, sweepLevel: level, penRatio, ...disp2 };
+      }
       return null;
     };
 
@@ -5635,14 +5646,25 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       const reversalDir: 'bullish' | 'bearish' = sweptSide === 'high' ? 'bearish' : 'bullish';
       const continuationDir: 'bullish' | 'bearish' = sweptSide === 'high' ? 'bullish' : 'bearish';
 
+      // FIX (request user, kasus asli NEARUSDT: SL kebalik posisi sama
+      // entry). CE WAJIB di sisi yang bener dari sweepExtreme (searah
+      // sinyal), kalau enggak, setup ditolak -- lihat penjelasan lengkap di
+      // Money Magnet Scalping.
+      const sweepExtremeCheck = sweptSide === 'high' ? m15.highs[sweepIdx]! : m15.lows[sweepIdx]!;
       for (let i = sweepIdx; i <= Math.min(sweepIdx + 20, lastClosedIdx); i++) {
         const reclaimed = reversalDir === 'bearish' ? m15.closes[i]! < level : m15.closes[i]! > level;
         if (!reclaimed) continue;
         const disp = findDisplacementFVG(i, i + 12, reversalDir);
-        if (disp) return { type: 'reversal', direction: reversalDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
+        if (!disp) continue;
+        const ceOnCorrectSide = reversalDir === 'bullish' ? disp.ce > sweepExtremeCheck : disp.ce < sweepExtremeCheck;
+        if (!ceOnCorrectSide) continue;
+        return { type: 'reversal', direction: reversalDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
       }
-      const disp = findDisplacementFVG(sweepIdx, sweepIdx + 24, continuationDir);
-      if (disp) return { type: 'failure_to_manipulate', direction: continuationDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
+      const disp2 = findDisplacementFVG(sweepIdx, sweepIdx + 24, continuationDir);
+      if (disp2) {
+        const ceOnCorrectSide2 = continuationDir === 'bullish' ? disp2.ce > sweepExtremeCheck : disp2.ce < sweepExtremeCheck;
+        if (ceOnCorrectSide2) return { type: 'failure_to_manipulate', direction: continuationDir, sweepIdx, sweepLevel: level, penRatio, ...disp2 };
+      }
       return null;
     };
 
@@ -6149,14 +6171,30 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       const reversalDir: 'bullish' | 'bearish' = sweptSide === 'high' ? 'bearish' : 'bullish';
       const continuationDir: 'bullish' | 'bearish' = sweptSide === 'high' ? 'bullish' : 'bearish';
 
+      // FIX (request user, kasus asli NEARUSDT: SL kebalik posisi sama
+      // entry -- SL di BAWAH entry buat sinyal SELL, padahal harusnya di
+      // ATAS). Akar masalahnya: reclaim dicek sekali (candle i), tapi
+      // displacement+FVG BENERAN dicari sampe 36-72 candle setelahnya --
+      // kalau harga whipsaw (reclaim duluan, tapi baru displacement JAUH
+      // belakangan, udah balik lewatin level sweep lagi), CE bisa kehitung
+      // di SISI YANG SALAH dari sweepExtreme. SL (dihitung dari sweepExtreme)
+      // jadi ketuker posisi sama entry (CE). Sekarang CE WAJIB di sisi yang
+      // bener dari sweepExtreme (searah sinyal), kalau enggak, setup ditolak.
+      const sweepExtremeCheck = sweptSide === 'high' ? m5.highs[sweepIdx]! : m5.lows[sweepIdx]!;
       for (let i = sweepIdx; i <= Math.min(sweepIdx + 60, lastClosedIdx); i++) {
         const reclaimed = reversalDir === 'bearish' ? m5.closes[i]! < level : m5.closes[i]! > level;
         if (!reclaimed) continue;
         const disp = findDisplacementFVG(i, i + 36, reversalDir);
-        if (disp) return { type: 'reversal', direction: reversalDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
+        if (!disp) continue;
+        const ceOnCorrectSide = reversalDir === 'bullish' ? disp.ce > sweepExtremeCheck : disp.ce < sweepExtremeCheck;
+        if (!ceOnCorrectSide) continue;
+        return { type: 'reversal', direction: reversalDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
       }
-      const disp = findDisplacementFVG(sweepIdx, sweepIdx + 72, continuationDir);
-      if (disp) return { type: 'failure_to_manipulate', direction: continuationDir, sweepIdx, sweepLevel: level, penRatio, ...disp };
+      const disp2 = findDisplacementFVG(sweepIdx, sweepIdx + 72, continuationDir);
+      if (disp2) {
+        const ceOnCorrectSide2 = continuationDir === 'bullish' ? disp2.ce > sweepExtremeCheck : disp2.ce < sweepExtremeCheck;
+        if (ceOnCorrectSide2) return { type: 'failure_to_manipulate', direction: continuationDir, sweepIdx, sweepLevel: level, penRatio, ...disp2 };
+      }
       return null;
     };
 

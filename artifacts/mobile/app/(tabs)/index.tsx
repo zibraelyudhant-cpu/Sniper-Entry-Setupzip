@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Platform, Pressable, ScrollView,
+  ActivityIndicator, Alert, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,7 +24,7 @@ import { SortSelector, applySorting, type SortKey } from '@/components/SortSelec
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
-import { journalSave, journalSaveMany, type JournalEntry } from './journal-helpers';
+import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.breakout;
 // ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
@@ -276,6 +276,9 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     // journalSaveMany otomatis dedup (symbol+bias+skill+entryPrice) -- entry
     // yang sinyalnya PERSIS SAMA kayak yang udah ada di Journal bakal di-skip.
     const { savedCount, skippedCount } = await journalSaveMany(entries);
+    const ws1 = journalGetLastWriteStatus();
+    if (!ws1.ok) Alert.alert('Gagal Simpan', `Sinyal gagal kesimpen ke storage HP ini (${ws1.error ?? 'error gak diketahui'}).`);
+    else if (ws1.droppedCount > 0) Alert.alert('Sinyal Penuh', `Journal udah di batas maksimal 1500 sinyal — ${ws1.droppedCount} sinyal paling lama otomatis kebuang.`);
     setSaveAllResult({ savedCount, skippedCount });
     setSavingAll(false);
     setTimeout(() => setSaveAllResult(null), 3000);
@@ -504,6 +507,9 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
+    const ws2 = journalGetLastWriteStatus();
+    if (!ws2.ok) Alert.alert('Gagal Simpan', `Sinyal gagal kesimpen ke storage HP ini (${ws2.error ?? 'error gak diketahui'}).`);
+    else if (ws2.droppedCount > 0) Alert.alert('Sinyal Penuh', `Journal udah di batas maksimal 1500 sinyal — ${ws2.droppedCount} sinyal paling lama otomatis kebuang.`);
     setSavingJournal(false);
   }, [data]);
 

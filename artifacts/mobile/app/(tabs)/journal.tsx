@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  ActivityIndicator, Dimensions, Platform, Pressable, ScrollView,
+  ActivityIndicator, Alert, Dimensions, Platform, Pressable, ScrollView,
   StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +16,7 @@ import { MENU_COLORS } from '@/constants/theme';
 import {
   type JournalEntry, type SourceMenu,
   journalLoadAll, journalDelete, journalDeleteAll, journalEvaluate, journalUpdate, journalUpdateMany,
+  journalGetLastWriteStatus,
   breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
@@ -256,6 +257,28 @@ function JournalEntryCard({
   );
 }
 
+// BARU (request user, kasus asli: hasil "Evaluasi Semua" ilang abis ditutup
+// app -- nulis ke storage ternyata gagal diem-diem, gak ada tanda apa-apa).
+// Dipanggil abis operasi simpan/update/hapus apapun di Journal -- kasih tau
+// user kalau GAGAL (bukan ditelen diem-diem) atau ada entry lama yang
+// KEBUANG karena storage udah penuh (1500 cap).
+function checkWriteStatus() {
+  const s = journalGetLastWriteStatus();
+  if (!s.ok) {
+    Alert.alert(
+      'Gagal Simpan',
+      `Perubahan gagal kesimpen ke storage HP ini (${s.error ?? 'error gak diketahui'}). Coba lagi, atau kalau berulang kemungkinan storage-nya penuh.`,
+    );
+    return;
+  }
+  if (s.droppedCount > 0) {
+    Alert.alert(
+      'Sinyal Penuh',
+      `Journal udah di batas maksimal 1500 sinyal — ${s.droppedCount} sinyal paling lama otomatis kebuang biar yang baru bisa kesimpen.`,
+    );
+  }
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function JournalScreen() {
@@ -324,6 +347,7 @@ export default function JournalScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const patch = await journalEvaluate(entry);
     const updated = await journalUpdate(entry.id, patch);
+    checkWriteStatus();
     setEntries(updated);
     setEvaluatingId(null);
     registerFollowup(entry, patch); // fire-and-forget — analisa pasca-trade (request user)
@@ -332,6 +356,7 @@ export default function JournalScreen() {
   const handleDelete = useCallback(async (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const updated = await journalDelete(id);
+    checkWriteStatus();
     setEntries(updated);
   }, []);
 
@@ -365,6 +390,7 @@ export default function JournalScreen() {
     }
 
     const updated = await journalUpdateMany(patches);
+    checkWriteStatus();
     setEntries(updated);
     setEvaluatingAll(false);
   }, [filtered]);

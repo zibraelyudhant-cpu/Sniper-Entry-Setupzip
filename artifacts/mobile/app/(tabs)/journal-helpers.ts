@@ -113,6 +113,36 @@ const JOURNAL_KEY = 'trading_journal_v1';
 // dari storage begitu journalLoadAll dipanggil pertama kali setelah update.
 const REMOVED_MENUS = new Set(['Breakout Entry', 'Sniper Entry', 'Extreme Scalping', 'Momentum Hunter']);
 
+// BARU (request user, kasus asli: hasil "Evaluasi Semua" ilang abis ditutup
+// app -- ternyata nulis ke storage gagal diem-diem, gak ada tanda apa-apa).
+// Semua fungsi penulis di file ini sekarang lapor ke sini tiap abis nyoba
+// nulis -- UI (journal.tsx, tombol "Simpan ke Journal" di tiap menu) bisa
+// ngecek status ini abis manggil fungsi save/update, terus kasih tau user
+// kalau GAGAL (bukan ditelen diem-diem) atau ada entry lama yang KEBUANG
+// karena storage udah penuh (300 cap).
+export interface JournalWriteStatus {
+  ok: boolean;
+  error?: string;
+  droppedCount: number; // entry lama yang kebuang karena cap 300 (0 kalau gak ada)
+  timestamp: number;
+}
+let lastWriteStatus: JournalWriteStatus = { ok: true, droppedCount: 0, timestamp: 0 };
+export function journalGetLastWriteStatus(): JournalWriteStatus {
+  return lastWriteStatus;
+}
+async function persistJournal(data: JournalEntry[], droppedCount = 0): Promise<boolean> {
+  try {
+    await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(data));
+    lastWriteStatus = { ok: true, droppedCount, timestamp: Date.now() };
+    return true;
+  } catch (e) {
+    // FIX: dulu try/catch kosong (ditelen diem-diem). Sekarang dicatet biar
+    // UI bisa nampilin "gagal simpan" -- bukan keliatan berhasil padahal enggak.
+    lastWriteStatus = { ok: false, error: e instanceof Error ? e.message : 'Unknown error', droppedCount, timestamp: Date.now() };
+    return false;
+  }
+}
+
 export async function journalLoadAll(): Promise<JournalEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(JOURNAL_KEY);
@@ -121,7 +151,7 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
     if (cleaned.length !== all.length) {
       // Ada entry lama yang kebuang — simpan balik biar PERMANEN kehapus
       // dari storage, bukan cuma di-filter pas ditampilin doang.
-      try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(cleaned)); } catch {}
+      await persistJournal(cleaned);
     }
     return cleaned;
   } catch {
@@ -151,10 +181,12 @@ export async function journalSave(entry: JournalEntry): Promise<JournalEntry[]> 
   const key = signalDedupKey(entry);
   const isDuplicate = all.some(e => e.savedAt >= cutoff && signalDedupKey(e) === key);
   if (isDuplicate) return all; // udah ada sinyal identik (koin+bias+skill+orderType) dalam 24 jam terakhir
-  // Max 300 entri (jauh lebih besar dari log per-menu yang 100, karena ini
-  // agregat SEMUA menu dan tujuannya emang buat analisa jangka panjang).
-  const updated = [entry, ...all].slice(0, 300);
-  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  // Max 1500 entri (request user, naik dari 300 -- dihitung biar masih aman
+  // di bawah limit localStorage: ~1,9KB/entry x 1500 = ~2,85MB).
+  const beforeCount = all.length + 1;
+  const updated = [entry, ...all].slice(0, 1500);
+  const droppedCount = Math.max(0, beforeCount - updated.length);
+  await persistJournal(updated, droppedCount);
   return updated;
 }
 
@@ -182,15 +214,18 @@ export async function journalSaveMany(entries: JournalEntry[]): Promise<{ all: J
     seenInBatch.add(key);
     deduped.push(e);
   }
-  const updated = [...deduped, ...all].slice(0, 300);
-  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  // Max 1500 entri (request user, naik dari 300 -- lihat journalSave).
+  const beforeCount = deduped.length + all.length;
+  const updated = [...deduped, ...all].slice(0, 1500);
+  const droppedCount = Math.max(0, beforeCount - updated.length);
+  await persistJournal(updated, droppedCount);
   return { all: updated, savedCount: deduped.length, skippedCount: entries.length - deduped.length };
 }
 
 export async function journalUpdate(id: string, patch: Partial<JournalEntry>): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
   const updated = all.map(e => e.id === id ? { ...e, ...patch } : e);
-  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  await persistJournal(updated);
   return updated;
 }
 
@@ -203,14 +238,14 @@ export async function journalUpdateMany(patches: { id: string; patch: Partial<Jo
   const all = await journalLoadAll();
   const patchMap = new Map(patches.map(p => [p.id, p.patch]));
   const updated = all.map(e => patchMap.has(e.id) ? { ...e, ...patchMap.get(e.id) } : e);
-  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  await persistJournal(updated);
   return updated;
 }
 
 export async function journalDelete(id: string): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
   const updated = all.filter(e => e.id !== id);
-  try { await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)); } catch {}
+  await persistJournal(updated);
   return updated;
 }
 
