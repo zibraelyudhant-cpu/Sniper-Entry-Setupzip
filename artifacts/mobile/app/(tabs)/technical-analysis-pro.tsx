@@ -19,8 +19,8 @@ const MAGENTA = '#FF00E5';
 const NEUTRAL = '#5B6478';
 const AMBER = '#FFD700';
 
-type TFOption = 'D1' | 'H4' | 'H1' | 'M30' | 'M15' | 'M5';
-const TF_OPTIONS: TFOption[] = ['D1', 'H4', 'H1', 'M30', 'M15', 'M5'];
+type TFOption = 'D1' | 'H4' | 'H1' | 'M30' | 'M15' | 'M5' | 'M1';
+const TF_OPTIONS: TFOption[] = ['D1', 'H4', 'H1', 'M30', 'M15', 'M5', 'M1']; // M1 ditambahin (request user)
 
 type FeatureKey = 'trend' | 'multiTf' | 'transition' | 'breakoutBounce' | 'longShort' | 'divergenceTrend' | 'btcCorrelation';
 const FEATURES: { key: FeatureKey; label: string; needsTf: boolean; noSymbolNeeded?: boolean }[] = [
@@ -375,7 +375,7 @@ function BtcCorrelationResultView({ data }: { data: any }) {
     <View style={{ marginBottom: 10 }}>
       <Text style={[styles.divRowLabel, { marginBottom: 4 }]}>{label} — bias {s?.bias ?? '—'}</Text>
       <Text style={styles.tfDetail}>RSI {s?.rsi?.toFixed(1) ?? '—'} · MACD hist {s?.macdHistogram?.toFixed(1) ?? '—'} · ADX {s?.adx?.toFixed(1) ?? '—'} (+DI {s?.plusDI?.toFixed(1) ?? '—'}/-DI {s?.minusDI?.toFixed(1) ?? '—'})</Text>
-      <Text style={styles.tfDetail}>EMA13/26/50/100/200: {s?.emaAlignment ?? '—'} · Stoch %K {s?.stochK?.toFixed(1) ?? '—'} · Vol {s?.volumeRatio?.toFixed(2) ?? '—'}x · ATR {s?.atrRatio?.toFixed(2) ?? '—'}x</Text>
+      <Text style={styles.tfDetail}>EMA13/26/50/100: {s?.emaAlignment ?? '—'} · Stoch %K {s?.stochK?.toFixed(1) ?? '—'} · Vol {s?.volumeRatio?.toFixed(2) ?? '—'}x · ATR {s?.atrRatio?.toFixed(2) ?? '—'}x</Text>
     </View>
   );
 
