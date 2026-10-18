@@ -131,6 +131,9 @@ export const BreakoutTradingResultStatus = {
   waiting: 'waiting',
   approaching: 'approaching',
   expired: 'expired',
+  in_zone: 'in_zone',
+  no_structure: 'no_structure',
+  skip: 'skip',
 } as const;
 
 export type BreakoutTradingResultMode = typeof BreakoutTradingResultMode[keyof typeof BreakoutTradingResultMode];
@@ -139,6 +142,11 @@ export type BreakoutTradingResultMode = typeof BreakoutTradingResultMode[keyof t
 export const BreakoutTradingResultMode = {
   oi_surge: 'oi_surge',
   funding_contrarian: 'funding_contrarian',
+  structural: 'structural',
+  scalping15m: 'scalping15m',
+  moneymagnet3: 'moneymagnet3',
+  moneymagnet1: 'moneymagnet1',
+  moneymagnetscalping: 'moneymagnetscalping',
 } as const;
 
 export type BreakoutTradingResultRecommendedMode = typeof BreakoutTradingResultRecommendedMode[keyof typeof BreakoutTradingResultRecommendedMode];
@@ -147,6 +155,11 @@ export type BreakoutTradingResultRecommendedMode = typeof BreakoutTradingResultR
 export const BreakoutTradingResultRecommendedMode = {
   oi_surge: 'oi_surge',
   funding_contrarian: 'funding_contrarian',
+  structural: 'structural',
+  scalping15m: 'scalping15m',
+  moneymagnet3: 'moneymagnet3',
+  moneymagnet1: 'moneymagnet1',
+  moneymagnetscalping: 'moneymagnetscalping',
 } as const;
 
 export type BreakoutTradingResultBias = typeof BreakoutTradingResultBias[keyof typeof BreakoutTradingResultBias];
@@ -172,6 +185,12 @@ export const BreakoutTradingResultOrderType = {
   stop: 'stop',
   limit: 'limit',
 } as const;
+
+export type BreakoutTradingResultMarketMeta = {
+  priceChangePercent: number;
+  quoteVolume: number;
+  fundingRate: number | null;
+} | null;
 
 export type BreakoutTradingResultMomentumClassification = typeof BreakoutTradingResultMomentumClassification[keyof typeof BreakoutTradingResultMomentumClassification];
 
@@ -243,13 +262,13 @@ export interface MarketStructureV2Result {
   bullishTotal: number;
   bearishTotal: number;
   sidewaysTotal: number;
-  structureBullishScore?: number;
-  structureBearishScore?: number;
-  breakQualityLabel?: string;
-  breakQualityPoints?: number;
-  bullishRetraceScore?: number;
-  bearishReboundScore?: number;
-  rangePosition?: number;
+  structureBullishScore: number;
+  structureBearishScore: number;
+  breakQualityLabel: string;
+  breakQualityPoints: number;
+  bullishRetraceScore: number;
+  bearishReboundScore: number;
+  rangePosition: number;
   candleCountUsed: number;
   passes: number;
   reasoning: string[];
@@ -282,6 +301,8 @@ export interface BreakoutTradingResult {
   takeProfit1?: number;
   takeProfit2?: number;
   rr1?: number;
+  rr2?: number;
+  marketMeta?: BreakoutTradingResultMarketMeta;
   volumeRatio?: number;
   filterResults?: string[];
   adxRising?: boolean;
@@ -454,6 +475,9 @@ export type ScalpingResultMode = typeof ScalpingResultMode[keyof typeof Scalping
 export const ScalpingResultMode = {
   structural: 'structural',
   scalping15m: 'scalping15m',
+  moneymagnet3: 'moneymagnet3',
+  moneymagnet1: 'moneymagnet1',
+  moneymagnetscalping: 'moneymagnetscalping',
 } as const;
 
 export type ScalpingResultRecommendedMode = typeof ScalpingResultRecommendedMode[keyof typeof ScalpingResultRecommendedMode];
@@ -462,6 +486,9 @@ export type ScalpingResultRecommendedMode = typeof ScalpingResultRecommendedMode
 export const ScalpingResultRecommendedMode = {
   structural: 'structural',
   scalping15m: 'scalping15m',
+  moneymagnet3: 'moneymagnet3',
+  moneymagnet1: 'moneymagnet1',
+  moneymagnetscalping: 'moneymagnetscalping',
 } as const;
 
 export type ScalpingResultBias = typeof ScalpingResultBias[keyof typeof ScalpingResultBias];
@@ -471,6 +498,20 @@ export const ScalpingResultBias = {
   bullish: 'bullish',
   bearish: 'bearish',
 } as const;
+
+export type ScalpingResultMagnetLevelUsed = typeof ScalpingResultMagnetLevelUsed[keyof typeof ScalpingResultMagnetLevelUsed];
+
+
+export const ScalpingResultMagnetLevelUsed = {
+  broken_level: 'broken_level',
+  ema26: 'ema26',
+} as const;
+
+export type ScalpingResultMarketMeta = {
+  priceChangePercent: number;
+  quoteVolume: number;
+  fundingRate: number | null;
+} | null;
 
 export type ScalpingResultBtcBias = typeof ScalpingResultBtcBias[keyof typeof ScalpingResultBtcBias];
 
@@ -513,6 +554,8 @@ export interface ScalpingResult {
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
   btcAligned?: boolean;
+  magnetLevelUsed?: ScalpingResultMagnetLevelUsed;
+  marketMeta?: ScalpingResultMarketMeta;
   btcBias?: ScalpingResultBtcBias;
 }
 
@@ -1058,6 +1101,7 @@ export type GetBreakoutEntryMode = typeof GetBreakoutEntryMode[keyof typeof GetB
 export const GetBreakoutEntryMode = {
   oi_surge: 'oi_surge',
   funding_contrarian: 'funding_contrarian',
+  structural: 'structural',
 } as const;
 
 export type GetSmcAnalysisParams = {

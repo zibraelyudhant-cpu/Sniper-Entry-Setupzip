@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { DonutChart, StackedBar, HorizontalBarChart, DivergingBar, TimingBar, StatTile, Sparkline, LoseConditionHeatmap, TrendChart, SlTpDistanceDiagram } from '@/components/JournalCharts';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
@@ -38,6 +39,7 @@ const MENU_FILTER_COLORS: Record<SourceMenu, string> = {
   'Sniper Breakout': MENU_COLORS.breakout,
   'Counter Scalping': MENU_COLORS.breakout, // nama lama — kompat data Journal lama
   'Scalping': MENU_COLORS.scalping,
+  'Money Magnet Scalping': MENU_COLORS.moneyMagnetScalping,
 };
 
 // ─── Breakdown mini bar ───────────────────────────────────────────────────────
@@ -362,6 +364,36 @@ export default function JournalScreen() {
 
   const filtered = useMemo(() => menuFilter === 'all' ? entries : entries.filter(e => e.sourceMenu === menuFilter), [entries, menuFilter]);
 
+  // BARU (request user): tombol "Ekspor Jurnal" — copy semua entry (field inti
+  // buat evaluasi: simbol, arah, entry/SL/TP, order type, TF, waktu simpan,
+  // status, hasil) ke clipboard sebagai JSON, buat di-paste ke Claude/agent
+  // yang evaluasi otomatis. Format: { exportedAt, count, entries: [...] }.
+  const handleExport = useCallback(async () => {
+    try {
+      const slim = entries.map(e => ({
+        id: e.id, symbol: e.symbol, bias: e.bias,
+        sourceMenu: e.sourceMenu, sourceSkill: e.sourceSkill,
+        orderType: e.orderType ?? 'limit',
+        entryPrice: e.entryPrice, stopLoss: e.stopLoss,
+        takeProfit1: e.takeProfit1, takeProfit2: e.takeProfit2,
+        currentPriceAtSignal: e.currentPriceAtSignal,
+        tfStruktur: e.tfStruktur, tfEksekusi: e.tfEksekusi,
+        savedAt: e.savedAt, timestamp: e.timestamp,
+        status: e.status, entryHitAt: e.entryHitAt, resolvedAt: e.resolvedAt,
+        exitPrice: e.exitPrice, rr: e.rr,
+      }));
+      const payload = { exportedAt: new Date().toISOString(), count: slim.length, entries: slim };
+      // Baris pemicu di depan JSON (request user): cukup paste ke chat, agent
+      // evaluasi jurnal langsung jalan tanpa perlu ngetik perintah lagi.
+      const trigger = 'EVALUASI JURNAL SCREENER (otomatis) — tampilkan ringkasan dan menu pilihan dulu, jangan langsung evaluasi. Data ekspor di bawah.';
+      await Clipboard.setStringAsync(`${trigger}\n${JSON.stringify(payload)}`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Jurnal disalin', `${slim.length} sinyal sudah dicopy ke clipboard (JSON). Tinggal paste ke chat Claude.`);
+    } catch {
+      Alert.alert('Gagal ekspor', 'Gak bisa nyalin ke clipboard. Coba lagi.');
+    }
+  }, [entries]);
+
   // "Evaluasi Semua" (request user, biar gak satu-satu). Batch 3 + delay
   // 300ms antar batch — pola sama kayak Scan biar gak kena rate limit Binance
   // (tiap evaluasi manggil klines API). Update storage 1x di akhir (bulk),
@@ -463,6 +495,16 @@ export default function JournalScreen() {
               }
               <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>
                 {evaluatingAll ? `Evaluasi... (${evalProgress.done}/${evalProgress.total})` : `Evaluasi Semua (${stats.pending} pending)`}
+              </Text>
+            </Pressable>
+          )}
+
+          {entries.length > 0 && (
+            <Pressable onPress={handleExport}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingVertical: 10, marginBottom: 10, opacity: pressed ? 0.7 : 1 }]}>
+              <Feather name="upload" size={14} color={colors.mutedForeground} />
+              <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>
+                Ekspor Jurnal ({entries.length})
               </Text>
             </Pressable>
           )}
@@ -923,7 +965,7 @@ function RingkasanTab({ entries: allEntries, colors, followups, onDeleted }: { e
               Dari {indicatorResult.sampleWin} sinyal WIN dan {indicatorResult.sampleLose} sinyal LOSE yang punya data indikator.
             </Text>
             <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 8, fontStyle: 'italic', lineHeight: 13 }}>
-              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Money Magnet H4→M30 vs Sniper Breakout H1→M15). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
+              "Struktur"/"Eksekusi" di sini gabungan SEMUA skill (TF-nya beda-beda tiap skill, misal Money Magnet H1→M5 vs Sniper Breakout H4→M15). Mau tau TF konkret per skill? Cek "PROFIL KONDISI LOSE" di atas.
             </Text>
             {indicatorResult.comparisons.map((c, i) => <IndicatorCompareRow key={c.label + i} item={c} colors={colors} />)}
           </>

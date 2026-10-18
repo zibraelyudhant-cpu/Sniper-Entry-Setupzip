@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeCounterStructural, getRecentPerformance } from '../lib/smc';
+import { analyzeCounterStructural, getRecentPerformance, checkTaProBonus } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -20,7 +20,19 @@ router.get('/breakout-entry', async (req, res) => {
   try {
     const result = await analyzeCounterStructural(normalized);
     const recentPerformance = await getRecentPerformance(normalized, 'counter_scalping');
-    res.json({ ...result, mode, recentPerformance });
+    // FIX (audit): TA PRO Bonus sebelumnya gak pernah dipanggil -- banner
+    // di UI gak pernah muncul. Di-wire di endpoint DETAIL doang (bukan di
+    // /breakout-entry/scan), biar gak 2x-in beban fetch pas scan ratusan koin.
+    let taProBonus: { confirmed: boolean; classification: string | null; score: number } | null = null;
+    if ((result as any).bias === 'bullish' || (result as any).bias === 'bearish') {
+      taProBonus = await checkTaProBonus(normalized, (result as any).bias);
+    }
+    res.json({
+      ...result, mode, recentPerformance,
+      taProBonusConfirmed: taProBonus?.confirmed ?? false,
+      taProBonusClassification: taProBonus?.classification ?? null,
+      taProBonusScore: taProBonus?.score ?? 0,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });
@@ -64,7 +76,7 @@ async function runSniperScan(): Promise<void> {
       for (const r of batchResults) {
         if (r.status === 'fulfilled') {
           const val = r.value;
-          if (val.status === 'siap_breakout' || val.status === 'approaching' || val.status === 'siap_retest' || val.status === 'waiting' || val.status === 'in_zone')
+          if (val.status === 'siap_breakout' || val.status === 'approaching' || val.status === 'siap_retest' || val.status === 'waiting')
             newValid.push(val as any);
         }
       }

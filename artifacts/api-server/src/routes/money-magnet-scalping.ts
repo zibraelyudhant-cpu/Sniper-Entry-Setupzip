@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeMoneyMagnetScalping } from '../lib/smc';
+import { analyzeMoneyMagnetScalping, checkTaProBonus } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -16,7 +16,19 @@ router.get('/money-magnet-scalping', async (req, res) => {
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   try {
     const result = await analyzeMoneyMagnetScalping(normalized);
-    res.json({ ...result, recentPerformance: null }); // recentPerformance belum didukung, sama kayak Money Magnet 3
+    // FIX (audit): TA PRO Bonus sebelumnya gak pernah dipanggil -- banner di
+    // UI gak pernah muncul. Di-wire di endpoint DETAIL doang (bukan di
+    // /money-magnet-scalping/scan), biar gak 2x-in beban fetch pas scan.
+    let taProBonus: { confirmed: boolean; classification: string | null; score: number } | null = null;
+    if ((result as any).bias === 'bullish' || (result as any).bias === 'bearish') {
+      taProBonus = await checkTaProBonus(normalized, (result as any).bias);
+    }
+    res.json({
+      ...result, recentPerformance: null, // recentPerformance belum didukung, sama kayak Money Magnet 3
+      taProBonusConfirmed: taProBonus?.confirmed ?? false,
+      taProBonusClassification: taProBonus?.classification ?? null,
+      taProBonusScore: taProBonus?.score ?? 0,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

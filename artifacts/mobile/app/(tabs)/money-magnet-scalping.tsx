@@ -32,6 +32,9 @@ import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEn
 
 const ACCENT = MENU_COLORS.moneyMagnetScalping;
 
+// Nama skill di Journal (save satuan & simpan semua pakai nama yang sama biar WR gak kepecah).
+const MM_SKILL_BASE = 'Money Magnet Scalping (H1→M5 CRT)';
+
 type ScanResponse = {
   coins: Array<ScalpingResult & { marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null }>;
   scanned: number; total: number;
@@ -78,6 +81,14 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
           </View>
           <StatusBadge status={coin.status} />
         </View>
+        {(coin as any).btcCorrAction === 'warn' && (
+          <View style={[scanStyles.btcWarnBanner, { backgroundColor: `${colors.bearish}18`, borderColor: colors.bearish }]}>
+            <Text style={{ fontSize: 12 }}>⚠️</Text>
+            <Text style={[scanStyles.btcWarnText, { color: colors.bearish }]}>
+              PERINGATAN BTC CORRELATION — korelasi {(coin as any).btcCorrValue?.toFixed(2)} dengan BTC ({(coin as any).btcCorrBtcDirection}), berlawanan arah sinyal ini. Rawan ketarik kalau BTC bergerak kuat — jangan hold terlalu lama.
+            </Text>
+          </View>
+        )}
         {isInZone && (
           <View style={scanStyles.levelsRow}>
             <View style={scanStyles.levelCol}>
@@ -145,14 +156,14 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     const entries: JournalEntry[] = eligible.map(c => ({
       id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
       symbol: c.symbol, bias: c.bias!,
-      sourceMenu: 'Money Magnet Scalping', sourceSkill: 'Money Magnet Scalping (M30→M5)',
+      sourceMenu: 'Money Magnet Scalping', sourceSkill: MM_SKILL_BASE,
       entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0,
       currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
       // FIX: tfEksekusi PAKAI '5M' (angka duluan) -- itu konvensi yang match
       // case di evalIntervalFor() journal-helpers.ts, 'M5' gak match apapun
       // (jatuh ke default 15m yang SALAH).
-      tfStruktur: 'M30', tfEksekusi: '5M',
-      technicalSnapshot: c.technicalSnapshot,
+      tfStruktur: 'H1', tfEksekusi: '5M',
+      technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
       orderType: 'limit',
       signalStatus: c.status === 'in_zone' ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
       timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
@@ -312,12 +323,12 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Money Magnet Scalping', sourceSkill: 'Money Magnet Scalping (H1→M5 CRT)',
+      sourceMenu: 'Money Magnet Scalping', sourceSkill: MM_SKILL_BASE,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
       takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: 'H1', tfEksekusi: '5M',
-      technicalSnapshot: data.technicalSnapshot,
+      technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       orderType: 'limit',
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -410,6 +421,20 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
               {(data as any).taProBonusConfirmed && (
                 <TaProBonusBanner classification={(data as any).taProBonusClassification} score={(data as any).taProBonusScore} />
               )}
+
+              {/* BTC Correlation Filter — peringatan keras: koin ini berkorelasi kuat dengan BTC, tapi arah BTC lagi berlawanan sama sinyal */}
+              {(data as any).btcCorrAction === 'warn' && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, marginBottom: 10,
+                  borderRadius: 10, backgroundColor: `${colors.bearish}18`, borderWidth: 1, borderColor: colors.bearish,
+                }}>
+                  <Feather name="alert-triangle" size={16} color={colors.bearish} style={{ marginTop: 1 }} />
+                  <Text style={{ flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.bearish, lineHeight: 17 }}>
+                    PERINGATAN BTC CORRELATION — korelasi {(data as any).btcCorrValue?.toFixed(2)} dengan BTC ({(data as any).btcCorrBtcDirection}), berlawanan arah sinyal ini. Rawan ketarik kalau BTC bergerak kuat — jangan hold terlalu lama.
+                  </Text>
+                </View>
+              )}
+
               <View style={[styles.levelCard, { borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish, backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10` }]}>
                 <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
                 <Text style={[styles.levelCardValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>{data.entryPrice?.toFixed(6)}</Text>
@@ -510,13 +535,13 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Money Magnet Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          H1 nentuin bias (Discount/Premium dari posisi harga dalam range H1 candle yang udah closed, Range/ATR14 nentuin validitas). Di M5, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H1 max 5, M5 max 11), minimum 12/16 baru dieksekusi.
+          H1 nentuin bias (Discount/Premium dari posisi harga dalam range H1 candle yang lagi berjalan (forming), Range/ATR14 nentuin validitas). Di M5, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H1 max 5, M5 max 11), minimum 12/16 baru dieksekusi.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. H1 Bias — posisi harga dalam range H1 closed (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
+          1. H1 Bias — posisi harga dalam range H1 yang lagi berjalan (forming) (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
           2. M5 Liquidity Sweep — nembus swing high/low ≥0,10x ATR M5{'\n'}
           3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
           4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
@@ -576,4 +601,8 @@ const scanStyles = StyleSheet.create({
   levelCol: { alignItems: 'center' },
   levelLabel: { fontSize: 9, fontFamily: 'Inter_500Medium' },
   levelValue: { fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 2 },
+  // BARU (request user): peringatan BTC Correlation ditampilin penuh langsung
+  // di card SCAN list, biar gak perlu tap buka detail ANALISA dulu buat liat.
+  btcWarnBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8, padding: 8, borderRadius: 8, borderWidth: 1 },
+  btcWarnText: { flex: 1, fontSize: 11, fontFamily: 'Inter_600SemiBold', lineHeight: 15 },
 });

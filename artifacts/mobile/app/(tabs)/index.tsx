@@ -22,7 +22,7 @@ import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
-import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan } from '@workspace/api-client-react';
+import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan, getGetBreakoutEntryScanQueryKey, type TechnicalSnapshot as ApiTechnicalSnapshot } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
 
@@ -48,7 +48,7 @@ interface BreakoutTradingResult {
   // FIX (request user, Sniper Breakout): status 'siap_breakout' = stop order
   // siap dipasang (nunggu harga NEMBUS). 'expired' = harga udah lewat level,
   // jangan dikejar. 'siap_retest' dipertahanin buat kompat data lama.
-  status: 'siap_breakout' | 'siap_retest' | 'approaching' | 'waiting' | 'expired' | 'no_setup' | 'error';
+  status: 'siap_breakout' | 'siap_retest' | 'approaching' | 'waiting' | 'expired' | 'no_setup' | 'error' | 'in_zone' | 'no_structure' | 'skip';
   symbol: string;
   bias?: 'bullish' | 'bearish';
   recentPerformance?: RecentPerformance;
@@ -71,13 +71,14 @@ interface BreakoutTradingResult {
   takeProfit1?: number;
   takeProfit2?: number;
   rr1?: number;
+  rr2?: number;
   volumeRatio?: number;
   filterResults?: string[];
   adxRising?: boolean;
   macdHistogramExpanding?: boolean;
   vwapBreakout?: boolean;
   momentumClassification?: 'very_fast' | 'fast' | 'normal' | 'slow';
-  technicalSnapshot?: JournalEntry['technicalSnapshot'];
+  technicalSnapshot?: ApiTechnicalSnapshot; // server tidak mengisi field ini; cast ke tipe Jurnal saat disimpan
   marketStructureV2?: MarketStructureV2Result | null;
   btcAligned?: boolean;
   btcBias?: 'bullish' | 'bearish' | 'ranging';
@@ -221,6 +222,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   // auto-refresh (bukan cache statis lagi).
   const { data, isLoading, isFetching, isError, refetch } = useGetBreakoutEntryScan({
     query: {
+      queryKey: getGetBreakoutEntryScanQueryKey(),
       refetchInterval: (query) => {
         const s = (query.state.data as any)?.status;
         return s === 'running' || s === 'idle' || s === undefined ? 1500 : false;
@@ -255,10 +257,10 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
       // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill
-      // 1 sekarang M30 (bukan M15 lagi).
-      const skillLabel = 'Sniper Breakout (M30 Fresh Breakout)';
-      const tfStruktur = 'M30';
-      const tfEksekusi = 'M30';
+      // 1 = analyzeCounterStructural (H4 struktur, M15 eksekusi). Label M30 lama dibuang.
+      const skillLabel = 'Sniper Breakout (H4→M15)';
+      const tfStruktur = 'H4';
+      const tfEksekusi = 'M15';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
@@ -266,7 +268,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0, takeProfit2: c.takeProfit2,
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
         tfStruktur, tfEksekusi,
-        technicalSnapshot: c.technicalSnapshot,
+        technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         orderType: c.orderType,
         btcAligned: c.btcAligned, btcBias: c.btcBias,
         signalStatus: (c.status === 'siap_retest' || c.status === 'siap_breakout' || c.status === 'in_zone') ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
@@ -491,17 +493,17 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill 1
-    // sekarang M30 (bukan M15/H4 lagi).
-    const skillLabel = 'Sniper Breakout (M30 Fresh Breakout)';
-    const tfStruktur = 'M30';
+    // = analyzeCounterStructural (H4 struktur, M15 eksekusi). Label M30 lama dibuang.
+    const skillLabel = 'Sniper Breakout (H4→M15)';
+    const tfStruktur = 'H4';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
       sourceMenu: 'Sniper Breakout', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur, tfEksekusi: 'M30',
-      technicalSnapshot: data.technicalSnapshot,
+      tfStruktur, tfEksekusi: 'M15',
+      technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
@@ -824,10 +826,10 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
           1. H4 Bias — posisi harga dalam range H4 (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
           2. M15 Liquidity Sweep — nembus swing high/low ≥0,10x ATR M15{'\n'}
-          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
+          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body/range ≥70% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
           4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
-          5. Scoring 16 poin (H4 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M15 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
-          6. Entry LIMIT di 50% FVG (CE), SL = extreme sweep ± buffer 0,15x ATR, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 12 candle M15 (~3 jam)
+          5. Scoring 16 poin (H4 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M15 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR TP2 ≥3,5 +2, 3,0–3,5 +1){'\n'}
+          6. Entry LIMIT di 50% FVG (CE), SL = entry ± 2,0x ATR M15, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 12 candle M15 (~3 jam)
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Sniper Breakout" accentColor={ACCENT} />

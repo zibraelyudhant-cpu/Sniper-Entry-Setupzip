@@ -8,6 +8,7 @@
 import type { BreakoutTradingResultBias } from './breakoutTradingResultBias';
 import type { BreakoutTradingResultBtcBias } from './breakoutTradingResultBtcBias';
 import type { BreakoutTradingResultConfidenceTier } from './breakoutTradingResultConfidenceTier';
+import type { BreakoutTradingResultMarketMeta } from './breakoutTradingResultMarketMeta';
 import type { BreakoutTradingResultMode } from './breakoutTradingResultMode';
 import type { BreakoutTradingResultMomentumClassification } from './breakoutTradingResultMomentumClassification';
 import type { BreakoutTradingResultOrderType } from './breakoutTradingResultOrderType';
@@ -45,6 +46,8 @@ export interface BreakoutTradingResult {
   takeProfit1?: number;
   takeProfit2?: number;
   rr1?: number;
+  rr2?: number;
+  marketMeta?: BreakoutTradingResultMarketMeta;
   volumeRatio?: number;
   filterResults?: string[];
   adxRising?: boolean;

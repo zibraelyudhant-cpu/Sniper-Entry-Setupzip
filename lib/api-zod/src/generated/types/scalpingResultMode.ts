@@ -12,4 +12,7 @@ export type ScalpingResultMode = typeof ScalpingResultMode[keyof typeof Scalping
 export const ScalpingResultMode = {
   structural: 'structural',
   scalping15m: 'scalping15m',
+  moneymagnet3: 'moneymagnet3',
+  moneymagnet1: 'moneymagnet1',
+  moneymagnetscalping: 'moneymagnetscalping',
 } as const;

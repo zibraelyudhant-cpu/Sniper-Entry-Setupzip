@@ -76,7 +76,7 @@
                                                                                           required: false
                                                                                           schema:
                                                                                             type: string
-                                                                                            enum: [oi_surge, funding_contrarian]
+                                                                                            enum: [oi_surge, funding_contrarian, structural]
                                                                                           description: "Skill yang dipakai — kalau gak dikasih, classifier yang nentuin otomatis"
                                                                                       responses:
                                                                                         "200":
@@ -684,15 +684,15 @@
                                                                                       properties:
                                                                                         status:
                                                                                           type: string
-                                                                                          enum: [siap_breakout, siap_retest, no_setup, error, waiting, approaching, expired]
+                                                                                          enum: [siap_breakout, siap_retest, no_setup, error, waiting, approaching, expired, in_zone, no_structure, skip]
                                                                                         symbol:
                                                                                           type: string
                                                                                         mode:
                                                                                           type: string
-                                                                                          enum: [oi_surge, funding_contrarian]
+                                                                                          enum: [oi_surge, funding_contrarian, structural, scalping15m, moneymagnet3, moneymagnet1, moneymagnetscalping]
                                                                                         recommendedMode:
                                                                                           type: string
-                                                                                          enum: [oi_surge, funding_contrarian]
+                                                                                          enum: [oi_surge, funding_contrarian, structural, scalping15m, moneymagnet3, moneymagnet1, moneymagnetscalping]
                                                                                         recentPerformance:
                                                                                           $ref: "#/components/schemas/RecentPerformance"
                                                                                         bias:
@@ -742,6 +742,23 @@
                                                                                           type: number
                                                                                         rr1:
                                                                                           type: number
+                                                                                        rr2:
+                                                                                          type: number
+                                                                                        marketMeta:
+                                                                                          type: object
+                                                                                          nullable: true
+                                                                                          properties:
+                                                                                            priceChangePercent:
+                                                                                              type: number
+                                                                                            quoteVolume:
+                                                                                              type: number
+                                                                                            fundingRate:
+                                                                                              type: number
+                                                                                              nullable: true
+                                                                                          required:
+                                                                                            - priceChangePercent
+                                                                                            - quoteVolume
+                                                                                            - fundingRate
                                                                                         volumeRatio:
                                                                                           type: number
                                                                                         filterResults:
@@ -881,6 +898,13 @@
                                                                                         - candleCountUsed
                                                                                         - passes
                                                                                         - reasoning
+                                                                                        - structureBullishScore
+                                                                                        - structureBearishScore
+                                                                                        - breakQualityLabel
+                                                                                        - breakQualityPoints
+                                                                                        - bullishRetraceScore
+                                                                                        - bearishReboundScore
+                                                                                        - rangePosition
 
                                                                                     SniperResult:
                                                                                       type: object
@@ -1075,10 +1099,10 @@
                                                                                           type: string
                                                                                         mode:
                                                                                           type: string
-                                                                                          enum: [structural, scalping15m]
+                                                                                          enum: [structural, scalping15m, moneymagnet3, moneymagnet1, moneymagnetscalping]
                                                                                         recommendedMode:
                                                                                           type: string
-                                                                                          enum: [structural, scalping15m]
+                                                                                          enum: [structural, scalping15m, moneymagnet3, moneymagnet1, moneymagnetscalping]
                                                                                         recentPerformance:
                                                                                           $ref: "#/components/schemas/RecentPerformance"
                                                                                         tfBreakdown:
@@ -1138,6 +1162,24 @@
                                                                                           $ref: "#/components/schemas/MarketStructureV2Result"
                                                                                         btcAligned:
                                                                                           type: boolean
+                                                                                        magnetLevelUsed:
+                                                                                          type: string
+                                                                                          enum: [broken_level, ema26]
+                                                                                        marketMeta:
+                                                                                          type: object
+                                                                                          nullable: true
+                                                                                          properties:
+                                                                                            priceChangePercent:
+                                                                                              type: number
+                                                                                            quoteVolume:
+                                                                                              type: number
+                                                                                            fundingRate:
+                                                                                              type: number
+                                                                                              nullable: true
+                                                                                          required:
+                                                                                            - priceChangePercent
+                                                                                            - quoteVolume
+                                                                                            - fundingRate
                                                                                         btcBias:
                                                                                           type: string
                                                                                           enum: [bullish, bearish, ranging]

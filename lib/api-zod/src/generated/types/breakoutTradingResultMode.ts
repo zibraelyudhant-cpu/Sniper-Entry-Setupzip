@@ -12,4 +12,9 @@ export type BreakoutTradingResultMode = typeof BreakoutTradingResultMode[keyof t
 export const BreakoutTradingResultMode = {
   oi_surge: 'oi_surge',
   funding_contrarian: 'funding_contrarian',
+  structural: 'structural',
+  scalping15m: 'scalping15m',
+  moneymagnet3: 'moneymagnet3',
+  moneymagnet1: 'moneymagnet1',
+  moneymagnetscalping: 'moneymagnetscalping',
 } as const;

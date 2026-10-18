@@ -56,7 +56,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "expo-clipboard": "^57.0.1",
+    "@react-navigation/native": "^7.1.8",
+    "expo-clipboard": "^8.0.8",
     "react-native-webview": "^14.0.1"
   }
 }

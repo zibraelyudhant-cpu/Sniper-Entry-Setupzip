@@ -147,8 +147,20 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(JOURNAL_KEY);
     const all: JournalEntry[] = raw ? JSON.parse(raw) : [];
-    const cleaned = all.filter(e => !REMOVED_MENUS.has(e.sourceMenu as string));
-    if (cleaned.length !== all.length) {
+    // Pembersihan permanen (request user 2026-10-18): logic lama "Sniper Breakout
+    // (M30 Fresh Breakout)" sudah tidak dipakai. Semua entri berlabel itu
+    // (pending, WIN, LOSE, EXPIRED) dibuang dari storage biar gak bikin bingung.
+    const isOldM30Sniper = (e: JournalEntry) =>
+      typeof e.sourceSkill === 'string' && e.sourceSkill.includes('M30 Fresh Breakout');
+    const kept = all.filter(e => !REMOVED_MENUS.has(e.sourceMenu as string) && !isOldM30Sniper(e));
+    // Rapikan label TF Money Magnet lama: tersimpan 'M30' padahal logic H1->M5.
+    // Cuma label tampilan; evaluasi WIN/LOSE pakai tfEksekusi ('5M') jadi tidak berubah.
+    let relabeled = 0;
+    const cleaned = kept.map(e => {
+      if (e.sourceMenu === 'Money Magnet Scalping' && e.tfStruktur === 'M30') { relabeled++; return { ...e, tfStruktur: 'H1' }; }
+      return e;
+    });
+    if (cleaned.length !== all.length || relabeled > 0) {
       // Ada entry lama yang kebuang — simpan balik biar PERMANEN kehapus
       // dari storage, bukan cuma di-filter pas ditampilin doang.
       await persistJournal(cleaned);
@@ -266,6 +278,62 @@ function evalIntervalFor(entry: JournalEntry): { interval: string; limit: number
   }
 }
 
+const INTERVAL_MS: Record<string, number> = {
+  '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000,
+};
+
+/**
+ * Candle tempat entry ke-fill sering juga menyentuh SL/TP. Urutan di dalam
+ * candle tidak diketahui, jadi hasilnya bisa WIN/LOSE palsu (SL/TP kesentuh
+ * SEBELUM entry fill). Di sini candle itu dipecah ke 1m: cari menit fill
+ * pertama, baru cek SL/TP mulai menit itu. Return:
+ *   - objek hasil  -> resolve (WIN/LOSE) dihitung dari menit
+ *   - 'unresolved' -> entry fill, tapi SL/TP belum kesentuh SETELAH fill di candle ini
+ *   - null         -> gagal ambil 1m, pakai perilaku lama
+ */
+async function refineFillCandle(
+  entry: JournalEntry, orderType: string, openTime: number, intervalMs: number,
+  risk: number, evalAt: string,
+): Promise<Partial<JournalEntry> | 'unresolved' | null> {
+  try {
+    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${entry.symbol}&interval=1m&startTime=${openTime}&endTime=${openTime + intervalMs - 1}&limit=1500`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const mins: unknown = await res.json();
+    if (!Array.isArray(mins) || mins.length === 0) return null;
+    let filledAt: number | undefined;
+    for (const m of mins as (string | number)[][]) {
+      const t = Number(m[0]), high = Number(m[2]), low = Number(m[3]);
+      if (filledAt === undefined) {
+        const filled =
+          (entry.bias === 'bullish' && orderType === 'limit') ? low <= entry.entryPrice :
+          (entry.bias === 'bearish' && orderType === 'limit') ? high >= entry.entryPrice :
+          (entry.bias === 'bullish' && orderType === 'stop') ? high >= entry.entryPrice :
+          low <= entry.entryPrice;
+        if (!filled) continue;
+        filledAt = t;
+      }
+      // SL dicek dulu (konservatif) kalau satu menit menyentuh SL dan TP.
+      const sl = entry.bias === 'bullish' ? low <= entry.stopLoss : high >= entry.stopLoss;
+      if (sl) return { status: 'lose', exitPrice: entry.stopLoss, rr: -1, evaluatedAt: evalAt, entryHitAt: filledAt, resolvedAt: t };
+      const tp2 = entry.takeProfit2 !== undefined && entry.takeProfit2 !== 0 &&
+        (entry.bias === 'bullish' ? high >= entry.takeProfit2 : low <= entry.takeProfit2);
+      if (tp2) {
+        const rr = Math.round((Math.abs(entry.takeProfit2! - entry.entryPrice) / risk) * 10) / 10;
+        return { status: 'win_tp2', exitPrice: entry.takeProfit2, rr, evaluatedAt: evalAt, entryHitAt: filledAt, resolvedAt: t };
+      }
+      const tp1 = entry.bias === 'bullish' ? high >= entry.takeProfit1 : low <= entry.takeProfit1;
+      if (tp1) {
+        const rr = Math.round((Math.abs(entry.takeProfit1 - entry.entryPrice) / risk) * 10) / 10;
+        return { status: 'win_tp1', exitPrice: entry.takeProfit1, rr, evaluatedAt: evalAt, entryHitAt: filledAt, resolvedAt: t };
+      }
+    }
+    return filledAt === undefined ? null : 'unresolved';
+  } catch {
+    return null;
+  }
+}
+
 export async function journalEvaluate(entry: JournalEntry): Promise<Partial<JournalEntry>> {
   try {
     const { interval, limit } = evalIntervalFor(entry);
@@ -311,6 +379,17 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
           if (!filled) continue; // entry belum ke-hit di candle ini, skip — JANGAN cek SL/TP dulu
           entryHit = true;
           entryHitAtTs = openTime;
+          // Candle fill yang juga menyentuh SL/TP: urutan intra-candle tidak
+          // diketahui, jadi pecah ke 1m (perbaikan audit 2026-10-18).
+          const intervalMs = INTERVAL_MS[interval] ?? 0;
+          const touchesExit = entry.bias === 'bullish'
+            ? (low <= entry.stopLoss || high >= entry.takeProfit1)
+            : (high >= entry.stopLoss || low <= entry.takeProfit1);
+          if (intervalMs > 60_000 && touchesExit) {
+            const refined = await refineFillCandle(entry, orderType, openTime, intervalMs, risk, evalAt);
+            if (refined === 'unresolved') continue;
+            if (refined) return refined;
+          }
         }
 
         // Entry udah ke-hit (baik di candle ini atau candle sebelumnya) —
@@ -1482,7 +1561,7 @@ export function buildDailyWinRateTrend(entries: JournalEntry[], days = 7): Daily
     dayEnd.setDate(dayStart.getDate() + 1);
 
     const dayEntries = entries.filter(e => {
-      const t = e.resolvedAt ?? e.evaluatedAt;
+      const t = e.resolvedAt ?? e.savedAt; // evaluatedAt itu teks ("... WIB"), bukan angka; savedAt sebagai fallback entri lama
       if (!t) return false;
       if (e.status !== 'win_tp1' && e.status !== 'win_tp2' && e.status !== 'lose') return false;
       return t >= dayStart.getTime() && t < dayEnd.getTime();

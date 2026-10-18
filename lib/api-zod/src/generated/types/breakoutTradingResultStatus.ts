@@ -17,4 +17,7 @@ export const BreakoutTradingResultStatus = {
   waiting: 'waiting',
   approaching: 'approaching',
   expired: 'expired',
+  in_zone: 'in_zone',
+  no_structure: 'no_structure',
+  skip: 'skip',
 } as const;

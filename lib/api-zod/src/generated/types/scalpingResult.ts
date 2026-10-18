@@ -10,6 +10,8 @@ import type { RecentPerformance } from './recentPerformance';
 import type { ScalpingOB5M } from './scalpingOB5M';
 import type { ScalpingResultBias } from './scalpingResultBias';
 import type { ScalpingResultBtcBias } from './scalpingResultBtcBias';
+import type { ScalpingResultMagnetLevelUsed } from './scalpingResultMagnetLevelUsed';
+import type { ScalpingResultMarketMeta } from './scalpingResultMarketMeta';
 import type { ScalpingResultMode } from './scalpingResultMode';
 import type { ScalpingResultRecommendedMode } from './scalpingResultRecommendedMode';
 import type { ScalpingResultStatus } from './scalpingResultStatus';
@@ -48,5 +50,7 @@ export interface ScalpingResult {
   technicalSnapshot?: TechnicalSnapshot;
   marketStructureV2?: MarketStructureV2Result;
   btcAligned?: boolean;
+  magnetLevelUsed?: ScalpingResultMagnetLevelUsed;
+  marketMeta?: ScalpingResultMarketMeta;
   btcBias?: ScalpingResultBtcBias;
 }

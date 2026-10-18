@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeScalpingEntry, getRecentPerformance } from '../lib/smc';
+import { analyzeScalpingEntry, getRecentPerformance, checkTaProBonus } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -18,7 +18,21 @@ router.get('/breakout', async (req, res) => {
   try {
     const result = await analyzeScalpingEntry(normalized);
     const recentPerformance = await getRecentPerformance(normalized, mode);
-    res.json({ ...result, mode, recentPerformance });
+    // FIX (audit): TA PRO Bonus (checkTaProBonus) sebelumnya gak pernah
+    // dipanggil sama sekali, jadi banner-nya di UI gak pernah muncul
+    // walaupun datanya mestinya ada. Di-wire di sini doang -- endpoint
+    // DETAIL 1 koin (request user: biar gak 2x-in beban fetch pas SCAN
+    // ratusan koin di /breakout/scan, yang sengaja TETEP gak dikasih ini).
+    let taProBonus: { confirmed: boolean; classification: string | null; score: number } | null = null;
+    if ((result as any).bias === 'bullish' || (result as any).bias === 'bearish') {
+      taProBonus = await checkTaProBonus(normalized, (result as any).bias);
+    }
+    res.json({
+      ...result, mode, recentPerformance,
+      taProBonusConfirmed: taProBonus?.confirmed ?? false,
+      taProBonusClassification: taProBonus?.classification ?? null,
+      taProBonusScore: taProBonus?.score ?? 0,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });
