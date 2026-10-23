@@ -13,6 +13,7 @@ import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
+import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
@@ -69,6 +70,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
             <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+              <TaProScoreBadge coin={coin} />
             <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>

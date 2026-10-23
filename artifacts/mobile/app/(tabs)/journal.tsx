@@ -365,6 +365,7 @@ export default function JournalScreen() {
   const hasLoadedOnceRef = useRef(false);
   const [activeTab, setActiveTab] = useState<'daftar' | 'analisa' | 'ringkasan' | 'diagnosa'>('daftar');
   const [menuFilter, setMenuFilter] = useState<SourceMenu | 'all'>('all');
+  const [resultSort, setResultSort] = useState<'newest' | 'win' | 'lose'>('newest');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
   const [followups, setFollowups] = useState<Map<string, SignalFollowupResult>>(new Map());
@@ -434,7 +435,17 @@ export default function JournalScreen() {
     setEntries(updated);
   }, []);
 
-  const filtered = useMemo(() => menuFilter === 'all' ? entries : entries.filter(e => e.sourceMenu === menuFilter), [entries, menuFilter]);
+  const filtered = useMemo(() => {
+    const base = menuFilter === 'all' ? entries : entries.filter(e => e.sourceMenu === menuFilter);
+    if (resultSort === 'newest') return base;
+    // Urut hasil: WIN dulu / LOSE dulu, lalu yang lain (pending, expired). Sort stabil: urutan asli dipertahankan di tiap kelompok.
+    const rank = (st: JournalEntry['status']): number => {
+      const isWin = st === 'win_tp1' || st === 'win_tp2';
+      if (resultSort === 'win') return isWin ? 0 : st === 'lose' ? 1 : st === 'pending' ? 2 : 3;
+      return st === 'lose' ? 0 : isWin ? 1 : st === 'pending' ? 2 : 3;
+    };
+    return [...base].sort((a, b) => rank(a.status) - rank(b.status));
+  }, [entries, menuFilter, resultSort]);
 
   // BARU (request user): tombol "Ekspor Jurnal" — copy semua entry (field inti
   // buat evaluasi: simbol, arah, entry/SL/TP, order type, TF, waktu simpan,
@@ -613,6 +624,19 @@ export default function JournalScreen() {
               </Pressable>
             ))}
           </ScrollView>
+
+          {/* Urutkan hasil: WIN / LOSE dulu, biar gak perlu scroll panjang */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 10 }}>
+            <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>Urutkan:</Text>
+            {([['newest', 'Terbaru'], ['win', `WIN dulu (${stats.win})`], ['lose', `LOSE dulu (${stats.lose})`]] as const).map(([k, label]) => (
+              <Pressable key={k} onPress={() => setResultSort(k)} hitSlop={4}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1,
+                  backgroundColor: resultSort === k ? (k === 'win' ? colors.bullish : k === 'lose' ? colors.bearish : ACCENT) : colors.card,
+                  borderColor: resultSort === k ? (k === 'win' ? colors.bullish : k === 'lose' ? colors.bearish : ACCENT) : colors.border }}>
+                <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: resultSort === k ? '#0A0E1A' : colors.mutedForeground }}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
 
           {filtered.map((entry, i) => (
             <JournalEntryCard

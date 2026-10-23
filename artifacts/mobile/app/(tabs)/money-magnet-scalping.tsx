@@ -19,6 +19,8 @@ import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
+import { TaProScoreBadge } from '@/components/TaProScoreBadge';
+import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
 
@@ -71,6 +73,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.cardQuote, { color: colors.mutedForeground }]}>/USDT</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+              <TaProScoreBadge coin={coin} />
               <View style={[scanStyles.biasBadge, { backgroundColor: `${biasColor}18`, borderColor: biasColor }]}>
                 <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
               </View>
@@ -146,9 +149,11 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date(data.fetchedAt || Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
-  const inZone = coins.filter(c => c.status === 'in_zone');
-  const approaching = coins.filter(c => c.status === 'approaching');
-  const waiting = coins.filter(c => c.status === 'waiting');
+  const [sortKey, setSortKey] = useState<SortKey>('default');
+  const getMeta = (c: any) => c.marketMeta;
+  const inZone = applySorting(coins.filter(c => c.status === 'in_zone'), sortKey, getMeta);
+  const approaching = applySorting(coins.filter(c => c.status === 'approaching'), sortKey, getMeta);
+  const waiting = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, getMeta);
 
   const handleSaveAllToJournal = useCallback(async (coinsToSave: ScalpingResult[]) => {
     const eligible = coinsToSave.filter(c => c.entryPrice !== undefined && c.stopLoss !== undefined && c.takeProfit1 !== undefined && c.bias);
@@ -245,6 +250,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
           <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>Scan Ulang</Text>
         </Pressable>
       </View>
+
+      <SortSelector value={sortKey} onChange={setSortKey} />
 
       {inZone.length > 0 && (
         <>

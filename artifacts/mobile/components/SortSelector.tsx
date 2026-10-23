@@ -10,7 +10,7 @@ import { useColors } from '@/hooks/useColors';
  * fundingRate) itu dari field marketMeta yang di-attach backend — sortirnya
  * sendiri dikerjain CLIENT-SIDE (data udah lengkap, gak perlu fetch ulang).
  */
-export type SortKey = 'default' | 'volume' | 'priceChange' | 'fundingRate';
+export type SortKey = 'default' | 'skor' | 'volume' | 'priceChange' | 'fundingRate';
 
 export interface MarketMeta {
   priceChangePercent: number;
@@ -20,6 +20,7 @@ export interface MarketMeta {
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'default', label: 'Default' },
+  { key: 'skor', label: 'Skor TA PRO' },
   { key: 'volume', label: 'Volume' },
   { key: 'priceChange', label: 'Perubahan 24j' },
   { key: 'fundingRate', label: 'Funding Rate' },
@@ -64,9 +65,25 @@ export function SortSelector({ value, onChange }: { value: SortKey; onChange: (k
  * 'default' artinya GAK diurutin ulang (biarin urutan asli dari backend,
  * yang udah berarti prioritas: in_zone > approaching > waiting, dst).
  */
+/**
+ * Skor TA PRO sisi yang SEARAH sinyal (bullish -> LONG, bearish -> SHORT), dari `taPro` yang dibekukan server
+ * saat sinyal dibuat. null kalau koin itu belum punya skor (mis. status waiting / data lama).
+ */
+export function taProScoreOf(item: any): { score: number; grade: 'A+' | 'B' | 'Tidak layak' } | null {
+  const snap = item?.taPro;
+  if (!snap?.long || !snap?.short) return null;
+  const side = item?.bias === 'bearish' ? snap.short : snap.long;
+  return typeof side?.score === 'number' ? { score: side.score, grade: side.grade } : null;
+}
+
 export function applySorting<T>(items: T[], sortKey: SortKey, getMeta: (item: T) => MarketMeta | null | undefined): T[] {
   if (sortKey === 'default') return items;
   const sorted = [...items];
+  if (sortKey === 'skor') {
+    // skor tertinggi dulu; yang belum punya skor di paling bawah; seri = urutan asli (sort stabil)
+    sorted.sort((a, b) => (taProScoreOf(b)?.score ?? -99) - (taProScoreOf(a)?.score ?? -99));
+    return sorted;
+  }
   sorted.sort((a, b) => {
     const metaA = getMeta(a);
     const metaB = getMeta(b);
