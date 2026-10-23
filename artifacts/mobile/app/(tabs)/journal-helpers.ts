@@ -1504,6 +1504,11 @@ export function buildDiagnosticReport(
     });
   }
 
+  // ── 1b. Skor TA PRO: apakah grade A+ memang lebih sering menang ─────────
+  const taRes = taGradeFinding(resolved);
+  if (taRes.finding) findings.push(taRes.finding);
+  if (taRes.gap) dataGaps.push(taRes.gap);
+
   // ── 2. Followup 1-jam: akar masalah LOSE (paling actionable) ────────────
   const agg = aggregateFollowups(entries, followups);
   const loseVerdicts = agg.strukturBenarSlPrematur + agg.strukturSalahKonfirmasi;
@@ -1773,4 +1778,72 @@ export function buildLoseConditionHeatmap(entries: JournalEntry[]): HeatmapData 
   .filter(r => r.cells.some(c => c.pct > 0));
 
   return { columns: columns.map(([label]) => label), rows };
+}
+// ─── Skor TA PRO (info) — dibekukan saat sinyal disimpan, dipakai buat analisa Jurnal ───
+
+/** Skor sisi yang searah sinyal (bullish→LONG, bearish→SHORT). null = sinyal lama tanpa skor. */
+export function taScoreOfEntry(e: JournalEntry): { score: number; grade: 'A+' | 'B' | 'Tidak layak' } | null {
+  const long = e.bias === 'bullish';
+  const score = long ? e.taLongScore : e.taShortScore;
+  const grade = long ? e.taLongGrade : e.taShortGrade;
+  if (typeof score !== 'number' || !grade) return null;
+  return { score, grade };
+}
+
+const TA_GRADE_LABELS = ['A+ (skor 7–9)', 'B (skor 5–6)', 'Tidak layak (skor ≤4)', 'Tanpa skor (sinyal lama)'];
+
+function taGradeLabel(e: JournalEntry): string {
+  const s = taScoreOfEntry(e);
+  if (!s) return TA_GRADE_LABELS[3]!;
+  return s.grade === 'A+' ? TA_GRADE_LABELS[0]! : s.grade === 'B' ? TA_GRADE_LABELS[1]! : TA_GRADE_LABELS[2]!;
+}
+
+/** Win rate per grade Skor TA PRO (sisi searah sinyal). */
+export function breakdownByTaGrade(entries: JournalEntry[]): JournalBreakdown[] {
+  const r = buildBreakdown(entries, taGradeLabel);
+  return r.sort((a, b) => TA_GRADE_LABELS.indexOf(a.label) - TA_GRADE_LABELS.indexOf(b.label));
+}
+
+/** Win rate per angka skor (-9..9), skor tertinggi dulu; sinyal lama tanpa skor di paling bawah. */
+export function breakdownByTaScore(entries: JournalEntry[]): JournalBreakdown[] {
+  const scoreOf = (e: JournalEntry) => taScoreOfEntry(e)?.score;
+  const r = buildBreakdown(entries, e => { const s = scoreOf(e); return s === undefined ? 'Tanpa skor' : `Skor ${s > 0 ? '+' : ''}${s}/9`; });
+  const num = (l: string) => (l === 'Tanpa skor' ? -999 : parseInt(l.replace('Skor ', ''), 10));
+  return r.sort((a, b) => num(b.label) - num(a.label));
+}
+
+/** Rata-rata skor pada sinyal WIN vs LOSE. Butuh minimal 3 di kedua sisi. */
+export function compareTaScoreWinLose(entries: JournalEntry[]): { winAvg: number; loseAvg: number; sampleWin: number; sampleLose: number; insight: string } | null {
+  const wins = entries.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2').map(e => taScoreOfEntry(e)?.score).filter((v): v is number => v !== undefined);
+  const loses = entries.filter(e => e.status === 'lose').map(e => taScoreOfEntry(e)?.score).filter((v): v is number => v !== undefined);
+  if (wins.length < 3 || loses.length < 3) return null;
+  const winAvg = Math.round(avg(wins) * 10) / 10;
+  const loseAvg = Math.round(avg(loses) * 10) / 10;
+  const diff = winAvg - loseAvg;
+  const insight = Math.abs(diff) < 1
+    ? 'Gak ada pola jelas — skor rata-rata WIN dan LOSE hampir sama. Skor belum terbukti membedakan sinyal.'
+    : diff > 0
+    ? `✅ Sinyal WIN rata-rata skornya lebih tinggi (${winAvg} vs ${loseAvg}) — skor mulai membedakan sinyal bagus dari jelek.`
+    : `⚠️ Sinyal LOSE justru skornya lebih tinggi (${loseAvg} vs ${winAvg}) — skor belum membantu, atau ada komponen yang menyesatkan.`;
+  return { winAvg, loseAvg, sampleWin: wins.length, sampleLose: loses.length, insight };
+}
+
+/** Temuan Diagnosa: apakah grade A+ memang lebih sering menang dari sisanya. null = tidak ada data skor sama sekali. */
+export function taGradeFinding(resolved: JournalEntry[]): { finding: DiagnosticFinding | null; gap: string | null } {
+  const scored = resolved.filter(e => taScoreOfEntry(e));
+  if (scored.length === 0) return { finding: null, gap: null };
+  const wr = (arr: JournalEntry[]) => arr.length ? Math.round((arr.filter(e => e.status !== 'lose').length / arr.length) * 100) : 0;
+  const top = scored.filter(e => taScoreOfEntry(e)!.grade === 'A+');
+  const rest = scored.filter(e => taScoreOfEntry(e)!.grade !== 'A+');
+  if (top.length < 10 || rest.length < 10) {
+    return {
+      finding: null,
+      gap: `Skor TA PRO: baru ${top.length} sinyal A+ dan ${rest.length} sinyal grade lain yang selesai (butuh minimal 10 di masing-masing) — belum cukup buat menilai skor.`,
+    };
+  }
+  const wTop = wr(top), wRest = wr(rest), diff = wTop - wRest;
+  const evidence = `A+: ${wTop}% win (${top.length} sinyal). Grade B/Tidak layak: ${wRest}% win (${rest.length} sinyal).`;
+  if (diff >= 10) return { finding: { severity: 'good', title: `Skor TA PRO berfungsi: A+ menang ${diff} poin lebih sering`, evidence, action: 'Skor layak dipakai sebagai acuan urutan scan. Tetap pantau saat sampel bertambah.', sampleSize: scored.length }, gap: null };
+  if (diff <= -5) return { finding: { severity: 'warning', title: `Skor TA PRO belum terbukti: A+ justru ${Math.abs(diff)} poin lebih jarang menang`, evidence, action: 'Cek PER SKOR di tab Analisa dan "Poin" per komponen di detail sinyal buat cari komponen yang menyesatkan sebelum skor dijadikan acuan.', sampleSize: scored.length }, gap: null };
+  return { finding: { severity: 'info', title: 'Skor TA PRO belum membedakan hasil: win rate A+ dan grade lain mirip', evidence, action: 'Belum ada bukti skor menaikkan peluang menang. Kumpulkan sampel lebih banyak sebelum dijadikan acuan.', sampleSize: scored.length }, gap: null };
 }

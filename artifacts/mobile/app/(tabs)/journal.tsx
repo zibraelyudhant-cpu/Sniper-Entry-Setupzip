@@ -18,13 +18,14 @@ import {
   type JournalEntry, type SourceMenu,
   journalLoadAll, journalDelete, journalDeleteAll, journalEvaluate, journalUpdate, journalUpdateMany,
   journalGetLastWriteStatus,
-  breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias,
+  breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias, breakdownByTaGrade, breakdownByTaScore, compareTaScoreWinLose,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
   registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
   buildDiagnosticReport, buildDailyWinRateTrend, buildLoseConditionHeatmap, type DiagnosticFinding, type FindingSeverity,
   type JournalBreakdown, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
+import { simulateFilters, taComponentAnalysis, type FilterScope } from './journal-research';
 
 const ACCENT = MENU_COLORS.journal;
 
@@ -661,6 +662,14 @@ export default function JournalScreen() {
           <BreakdownSection title="PER ARAH (LONG/SHORT)" data={breakdownByBias(entries)} colors={colors} />
           <BreakdownSection title="PER KEKUATAN TREND (ADX STRUKTUR)" data={breakdownByAdxRange(entries)} colors={colors} />
           <BreakdownSection title="PER KONDISI RSI EKSEKUSI" data={breakdownByRsiRange(entries)} colors={colors} />
+          <BreakdownSection title="PER GRADE SKOR TA PRO (searah sinyal)" data={breakdownByTaGrade(entries)} colors={colors} />
+          <BreakdownSection title="PER ANGKA SKOR TA PRO" data={breakdownByTaScore(entries)} colors={colors} />
+          {taComponentAnalysis(entries).map(sec => (
+            <View key={sec.label} style={{ marginBottom: 6 }}>
+              <BreakdownSection title={`KOMPONEN SKOR — ${sec.label.toUpperCase()}`} data={sec.rows} colors={colors} />
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, lineHeight: 15, marginBottom: 6 }}>{sec.hint}</Text>
+            </View>
+          ))}
         </ScrollView>
       ) : activeTab === 'ringkasan' ? (
         <RingkasanTab entries={entries} colors={colors} followups={followups} onDeleted={() => load(true)} />
@@ -931,6 +940,7 @@ function RingkasanTab({ entries: allEntries, colors, followups, onDeleted }: { e
   const entries = useMemo(() => filterByBaseline(allEntries, baseline), [allEntries, baseline]);
   const summary = useMemo(() => buildJournalSummary(entries), [entries]);
   const indicatorResult = useMemo(() => compareIndicatorsWinLose(entries), [entries]);
+  const taScoreCompare = useMemo(() => compareTaScoreWinLose(entries), [entries]);
   const loseProfilesByMenu = useMemo(() => buildLoseConditionProfiles(entries, 'menu'), [entries]);
   const loseProfilesBySkill = useMemo(() => buildLoseConditionProfiles(entries, 'skill'), [entries]);
   const timingOverall = useMemo(() => computeTimingStats(entries), [entries]);
@@ -1068,6 +1078,20 @@ function RingkasanTab({ entries: allEntries, colors, followups, onDeleted }: { e
       </View>
 
       <View style={{ marginBottom: 8 }}>
+        <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>SKOR TA PRO — PAS WIN VS PAS LOSE</Text>
+        {taScoreCompare === null ? (
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17, marginBottom: 12 }}>
+            Butuh minimal 3 sinyal WIN dan 3 sinyal LOSE yang punya skor (sinyal lama sebelum fitur skor tidak dihitung) buat mulai bandingin.
+          </Text>
+        ) : (
+          <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 10, marginBottom: 12 }}>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 6 }}>
+              Dari {taScoreCompare.sampleWin} sinyal WIN dan {taScoreCompare.sampleLose} sinyal LOSE yang punya skor (skala -9 sampai 9).
+            </Text>
+            <DivergingBar winValue={taScoreCompare.winAvg} loseValue={taScoreCompare.loseAvg} unit="" />
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginTop: 8 }}>{taScoreCompare.insight}</Text>
+          </View>
+        )}
         <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginBottom: 4 }}>INDIKATOR — PAS WIN VS PAS LOSE</Text>
         {indicatorResult.comparisons.length === 0 ? (
           <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>
@@ -1101,6 +1125,56 @@ const SEVERITY_STYLE: Record<FindingSeverity, { icon: keyof typeof Feather.glyph
   info: { icon: 'info', label: 'KANDIDAT PENGEMBANGAN', color: c => '#818CF8' },
   good: { icon: 'check-circle', label: 'SEHAT', color: c => c.bullish },
 };
+
+// ─── Simulator filter: "kalau sinyal kondisi X ditolak, hasilnya gimana" + uji di data baru ───
+function VerdictPill({ v, colors }: { v: 'lolos' | 'gagal' | 'belum_bisa'; colors: ReturnType<typeof useColors> }) {
+  const m = v === 'lolos' ? { t: 'LOLOS UJI DATA BARU', c: colors.bullish } : v === 'gagal' ? { t: 'GAGAL DI DATA BARU', c: colors.bearish } : { t: 'BELUM BISA DIUJI', c: colors.mutedForeground };
+  return (
+    <View style={{ alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, borderWidth: 1, borderColor: m.c, backgroundColor: `${m.c}18` }}>
+      <Text style={{ fontSize: 8, fontFamily: 'Inter_700Bold', color: m.c, letterSpacing: 0.4 }}>{m.t}</Text>
+    </View>
+  );
+}
+
+function FilterScopeBlock({ scope, colors }: { scope: FilterScope; colors: ReturnType<typeof useColors> }) {
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.foreground, marginBottom: 2 }}>{scope.label}</Text>
+      <Text style={{ fontSize: 9, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginBottom: 6 }}>
+        {scope.resolved} sinyal selesai · dicari di {scope.trainN} tertua · diuji di {scope.testN} terbaru
+      </Text>
+      {scope.rules.length === 0 ? (
+        <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 16 }}>Tidak ada aturan tolak yang menaikkan hasil di data lama. Artinya belum ada filter tunggal yang layak dicoba.</Text>
+      ) : scope.rules.map((r, i) => (
+        <View key={i} style={{ borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, padding: 10, marginBottom: 8 }}>
+          <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: colors.foreground, marginBottom: 6 }}>{r.text}</Text>
+          <VerdictPill v={r.verdict} colors={colors} />
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginTop: 6 }}>
+            Semua data: LOSE terhindar {r.allRemovedLose}, WIN ikut hilang {r.allRemovedWin}, net {r.allNetR >= 0 ? '+' : ''}{r.allNetR}R. Win rate {r.allWrBefore}% → {r.allWrAfter}%.
+          </Text>
+          <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginTop: 2 }}>
+            Di data lama: {r.trainNetR >= 0 ? '+' : ''}{r.trainNetR}R. Di data baru: {r.testRemoved === 0 ? 'tidak ada sinyal yang kena aturan' : `${r.testRemoved} sinyal kena, ${r.testNetR >= 0 ? '+' : ''}${r.testNetR}R`}.
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function FilterSimulatorCard({ entries, colors }: { entries: JournalEntry[]; colors: ReturnType<typeof useColors> }) {
+  const sim = useMemo(() => simulateFilters(entries), [entries]);
+  return (
+    <View style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.border, marginTop: 6, marginBottom: 12 }}>
+      <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.6, marginBottom: 6 }}>SIMULATOR FILTER (dari jurnal lu sendiri)</Text>
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginBottom: 10 }}>
+        Menghitung "kalau sinyal kondisi ini ditolak, hasilnya berapa R" (LOSE = -1R, WIN = RR sinyal, tanpa fee). Aturan dicari di 70% sinyal tertua, lalu dicek di 30% terbaru. Yang GAGAL di data baru kemungkinan kebetulan. Semua ini cuma kandidat aturan, bukan bukti; uji dulu sebelum jadi filter beneran.
+      </Text>
+      {!sim.ready ? (
+        <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 17 }}>{sim.message}</Text>
+      ) : sim.scopes.map(sc => <FilterScopeBlock key={sc.label} scope={sc} colors={colors} />)}
+    </View>
+  );
+}
 
 function FindingCard({ finding, colors, index }: { finding: DiagnosticFinding; colors: ReturnType<typeof useColors>; index: number }) {
   const style = SEVERITY_STYLE[finding.severity];
@@ -1288,6 +1362,8 @@ function DiagnosaTab({ entries: allEntries, colors, followups }: { entries: Jour
           {goods.map((f, i) => <FindingCard key={'g' + i} finding={f} colors={colors} index={i} />)}
         </>
       )}
+
+      <FilterSimulatorCard entries={entries} colors={colors} />
 
       {/* Peta kondisi saat lose — heatmap per skill */}
       {heatmap.rows.length > 0 && (
