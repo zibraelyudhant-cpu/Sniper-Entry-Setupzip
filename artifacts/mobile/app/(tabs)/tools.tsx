@@ -38,7 +38,7 @@ export default function ToolsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <AnimatedTabSwitcher
           tabs={[
-            { key: 'kalkulator', label: 'KALKULATOR' },
+            { key: 'kalkulator', label: 'KALKULATOR PNL FUTURES' },
           ]}
           active={section}
           onChange={(key) => setSection(key as Section)}

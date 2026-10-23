@@ -35,7 +35,7 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="tools">
         <Icon sf={{ default: 'wrench.and.screwdriver', selected: 'wrench.and.screwdriver.fill' }} />
-        <Label>Tools</Label>
+        <Label>Kalkulator PnL Futures</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -175,7 +175,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="tools"
         options={{
-          title: 'Tools',
+          title: 'Kalkulator PnL Futures',
           tabBarActiveTintColor: MENU_COLORS.tools,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
