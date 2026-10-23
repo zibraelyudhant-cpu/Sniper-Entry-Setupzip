@@ -13,7 +13,7 @@ import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
-import { fetchTaProJournalFields, fetchTaProJournalFieldsMany } from '@/components/taProJournal';
+import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
 import { ScoreBadge } from '@/components/animated/ScoreBadge';
@@ -212,7 +212,6 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     if (eligible.length === 0) return;
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const taMap = await fetchTaProJournalFieldsMany(eligible.map(c => c.symbol));
     const entries: JournalEntry[] = eligible.map(c => {
       // REVISI (request user): mode 15M/Money Magnet 2 dihapus, Menu Scalping
       // sekarang 1 mode doang.
@@ -232,7 +231,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         tfStruktur: 'D1', tfEksekusi: 'M15',
         ...crtJournalFields(c),
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
-        ...(taMap.get(c.symbol) ?? {}), // skor TA PRO (info)
+        ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
         orderType: 'limit',
         btcAligned: c.btcAligned, btcBias: c.btcBias,
         signalStatus: c.status as 'in_zone',
@@ -449,7 +448,6 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const ta = await fetchTaProJournalFields(data.symbol);
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
@@ -459,7 +457,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       tfStruktur: 'D1', tfEksekusi: 'M15',
       ...crtJournalFields(data),
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      ...ta, // skor TA PRO (info)
+      ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
       orderType: 'limit', // CRT pasang LIMIT order di retrace 50% displacement
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
@@ -531,7 +529,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
           {/* Banner: data terkunci dari Scan, BUKAN live */}
-          <TaProScoreCard symbol={(data as any)?.symbol ?? querySymbol} bias={(data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish' ? (data as any).bias : null} />
+          <TaProScoreCard snapshot={(data as any)?.taPro} symbol={(data as any)?.symbol ?? querySymbol} bias={(data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish' ? (data as any).bias : null} />
           {!liveMode && pinnedData && (
             <AnimatedCard index={0}>
             <View style={{

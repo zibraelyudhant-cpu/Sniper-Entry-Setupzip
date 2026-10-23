@@ -11,6 +11,7 @@ const NEUTRAL = '#5B6478';
 
 interface Props {
   symbol?: string | null;
+  snapshot?: any; // skor yang dibekukan server saat sinyal dibuat (kalau ada, TIDAK fetch ulang)
   bias?: 'bullish' | 'bearish' | null; // arah sinyal menu (cuma buat nandain sisi yang searah)
 }
 
@@ -22,14 +23,17 @@ const gradeText = (g?: string) => (g === 'A+' ? 'A+' : g === 'B' ? 'B' : 'Tidak 
  * Technical Analysis PRO (Fitur 5) di detail koin, supaya gak perlu cek manual
  * ke menu TA PRO. Fetch sendiri per koin pas detail dibuka.
  */
-export function TaProScoreCard({ symbol, bias }: Props) {
+export function TaProScoreCard({ symbol, bias, snapshot }: Props) {
   const [open, setOpen] = useState(false);
-  const { data, isLoading, isError } = useQuery({
+  const live = useQuery({
     queryKey: ['ta-pro-score-card', symbol],
     queryFn: () => customFetch<any>(`/api/technical-analysis-pro/long-short-score?symbol=${encodeURIComponent(symbol ?? '')}`),
-    enabled: !!symbol,
+    enabled: !!symbol && !snapshot,
     staleTime: 60_000,
   });
+  const data = snapshot ?? live.data;
+  const isLoading = !snapshot && live.isLoading;
+  const isError = !snapshot && live.isError;
   if (!symbol) return null;
 
   const side = (title: 'LONG' | 'SHORT', s: any) => {
@@ -47,7 +51,7 @@ export function TaProScoreCard({ symbol, bias }: Props) {
   return (
     <View style={styles.card}>
       <Pressable onPress={() => setOpen(o => !o)} style={styles.header}>
-        <Text style={styles.title}>TA PRO • SKOR (info)</Text>
+        <Text style={styles.title}>{snapshot ? 'TA PRO • SKOR SAAT SINYAL (info)' : 'TA PRO • SKOR LIVE (info)'}</Text>
         <Feather name={open ? 'chevron-up' : 'chevron-down'} size={14} color={NEUTRAL} />
       </Pressable>
       {isLoading ? <ActivityIndicator color={AMBER} style={{ marginVertical: 8 }} />

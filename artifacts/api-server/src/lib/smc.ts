@@ -4638,15 +4638,46 @@ export async function analyzeLongShortScore(symbol: string): Promise<LongShortSc
 // di dalam fungsi analyze*Entry/analyzeCounterStructural/
 // analyzeMoneyMagnetScalping itu sendiri (supaya scan tetep gak kena).
 // ═══════════════════════════════════════════════════════════════════════════
+/** Skor TA PRO yang DIBEKUKAN saat sinyal dibuat (server). Dipakai kartu Skor + Journal supaya
+ *  angkanya SAMA dengan kondisi pas sinyal muncul (bukan dihitung ulang pas disimpan). */
+export interface TaProScoreSnapshot {
+  at: number; // ms epoch saat skor dihitung
+  long: { score: number; grade: 'A+' | 'B' | 'Tidak layak'; pts: string; components: LongShortComponent[] };
+  short: { score: number; grade: 'A+' | 'B' | 'Tidak layak'; pts: string; components: LongShortComponent[] };
+}
+const TA_SNAP_KEYS = ['structH4', 'structH1', 'oi', 'lsr', 'funding'];
+function ptsString(side: LongShortSide): string {
+  return TA_SNAP_KEYS.map(k => {
+    const c = side.components.find(x => x.key === k);
+    return !c || !c.available ? `${k}:x` : `${k}:${c.points > 0 ? '+' : ''}${c.points}`;
+  }).join('|');
+}
+// Cache pendek per simbol: satu sinyal yang dipanggil beberapa kali dalam hitungan detik (scan + detail)
+// dapat snapshot yang sama persis.
+const taSnapCache = new Map<string, { t: number; v: TaProScoreSnapshot | null }>();
+const TA_SNAP_TTL_MS = 90_000;
+export async function getTaProScoreSnapshot(symbol: string): Promise<TaProScoreSnapshot | null> {
+  const hit = taSnapCache.get(symbol);
+  if (hit && Date.now() - hit.t < TA_SNAP_TTL_MS) return hit.v;
+  let v: TaProScoreSnapshot | null = null;
+  try {
+    const ls = await analyzeLongShortScore(symbol);
+    v = {
+      at: Date.now(),
+      long: { score: ls.long.score, grade: ls.long.grade, pts: ptsString(ls.long), components: ls.long.components },
+      short: { score: ls.short.score, grade: ls.short.grade, pts: ptsString(ls.short), components: ls.short.components },
+    };
+  } catch { v = null; }
+  if (v) taSnapCache.set(symbol, { t: Date.now(), v });
+  return v;
+}
+
 export async function checkTaProBonus(
   symbol: string, bias: 'bullish' | 'bearish'
 ): Promise<{ confirmed: boolean; classification: string | null; score: number }> {
-  try {
-    const ls = await analyzeLongShortScore(symbol);
-    const side = bias === 'bullish' ? ls.long : ls.short;
-    const confirmed = side.grade !== 'Tidak layak';
-    return { confirmed, classification: confirmed ? `${bias === 'bullish' ? 'Long' : 'Short'} Grade ${side.grade}` : null, score: confirmed ? side.score : 0 };
-  } catch {
-    return { confirmed: false, classification: null, score: 0 };
-  }
+  const snap = await getTaProScoreSnapshot(symbol);
+  if (!snap) return { confirmed: false, classification: null, score: 0 };
+  const side = bias === 'bullish' ? snap.long : snap.short;
+  const confirmed = side.grade !== 'Tidak layak';
+  return { confirmed, classification: confirmed ? `${bias === 'bullish' ? 'Long' : 'Short'} Grade ${side.grade}` : null, score: confirmed ? side.score : 0 };
 }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeCounterStructural, getRecentPerformance, checkTaProBonus } from '../lib/smc';
+import { analyzeCounterStructural, getRecentPerformance, checkTaProBonus, getTaProScoreSnapshot } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -27,7 +27,9 @@ router.get('/breakout-entry', async (req, res) => {
     if ((result as any).bias === 'bullish' || (result as any).bias === 'bearish') {
       taProBonus = await checkTaProBonus(normalized, (result as any).bias);
     }
+    const taPro = (result as any).bias === 'bullish' || (result as any).bias === 'bearish' ? await getTaProScoreSnapshot(normalized) : null;
     res.json({
+      taPro,
       ...result, mode, recentPerformance,
       taProBonusConfirmed: taProBonus?.confirmed ?? false,
       taProBonusClassification: taProBonus?.classification ?? null,
@@ -83,6 +85,9 @@ async function runSniperScan(): Promise<void> {
       if (newValid.length > 0) {
         const metadata = await getMarketMetadata(newValid.map(r => r.symbol));
         for (const r of newValid) (r as any).marketMeta = metadata.get(r.symbol) ?? null;
+        // Skor TA PRO dibekukan SAAT sinyal dibuat (cuma koin yang punya arah + entry)
+        await Promise.all(newValid.filter(r => ((r as any).bias === 'bullish' || (r as any).bias === 'bearish') && (r as any).entryPrice !== undefined)
+          .map(async r => { (r as any).taPro = await getTaProScoreSnapshot(r.symbol); }));
       }
       sniperScanState.results.push(...newValid);
       const order: Record<string, number> = { siap_breakout: 0, in_zone: 0, siap_retest: 0, approaching: 1, waiting: 2 };
