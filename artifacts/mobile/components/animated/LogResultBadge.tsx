@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text } from 'react-native';
 
 interface LogResultBadgeProps {
   status: 'pending' | 'win_tp1' | 'win_tp2' | 'lose' | 'expired';

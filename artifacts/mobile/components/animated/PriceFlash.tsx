@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, TextStyle } from 'react-native';
+import { Animated, StyleSheet, TextStyle } from 'react-native';
 
 interface PriceFlashProps {
   value: string;

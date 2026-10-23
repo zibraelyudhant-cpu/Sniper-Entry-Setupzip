@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeScalpingEntry, getRecentPerformance, checkTaProBonus } from '../lib/smc';
+import { analyzeScalpingEntry, checkTaProBonus } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -17,7 +17,7 @@ router.get('/breakout', async (req, res) => {
   const mode = 'structural' as const;
   try {
     const result = await analyzeScalpingEntry(normalized);
-    const recentPerformance = await getRecentPerformance(normalized, mode);
+    // 2026-10-23: mini-backtest 30 hari DIHAPUS dari Scalping — dulu menjalankan backtest Python strategi lama (bukan CRT) dan bikin Analisa lambat/gagal.
     // FIX (audit): TA PRO Bonus (checkTaProBonus) sebelumnya gak pernah
     // dipanggil sama sekali, jadi banner-nya di UI gak pernah muncul
     // walaupun datanya mestinya ada. Di-wire di sini doang -- endpoint
@@ -28,7 +28,7 @@ router.get('/breakout', async (req, res) => {
       taProBonus = await checkTaProBonus(normalized, (result as any).bias);
     }
     res.json({
-      ...result, mode, recentPerformance,
+      ...result, mode,
       taProBonusConfirmed: taProBonus?.confirmed ?? false,
       taProBonusClassification: taProBonus?.classification ?? null,
       taProBonusScore: taProBonus?.score ?? 0,

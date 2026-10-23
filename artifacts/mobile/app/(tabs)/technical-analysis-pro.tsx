@@ -8,7 +8,6 @@ import { useColors } from '@/hooks/useColors';
 import { MENU_COLORS } from '@/constants/theme';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
-import { LongShortBattleCard } from '@/components/animated/LongShortBattleCard';
 import { CyberCard } from '@/components/animated/CyberCard';
 import { CyberBadge } from '@/components/animated/CyberBadge';
 import { CyberBigNumber } from '@/components/animated/CyberBigNumber';
@@ -22,16 +21,17 @@ const AMBER = '#FFD700';
 type TFOption = 'D1' | 'H4' | 'H1' | 'M30' | 'M15' | 'M5' | 'M1';
 const TF_OPTIONS: TFOption[] = ['D1', 'H4', 'H1', 'M30', 'M15', 'M5', 'M1']; // M1 ditambahin (request user)
 
-type FeatureKey = 'trend' | 'multiTf' | 'transition' | 'breakoutBounce' | 'longShort' | 'divergenceTrend' | 'btcCorrelation';
+type FeatureKey = 'trend' | 'multiTf' | 'snrZones' | 'longShort' | 'divergenceTrend' | 'btcCorrelation';
 const FEATURES: { key: FeatureKey; label: string; needsTf: boolean; noSymbolNeeded?: boolean }[] = [
   { key: 'btcCorrelation', label: 'BTC', noSymbolNeeded: true, needsTf: false },
   { key: 'trend', label: 'Tren', needsTf: true },
   { key: 'multiTf', label: 'Multi-TF', needsTf: false },
-  { key: 'transition', label: 'Transisi', needsTf: true },
-  { key: 'breakoutBounce', label: 'SNR', needsTf: true },
+  { key: 'snrZones', label: 'Price Action', needsTf: true },
   { key: 'longShort', label: 'Skor', needsTf: false },
   { key: 'divergenceTrend', label: 'Divergence', needsTf: true },
 ];
+
+const SNR_TFS: TFOption[] = ['H4', 'H1', 'M15', 'M5'];
 
 function featureUrl(symbol: string, feature: FeatureKey, tf: TFOption): string {
   const enc = encodeURIComponent(symbol);
@@ -39,8 +39,7 @@ function featureUrl(symbol: string, feature: FeatureKey, tf: TFOption): string {
     case 'btcCorrelation': return `/api/technical-analysis-pro/btc-correlation`;
     case 'trend': return `/api/technical-analysis-pro/trend?symbol=${enc}&tf=${tf}`;
     case 'multiTf': return `/api/technical-analysis-pro/multi-tf?symbol=${enc}`;
-    case 'transition': return `/api/technical-analysis-pro/transition?symbol=${enc}&tf=${tf}`;
-    case 'breakoutBounce': return `/api/technical-analysis-pro/breakout-bounce?symbol=${enc}&tf=${tf}`;
+    case 'snrZones': return `/api/technical-analysis-pro/snr-zones?symbol=${enc}&tf=${SNR_TFS.includes(tf) ? tf : 'H4'}`;
     case 'longShort': return `/api/technical-analysis-pro/long-short-score?symbol=${enc}`;
     case 'divergenceTrend': return `/api/technical-analysis-pro/divergence-trend?symbol=${enc}&tf=${tf}`;
   }
@@ -75,7 +74,7 @@ export default function TechnicalAnalysisProScreen() {
 
       <View style={[styles.header, { paddingTop: topPadding + 12, borderBottomColor: 'rgba(255,0,229,0.2)', backgroundColor: '#050208' }]}>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Technical Analysis PRO</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Tren, Multi-TF, Transisi, SNR, Skor Long/Short & Divergence</Text>
+        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Tren, Multi-TF, Price Action, Skor Long/Short & Divergence</Text>
 
         <View style={[styles.inputArea]}>
           <View style={[styles.inputBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -116,8 +115,8 @@ export default function TechnicalAnalysisProScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {currentFeatureMeta.needsTf && (
             <View style={styles.tfRow}>
-              {TF_OPTIONS.map(opt => {
-                const active = tf === opt;
+              {(activeFeature === 'snrZones' ? SNR_TFS : TF_OPTIONS).map(opt => {
+                const active = activeFeature === 'snrZones' ? opt === (SNR_TFS.includes(tf) ? tf : 'H4') : tf === opt;
                 return (
                   <TouchableOpacity
                     key={opt}
@@ -139,23 +138,11 @@ export default function TechnicalAnalysisProScreen() {
             </View>
           )}
 
-          {!isLoading && !isError && data && activeFeature === 'longShort' && (
-            <LongShortBattleCard
-              status={data.status}
-              breakoutDirection={data.breakoutDirection}
-              brokenLevel={data.brokenLevel}
-              score={data.score}
-              classification={data.classification}
-              breakdown={data.breakdown}
-              btcBreakoutDirection={data.btcBreakoutDirection}
-              btcSearah={data.btcSearah}
-            />
-          )}
+          {!isLoading && !isError && data && activeFeature === 'longShort' && <LongShortScoreResultView data={data} />}
 
           {!isLoading && !isError && data && activeFeature === 'trend' && <TrendResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'multiTf' && <MultiTfResultView data={data} />}
-          {!isLoading && !isError && data && activeFeature === 'transition' && <TransitionResultView data={data} />}
-          {!isLoading && !isError && data && activeFeature === 'breakoutBounce' && <BreakoutBounceResultView data={data} />}
+          {!isLoading && !isError && data && activeFeature === 'snrZones' && <SnrZonesResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'divergenceTrend' && <DivergenceTrendResultView data={data} />}
           {!isLoading && !isError && data && activeFeature === 'btcCorrelation' && <BtcCorrelationResultView data={data} />}
         </ScrollView>
@@ -222,55 +209,141 @@ function MultiTfResultView({ data }: { data: any[] }) {
   );
 }
 
-// ═══ FITUR 3: Identifikasi Transisi ════════════════════════════════════════
-function TransitionResultView({ data }: { data: any }) {
-  const isTransition = data.classification === 'transition';
-  const color = isTransition ? AMBER : data.classification?.startsWith('bullish') ? CYAN : data.classification?.startsWith('bearish') ? MAGENTA : NEUTRAL;
+// ═══ FITUR 5: Long-Short Score ═════════════════════════════════════════════
+function LongShortSideCard({ title, side, max }: { title: string; side: any; max: number }) {
+  const grade: string = side?.grade ?? 'Tidak layak';
+  const color = grade === 'A+' ? CYAN : grade === 'B' ? AMBER : MAGENTA;
   return (
     <CyberCard accentColor={color} style={{ marginBottom: 12 }}>
       <View style={styles.cardHeaderRow}>
-        <Text style={styles.cardTitle}>// IDENTIFIKASI TRANSISI</Text>
-        <CyberBadge label={isTransition ? `TRANSISI ${data.bias?.toUpperCase()}` : data.classification?.toUpperCase()} color={color} pulsing={isTransition} />
+        <Text style={styles.cardTitle}>// {title}</Text>
+        <CyberBadge label={grade === 'Tidak layak' ? 'TIDAK LAYAK' : `GRADE ${grade}`} color={color} pulsing={grade === 'A+'} />
       </View>
-      <Text style={[styles.reasoningText, { marginTop: 0 }]}>{data.breakQualityLabel}</Text>
-      {(data.reasoning ?? []).map((r: string, i: number) => (
-        <Text key={i} style={styles.reasoningText}>{r}</Text>
+      <View style={styles.numRow}>
+        <CyberBigNumber value={`${side?.score ?? 0}`} label={`DARI MAKS ${max}`} color={color} fontSize={32} />
+      </View>
+      {(side?.components ?? []).map((c: any) => (
+        <View key={c.key} style={{ marginTop: 8 }}>
+          <View style={styles.divRow}>
+            <Text style={styles.divRowLabel}>{c.label}</Text>
+            <CyberBadge label={`${c.points > 0 ? '+' : ''}${c.points}`} color={c.points > 0 ? CYAN : c.points < 0 ? MAGENTA : NEUTRAL} pulsing={false} />
+          </View>
+          <Text style={styles.tfDetail}>{c.detail}</Text>
+        </View>
       ))}
     </CyberCard>
   );
 }
 
-// ═══ FITUR 4: Breakout & Bounce SNR ════════════════════════════════════════
-function BreakoutBounceResultView({ data }: { data: any }) {
-  const catLabel: Record<string, string> = {
-    false_breakout: 'FALSE BREAKOUT', strong_breakout: 'BREAKOUT TREN KUAT',
-    strong_bounce: 'BOUNCE KUAT', weak_bounce: 'BOUNCE LEMAH', none: 'GAK ADA SINYAL',
-  };
-  const catColor: Record<string, string> = {
-    false_breakout: NEUTRAL, strong_breakout: CYAN, strong_bounce: AMBER, weak_bounce: NEUTRAL, none: NEUTRAL,
-  };
-  const color = catColor[data.category] ?? NEUTRAL;
+function LongShortScoreResultView({ data }: { data: any }) {
   return (
+    <View>
+      <LongShortSideCard title="SKOR LONG" side={data.long} max={data.maxScore ?? 9} />
+      <LongShortSideCard title="SKOR SHORT (kebalikan long)" side={data.short} max={data.maxScore ?? 9} />
+      {(data.notes ?? []).map((t: string, i: number) => <Text key={`n${i}`} style={[styles.tfDetail, { fontStyle: 'italic', marginBottom: 6 }]}>{t}</Text>)}
+    </View>
+  );
+}
+
+// ═══ PRICE ACTION: Struktur + SNR kuat + OB / SND / Imbalance ════════════════
+const fmtP = (v: number | undefined | null): string =>
+  v == null ? '—' : v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4);
+
+function SnrZonesResultView({ data }: { data: any }) {
+  const st = data.structure ?? {};
+  const bias: string = st.bias ?? 'sideways';
+  const color = bias === 'bullish' ? CYAN : bias === 'bearish' ? MAGENTA : bias === 'transition' ? AMBER : NEUTRAL;
+  const biasLabel: Record<string, string> = { bullish: 'BULLISH', bearish: 'BEARISH', sideways: 'SIDEWAY', transition: 'TRANSISI' };
+  const zoneRow = (key: string, z: any) => (
+    <View key={key} style={styles.divRow}>
+      <Text style={styles.divRowLabel}>
+        {z.kind} {z.side === 'demand' ? 'DEMAND' : 'SUPPLY'} {fmtP(z.low)} – {fmtP(z.high)}
+      </Text>
+      <CyberBadge label={z.inside ? 'DI DALAM ZONA' : `${z.distancePct.toFixed(2)}%`} color={z.side === 'demand' ? CYAN : MAGENTA} pulsing={z.inside} />
+    </View>
+  );
+  const nv = data.narrative;
+  const narrativeBlock = nv ? (
     <CyberCard accentColor={color} style={{ marginBottom: 12 }}>
-      <View style={styles.cardHeaderRow}>
-        <Text style={styles.cardTitle}>// BREAKOUT & BOUNCE SNR</Text>
-        <CyberBadge label={catLabel[data.category] ?? data.category} color={color} pulsing={data.category !== 'none'} />
-      </View>
-      <Text style={[styles.reasoningText, { marginTop: 0, marginBottom: 12 }]}>{data.interpretation}</Text>
-      <View style={styles.numRow}>
-        <CyberBigNumber value={data.adx?.toFixed(1) ?? '—'} label="ADX(14)" color={color} fontSize={24} />
-        <View style={styles.statBox}>
-          <Text style={[styles.statValue, { color }]}>{data.volumeRatio?.toFixed(2) ?? '—'}x</Text>
-          <Text style={styles.statLabel}>VOL vs MA20</Text>
-        </View>
-        <View style={styles.statBox}>
-          <Text style={[styles.statValue, { color }]}>{data.rsi?.toFixed(1) ?? '—'}</Text>
-          <Text style={styles.statLabel}>RSI(13)</Text>
-        </View>
-      </View>
-      <Text style={styles.tfDetail}>Force Index: {data.forceIndexValue?.toFixed(2) ?? '—'}</Text>
-      {data.nearSnr && <Text style={styles.tfDetail}>Dekat {data.snrType} @ {data.snrLevel?.toFixed(6)}</Text>}
+      <Text style={styles.cardTitle}>// RINGKASAN {data.tf}</Text>
+      <Text style={[styles.reasoningText, { marginTop: 0, marginBottom: 10 }]}>{nv.headline}</Text>
+
+      <Text style={styles.divRowLabel}>Yang terjadi</Text>
+      {(nv.kejadian ?? []).map((t: string, i: number) => <Text key={`kj${i}`} style={styles.tfDetail}>• {t}</Text>)}
+
+      <Text style={[styles.divRowLabel, { marginTop: 10 }]}>Struktur sekarang</Text>
+      {(nv.strukturSekarang ?? []).map((t: string, i: number) => <Text key={`ss${i}`} style={styles.tfDetail}>• {t}</Text>)}
+
+      <Text style={[styles.divRowLabel, { marginTop: 10 }]}>Level terbaru</Text>
+      <Text style={styles.tfDetail}>Resistance: {(nv.levelTerbaru?.resistance ?? []).join('  |  ') || 'belum ada'}</Text>
+      <Text style={styles.tfDetail}>Support: {(nv.levelTerbaru?.support ?? []).join('  |  ') || 'belum ada'}</Text>
+
+      <Text style={[styles.divRowLabel, { marginTop: 10 }]}>Skenario</Text>
+      {(nv.skenario ?? []).map((sc: any, i: number) => (
+        <Text key={`sc${i}`} style={styles.tfDetail}>• {sc.nama}{sc.utama ? ' (utama)' : ''} — trigger: {sc.trigger} → target: {sc.target}</Text>
+      ))}
+
+      <Text style={[styles.divRowLabel, { marginTop: 10 }]}>Update entry</Text>
+      {(nv.entry ?? []).map((e: any, i: number) => (
+        <Text key={`en${i}`} style={styles.tfDetail}>• {e.arah} {e.tipe}{e.searahStruktur ? ' (searah struktur)' : ' (lawan struktur)'}: {e.kondisi}. Entry {e.entry}, SL {e.sl}, TP {e.tp}.</Text>
+      ))}
+      {(nv.catatan ?? []).map((t: string, i: number) => <Text key={`ct${i}`} style={[styles.tfDetail, { fontStyle: 'italic' }]}>{t}</Text>)}
     </CyberCard>
+  ) : null;
+
+  return (
+    <View>
+      {narrativeBlock}
+      <CyberCard accentColor={color} style={{ marginBottom: 12 }}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>// STRUKTUR {data.tf} ({data.candlesUsed} candle)</Text>
+          <CyberBadge label={biasLabel[bias] ?? bias.toUpperCase()} color={color} pulsing={bias === 'transition'} />
+        </View>
+        <Text style={[styles.reasoningText, { marginTop: 0 }]}>{st.note}</Text>
+        <Text style={styles.tfDetail}>Harga {fmtP(data.currentPrice)} · ATR14 {fmtP(data.atr)}</Text>
+        <Text style={styles.tfDetail}>Swing: {(st.swingSequence ?? []).map((s: string) => { const [l, v] = s.split(' '); return `${l} ${fmtP(parseFloat(v!))}`; }).join(' → ') || '—'}</Text>
+      </CyberCard>
+
+      <CyberCard accentColor={AMBER} style={{ marginBottom: 12 }}>
+        <Text style={styles.cardTitle}>// SNR KUAT (min 2 sentuhan)</Text>
+        {(data.resistances ?? []).length === 0 && (data.supports ?? []).length === 0 && <Text style={styles.tfDetail}>Belum ada level dengan 2 sentuhan.</Text>}
+        {[...(data.resistances ?? [])].reverse().map((l: any, i: number) => (
+          <View key={`r${i}`} style={styles.divRow}>
+            <Text style={styles.divRowLabel}>R {fmtP(l.zoneLow)} – {fmtP(l.zoneHigh)} ({l.touches}x)</Text>
+            <CyberBadge label={`+${l.distancePct.toFixed(2)}%`} color={MAGENTA} pulsing={false} />
+          </View>
+        ))}
+        {(data.supports ?? []).map((l: any, i: number) => (
+          <View key={`s${i}`} style={styles.divRow}>
+            <Text style={styles.divRowLabel}>S {fmtP(l.zoneLow)} – {fmtP(l.zoneHigh)} ({l.touches}x)</Text>
+            <CyberBadge label={`-${l.distancePct.toFixed(2)}%`} color={CYAN} pulsing={false} />
+          </View>
+        ))}
+      </CyberCard>
+
+      <CyberCard accentColor={CYAN} style={{ marginBottom: 12 }}>
+        <Text style={styles.cardTitle}>// ORDER BLOCK</Text>
+        {(data.orderBlocks ?? []).length === 0 ? <Text style={styles.tfDetail}>Tidak ada OB valid yang belum termitigasi.</Text>
+          : (data.orderBlocks ?? []).map((z: any, i: number) => zoneRow(`ob${i}`, z))}
+      </CyberCard>
+
+      <CyberCard accentColor={MAGENTA} style={{ marginBottom: 12 }}>
+        <Text style={styles.cardTitle}>// SUPPLY & DEMAND</Text>
+        {(data.supplyDemand ?? []).length === 0 ? <Text style={styles.tfDetail}>Tidak ada zona SND yang belum tertembus.</Text>
+          : (data.supplyDemand ?? []).map((z: any, i: number) => zoneRow(`snd${i}`, z))}
+      </CyberCard>
+
+      <CyberCard accentColor={NEUTRAL} style={{ marginBottom: 12 }}>
+        <Text style={styles.cardTitle}>// IMBALANCE (FVG)</Text>
+        {(data.imbalances ?? []).length === 0 ? <Text style={styles.tfDetail}>Tidak ada FVG yang belum terisi penuh.</Text>
+          : (data.imbalances ?? []).map((z: any, i: number) => (
+            <View key={`fvg${i}`} style={styles.divRow}>
+              <Text style={styles.divRowLabel}>{z.side === 'bullish' ? 'BULL' : 'BEAR'} {fmtP(z.low)} – {fmtP(z.high)} · terisi {z.filledPct}%</Text>
+              <CyberBadge label={z.inside ? 'DI DALAM' : `${z.distancePct.toFixed(2)}%`} color={z.side === 'bullish' ? CYAN : MAGENTA} pulsing={z.inside} />
+            </View>
+          ))}
+      </CyberCard>
+    </View>
   );
 }
 
@@ -360,7 +433,7 @@ function DivergenceTrendResultView({ data }: { data: any }) {
 // ═══ FITUR 7: BTC Correlation ═══════════════════════════════════════════
 function BtcCorrelationResultView({ data }: { data: any }) {
   const phaseColor = (data.phase ?? '').includes('BULLISH') || (data.phase ?? '').includes('SEHAT') ? CYAN
-    : (data.phase ?? '').includes('WASPADA') ? AMBER
+    : (data.phase ?? '').includes('WASPADA') || (data.phase ?? '').includes('TRANSISI') ? AMBER
     : (data.phase ?? '').includes('DOWNTREND') ? MAGENTA
     : NEUTRAL;
 
@@ -373,9 +446,9 @@ function BtcCorrelationResultView({ data }: { data: any }) {
 
   const strengthBlock = (label: string, s: any) => (
     <View style={{ marginBottom: 10 }}>
-      <Text style={[styles.divRowLabel, { marginBottom: 4 }]}>{label} — bias {s?.bias ?? '—'}</Text>
+      <Text style={[styles.divRowLabel, { marginBottom: 4 }]}>{label} — struktur {(s?.bias ?? '—').toString().toUpperCase()}{s?.structureNote ? ` (${s.structureNote})` : ''}</Text>
       <Text style={styles.tfDetail}>RSI {s?.rsi?.toFixed(1) ?? '—'} · MACD hist {s?.macdHistogram?.toFixed(1) ?? '—'} · ADX {s?.adx?.toFixed(1) ?? '—'} (+DI {s?.plusDI?.toFixed(1) ?? '—'}/-DI {s?.minusDI?.toFixed(1) ?? '—'})</Text>
-      <Text style={styles.tfDetail}>EMA13/26/50/100: {s?.emaAlignment ?? '—'} · Stoch %K {s?.stochK?.toFixed(1) ?? '—'} · Vol {s?.volumeRatio?.toFixed(2) ?? '—'}x · ATR {s?.atrRatio?.toFixed(2) ?? '—'}x</Text>
+      <Text style={styles.tfDetail}>EMA26/50/100: {s?.emaAlignment ?? '—'} · Stoch %K {s?.stochK?.toFixed(1) ?? '—'} · Vol {s?.volumeRatio?.toFixed(2) ?? '—'}x · ATR {s?.atrRatio?.toFixed(2) ?? '—'}x</Text>
     </View>
   );
 

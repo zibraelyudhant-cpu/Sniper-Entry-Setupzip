@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ActivityIndicator, Alert, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -10,18 +9,18 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useGetScalping, useGetScalpingScan, getGetScalpingQueryKey, getGetScalpingScanQueryKey, type ScalpingResult } from '@workspace/api-client-react';
-import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
+import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_CRT, type JournalEntry } from './journal-helpers';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
+import { TaProScoreCard } from '@/components/TaProScoreCard';
+import { fetchTaProJournalFields, fetchTaProJournalFieldsMany } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
 import { ScoreBadge } from '@/components/animated/ScoreBadge';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
-import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
-import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import { SortSelector, applySorting, type SortKey, type MarketMeta } from '@/components/SortSelector';
@@ -38,8 +37,19 @@ function formatPrice(price: number): string {
   return price.toFixed(6);
 }
 
-// Nama skill di Journal (label ⭐ Rekomendasi sudah dihapus, request user 2026-10-14).
-const SCALPING_SKILL_BIASA = 'Scalping CRT (H4-M15)';
+// 2026-10-22: Menu Scalping GANTI TOTAL ke CRT D1->M15 (versi longgar level 4 original, tanpa filter). Label skill baru biar statistik forward test bersih.
+const SCALPING_SKILL = SCALPING_SKILL_CRT;
+// Field setup CRT yang ikut disimpan ke Journal (buat forward test & riset). Semua optional.
+// validUntil = batas waktu limit (ms) — Journal menandai EXPIRED kalau belum ke-fill sampai batas ini.
+function crtJournalFields(c: any): Partial<JournalEntry> {
+  return {
+    entryDistAtr: c?.entryDistAtr,
+    validUntil: c?.validUntilMs,
+    crtVersion: c?.crtVersion, crtOrderNo: c?.crtOrderNo, crtD1RangeAtr: c?.crtD1RangeAtr,
+    crtDepthPct: c?.crtDepthPct, crtPosPct: c?.crtPosPct, crtRoomR: c?.crtRoomR, crtRiskAtr: c?.crtRiskAtr,
+    crtMssTime: c?.crtMssTime,
+  };
+}
 
 // ─── Scan Coin Card ───────────────────────────────────────────────────────────
 
@@ -63,11 +73,16 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ Breakout Scalping</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ CRT D1→M15</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
                 <Text style={[scanStyles.biasBadgeText, { color: ACCENT }]}>⚡ SQUEEZE</Text>
+              </View>
+            )}
+            {(coin as any).crtVersion && (
+              <View style={[scanStyles.biasBadge, { backgroundColor: `${colors.gold}18`, borderColor: colors.gold }]}>
+                <Text style={[scanStyles.biasBadgeText, { color: colors.gold }]}>🎯 CRT · #{(coin as any).crtOrderNo} · D1 {(coin as any).crtD1RangeAtr?.toFixed(2)}x</Text>
               </View>
             )}
           </View>
@@ -197,6 +212,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     if (eligible.length === 0) return;
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const taMap = await fetchTaProJournalFieldsMany(eligible.map(c => c.symbol));
     const entries: JournalEntry[] = eligible.map(c => {
       // REVISI (request user): mode 15M/Money Magnet 2 dihapus, Menu Scalping
       // sekarang 1 mode doang.
@@ -207,15 +223,16 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       // asli menu ini dari versi manapun, kemungkinan sisa dari iterasi lama
       // sebelum CRT. takeProfit2 juga SEBELUMNYA gak pernah disimpen ke
       // Journal padahal field-nya ada di schema & dipake evaluasi win_tp2.
-      const skillLabel = SCALPING_SKILL_BIASA;
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
-        sourceMenu: 'Scalping', sourceSkill: skillLabel,
+        sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
         entryPrice: c.entryPrice!, stopLoss: c.stopLoss!, takeProfit1: c.takeProfit1!, takeProfit2: c.takeProfit2,
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
-        tfStruktur: 'H4', tfEksekusi: 'M15',
+        tfStruktur: 'D1', tfEksekusi: 'M15',
+        ...crtJournalFields(c),
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
+        ...(taMap.get(c.symbol) ?? {}), // skor TA PRO (info)
         orderType: 'limit',
         btcAligned: c.btcAligned, btcBias: c.btcBias,
         signalStatus: c.status as 'in_zone',
@@ -238,7 +255,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>H4 Bias → M15 Sweep (CRT)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)</Text>
       </View>
     );
   }
@@ -272,7 +289,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'H4 Bias → M15 Sweep (CRT)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)'}
           </Text>
         </View>
       );
@@ -432,16 +449,18 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const skillLabel = SCALPING_SKILL_BIASA;
+    const ta = await fetchTaProJournalFields(data.symbol);
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Scalping', sourceSkill: skillLabel,
+      sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: 'H4', tfEksekusi: 'M15',
+      tfStruktur: 'D1', tfEksekusi: 'M15',
+      ...crtJournalFields(data),
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      orderType: 'limit', // Money Magnet pasang LIMIT order di zona retest/magnet
+      ...ta, // skor TA PRO (info)
+      orderType: 'limit', // CRT pasang LIMIT order di retrace 50% displacement
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -490,7 +509,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — H4 Bias → M15 Sweep (CRT)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -512,6 +531,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
           {/* Banner: data terkunci dari Scan, BUKAN live */}
+          <TaProScoreCard symbol={(data as any)?.symbol ?? querySymbol} bias={(data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish' ? (data as any).bias : null} />
           {!liveMode && pinnedData && (
             <AnimatedCard index={0}>
             <View style={{
@@ -580,7 +600,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — magnet zone ({data.magnetLevelUsed === 'broken_level' ? 'broken level' : 'EMA26'})
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — retrace 50% displacement (order ke-{(data as any).crtOrderNo ?? '?'})
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -592,11 +612,24 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                 <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 (RR 1:{data.rr1?.toFixed(1)})</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1)})</Text>
-                <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2 ? formatPrice(data.takeProfit2) : '—'}</Text>
-              </View>
+              {data.takeProfit2 ? (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1)})</Text>
+                    <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
+                  </View>
+                </>
+              ) : null}
+              {(data as any).validUntilMs ? (
+                <>
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Limit berlaku sampai</Text>
+                    <Text style={[styles.infoValue, { color: colors.mutedForeground }]}>{new Date((data as any).validUntilMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                </>
+              ) : null}
 
             </View>
             </AnimatedCard>
@@ -622,8 +655,6 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
           )}
 
           <TFBreakdownTable items={data?.tfBreakdown} accentColor={ACCENT} />
-
-          <RecentPerformanceCard data={data?.recentPerformance} accentColor={ACCENT} />
 
           <View style={{ marginHorizontal: 12 }}>
             <MarketStructureV2Card data={data?.marketStructureV2} />
@@ -690,7 +721,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4 Bias → M15 Sweep (CRT)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -730,18 +761,23 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Menu Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Range Candle Theory + Momentum Candle + ICT, 2 tingkat H4 → M15. H4 nentuin arah: pakai candle H4 yang SUDAH CLOSE. Validitas Range/ATR14 (0,70-2,00; 1,50-2,00 = hati-hati), lalu posisi close di range candle itu: di bawah 50% = cari LONG, di atas 50% = cari SHORT (arah WAJIB searah ini). M15: harga nyapu swing high/low (window 40 candle), lalu salah satunya — REVERSAL (close balik ke dalam level, lalu displacement + FVG searah bias) atau FAILURE TO MANIPULATE (displacement searah bias tanpa reclaim lawan arah). Entry LIMIT di 50% FVG (CE). SL = entry ± 2,0x ATR M15. TP1 RR 1:2, TP2 ke liquidity berlawanan (minimal RR 1:3). Limit expired 12 candle M15 (~3 jam). Skor 0-16, di bawah 11 ditolak. Grade A+ ≥13, A 11-12. Catatan: skor praktis selalu tinggi karena sebagian besar komponennya syarat wajib.
+          Scalping CRT D1→M15 (ganti total dari Money Magnet, 2026-10-22; versi LONGGAR level 4 dari backtest CRT + filter hasil analisa). Idenya: candle D1 kemarin menandai area likuiditas (High/Low). Kalau hari ini harga menyapu Low D1 lalu kembali ke atasnya (reclaim) dan M15 membuat MSS naik, entry LIMIT dipasang di retrace 50% displacement. SHORT adalah cerminannya (sweep High D1). Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
+          Syarat wajib: sweep 0,01%–10% di luar Low/High D1, reclaim maksimal 24 candle M15 dengan candle reclaim searah (body ≥ 10%), MSS (close di atas swing high internal) maksimal 24 candle setelah reclaim, entry di 0–50% range D1 dari sisi sweep, ruang ke High/Low D1 minimal 2R, SL = ekstrem sweep ∓ 0,2x ATR14 M15, TP = 2R (RR 1:2 tetap). Limit batal kalau midpoint D1 tersentuh sebelum fill, atau lewat 32 candle M15 sejak candle MSS.{'\n\n'}
+          Tanpa filter tambahan: semua order yang limit-nya masih menunggu ditampilkan (maksimal 3 per hari per arah). Backtest awal level 4 di data ALT futures (tanpa biaya): winrate dasar 32,6%, di bawah break-even RR 1:2 (33,3%), jadi hasil forward test yang menentukan.{'\n\n'}
+          Status: BELUM di-forward-test. Break-even RR 1:2 tanpa biaya = winrate 33,3%. Sinyal hanya muncul selagi limit masih menunggu fill. Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0).
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. H4 (closed) — Range/ATR14 0,70-2,00; posisi close di range H4: di bawah 50% = LONG, di atas 50% = SHORT{'\n'}
-          2. Sweep M15 — wick nembus swing high/low (window 40 candle) minimal 0,10x ATR, maksimal ~4 jam lalu{'\n'}
-          3. Reversal (reclaim ≤20 candle + displacement ≤12 candle) ATAU Failure to Manipulate (displacement searah bias ≤24 candle){'\n'}
-          4. Displacement: body ≥0,80x ATR, body/range ≥70%, FVG ≥0,10x ATR{'\n'}
-          5. Entry LIMIT di 50% FVG, SL = entry ± 2,0x ATR M15, TP1 RR 1:2, TP2 liquidity berlawanan (min RR 1:3), expired 12 candle M15{'\n'}
-          6. Skor 0-16: arah H4 +2, liquidity target H4 +1, Range/ATR valid +1, sweep +2, reclaim/FTM +2, displacement +2, body/range +1, FVG +1, entry CE +1, TP2 RR ≥3,5 +2 (3,0-3,49 +1), CHoCH/BOS bonus +1. Minimum 11
+          1. Referensi: candle D1 UTC kemarin (High/Low), ATR14 D1 (Wilder), butuh ≥ 20 candle D1{'\n'}
+          2. Sweep: M15 hari ini menembus Low D1 (SHORT: High D1), kedalaman 0,01%–10%{'\n'}
+          3. Reclaim: close M15 kembali di atas Low D1 dalam ≤ 24 candle; candle reclaim bullish (body ≥ 10% range){'\n'}
+          4. MSS: close M15 di atas swing high internal terdekat (fractal 2-2, mundur ≤ 40 candle) dalam ≤ 24 candle sejak reclaim{'\n'}
+          5. Displacement = ekstrem sweep → high tertinggi sampai candle MSS. Entry LIMIT di retrace 50%; posisi di range D1 0–50%{'\n'}
+          6. SL = ekstrem sweep − 0,2x ATR14 M15; TP = 2R; ruang ke High D1 ≥ 2R; batal kalau midpoint D1 tersentuh sebelum fill{'\n'}
+          7. Tanpa filter tambahan; maksimal 3 order per hari per arah (urutan waktu MSS){'\n'}
+          8. Limit berlaku 32 candle M15 sejak candle MSS; Jurnal memakai batas itu (lewat = EXPIRED), label "Scalping CRT D1→M15 (Longgar-4)"
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />

@@ -48,6 +48,15 @@ export const SOURCE_MENUS = [
 ] as const;
 export type SourceMenu = typeof SOURCE_MENUS[number];
 
+// ═══ Scalping Fakeout M15 (request user 2026-10-21, ganti total Scalping RSI v2) ═══
+// Label lama (RSI v1/v2, Fakeout) tidak dipakai lagi; entry lama di Journal tetap tampil dengan labelnya sendiri.
+export const SCALPING_SKILL_FAKEOUT = 'Scalping Fakeout (M15)'; // LEGACY (diganti Money Magnet 2026-10-21): entry lama di Journal tetap tampil dengan label ini
+// Scalping Money Magnet H4->M30 (2026-10-21) — LEGACY (diganti CRT D1->M15 2026-10-22): entry lama di Journal tetap tampil dengan label ini.
+export const SCALPING_SKILL_MAGNET = 'Scalping Money Magnet (H4→M30)';
+// Scalping CRT D1->M15 versi longgar level 4 original, tanpa filter (request user 2026-10-22, ganti total Money Magnet).
+// Label WAJIB sama dengan CRT_PARAMS.SKILL_LABEL di api-server/src/lib/crt-engine.ts.
+export const SCALPING_SKILL_CRT = 'Scalping CRT D1→M15 (Longgar-4)';
+
 /**
  * 1 record Journal — REQUEST USER: lengkap & detail, biar bisa dianalisa
  * sinyal mana yang sering lose/win pada kondisi apa. Field teknikal
@@ -73,6 +82,60 @@ export interface JournalEntry {
   orderType?: 'stop' | 'limit'; // WAJIB buat evaluasi akurat — nentuin arah cek "entry udah ke-hit belum" (limit: harga harus DATENG ke entry; stop: harga harus TEMBUS ke arah breakout). Default 'limit' kalau gak ada (mayoritas skill basis breakout+retest limit order).
   btcAligned?: boolean; // BTC Correlation pas sinyal ini diberikan — informasional, buat riset kombinasi kondisi win/lose
   btcBias?: 'bullish' | 'bearish' | 'ranging';
+  d1Aligned?: boolean; // S-006: Filter arah D1 Sniper Breakout — true = searah D1, false = MELAWAN D1 (ada peringatan), undefined = D1 datar / bukan Sniper
+  rsi4H?: number; // LEGACY Scalping RSI (2026-10-20, sudah diganti Fakeout): RSI periode 14 candle closed saat sinyal
+  rsi1H?: number;
+  rsi15M?: number;
+  // Scalping RSI v2 Gate (2026-10-20): metrik gate saat sinyal — buat forward test & riset. 'pass' = SELL lolos gate, 'na' = BUY (gate gak berlaku).
+  scalpGate?: 'pass' | 'na';
+  // Gate v2 BUY (2026-10-20): aturan yang lolos + metriknya (hanya terisi untuk BUY)
+  buyRule?: 'A' | 'B' | 'AB';
+  gateAdx1h?: number;             // ADX(14) 1H koin (aturan A: >= 25)
+  gateRsi15Delta?: number;        // RSI M15 sekarang - 3 candle closed lalu (aturan A: > 0)
+  gateBtcRet24h?: number;         // return BTC 24 jam, persen (aturan A & B: < 0)
+  gateBtc4hAboveEma200?: boolean; // BTC 4H close > EMA200 4H (aturan B)
+  gateEma50DistAtr?: number; // |entry - EMA50 1H| / ATR M15 (aturan: <= 0.5)
+  gateRange12Atr?: number;   // range 12 candle M15 closed / ATR M15 (aturan: < 3.0)
+  entryDistAtr?: number;     // |harga sinyal - entry limit| / ATR M15
+  // Scalping Fakeout M15 (2026-10-21): batas waktu fill limit + metrik setup. Dipakai journalEvaluate (expired) & riset.
+  validUntil?: number;       // ms epoch; limit yang belum fill sampai waktu ini = EXPIRED (kalau kosong: aturan lama 24 jam)
+  fkVersion?: string;
+  fkBreakoutSide?: 'up' | 'down';
+  fkLevel?: number;
+  fkBreakoutTime?: number;
+  fkFailTime?: number;
+  fkVolX?: number;
+  fkRiskAtr?: number;
+  fkLvlEmaDistAtr?: number;
+  fkRsi1h?: number;
+  fkCandlesSinceFail?: number;
+  // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup saat sinyal, buat forward test & riset.
+  mmVersion?: string;
+  mmAdxH4?: number;                  // ADX(14) H4 closed (aturan > 25)
+  mmMagnetLevelUsed?: 'broken_level' | 'ema26'; // entry di level breakout atau EMA26 M30
+  mmH4Cross?: number;                // crossing close vs EMA26 H4 per 20 candle (info, > 3 = agak exhausted)
+  mmForceIndex?: number;             // Force Index (EMA2) M30 di candle sebelum retest
+  mmConfluencePct?: number;          // |level - EMA26 M30| / level, persen (aturan <= 1)
+  mmStochK?: number;                 // Stochastic Slow (5,3,3) M30 saat retest (info)
+  mmStochD?: number;
+  // Scalping CRT D1->M15 (2026-10-22): metrik setup saat sinyal, buat forward test & riset. validUntil (di atas) = batas fill limit.
+  crtVersion?: string;
+  crtOrderNo?: number;       // order ke-berapa di hari+arah itu (urutan waktu MSS)
+  crtD1RangeAtr?: number;    // range D1 kemarin / ATR14 D1
+  crtDepthPct?: number;      // kedalaman sweep (%)
+  crtPosPct?: number;        // posisi entry di range D1 (%), 0 = ekstrem sweep
+  crtRoomR?: number;         // ruang ke High/Low D1 dalam R
+  crtRiskAtr?: number;       // risk / ATR14 M15
+  crtMssTime?: number;       // open time candle MSS (ms)
+  // Skor TA PRO (Fitur 5) saat sinyal disimpan (info, TIDAK memblokir). Kosong kalau fetch gagal.
+  taLongScore?: number;      // 0-9
+  taLongGrade?: 'A+' | 'B' | 'Tidak layak';
+  taShortScore?: number;
+  taShortGrade?: 'A+' | 'B' | 'Tidak layak';
+  taLongPts?: string;        // poin per komponen: structH4|structH1|oi|lsr|funding (x = data tidak ada)
+  taShortPts?: string;
+  taScoreAt?: number;        // ms epoch saat skor diambil
+  d1ChangePct?: number; // perubahan harga 3 candle D1 saat sinyal (%)
   entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif) DAN statistik timing (request user)
   resolvedAt?: number; // timestamp candle saat SL/TP kena — buat statistik "rata-rata berapa jam sampe resolve"
   oiAtEntryHit?: number; // Open Interest baseline saat entry kehit
@@ -180,9 +243,11 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
  * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
  * (dianggap kejadian baru, bukan re-save yang gak sengaja).
  */
-function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType'>): string {
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType'> & { entryPrice?: number }): string {
   const orderType = e.orderType ?? 'limit';
-  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}`;
+  // Fakeout: satu koin bisa punya beberapa setup berbeda dalam 24 jam (level beda) -> entryPrice ikut kunci. Setup yang SAMA tetap ke-dedupe.
+  const lv = (e.sourceSkill === SCALPING_SKILL_FAKEOUT || e.sourceSkill === SCALPING_SKILL_CRT) ? `|${e.entryPrice}` : '';
+  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}`;
 }
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -370,6 +435,11 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
         const openTime = k[0] as number;
         const high = k[2] as number, low = k[3] as number;
 
+        // Fakeout: jendela fill terbatas (validUntil). Candle yang dibuka SETELAH batas = limit sudah dibatalkan -> EXPIRED.
+        if (!entryHit && entry.validUntil !== undefined && openTime >= entry.validUntil) {
+          return { status: 'expired', evaluatedAt: evalAt };
+        }
+
         if (!entryHit) {
           const filled =
             (entry.bias === 'bullish' && orderType === 'limit') ? low <= entry.entryPrice :
@@ -425,7 +495,9 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
     const maxValidityHours = 24;
     const elapsedHours = (now - entry.savedAt) / (1000 * 60 * 60);
     if (!entryHit) {
-      if (elapsedHours >= maxValidityHours) return { status: 'expired', evaluatedAt: evalAt };
+      // Fakeout punya batas sendiri (validUntil); lainnya tetap 24 jam sejak disimpan.
+      const expiredNow = entry.validUntil !== undefined ? now >= entry.validUntil : elapsedHours >= maxValidityHours;
+      if (expiredNow) return { status: 'expired', evaluatedAt: evalAt };
       return { status: 'pending' };
     }
     // Entry udah kehit tapi belum resolve (masih pending) — tetep simpen
@@ -696,6 +768,81 @@ function toVerdict(b: JournalBreakdown): SimpleVerdict {
   else if (b.winRate >= 40) verdict = 'cukup';
   else verdict = 'perlu_evaluasi';
   return { label: b.label, total: b.total, winRate: b.winRate, decided, verdict };
+}
+
+// ═══ FORWARD TEST Scalping (request user 2026-10-21) ═══
+// Dipakai buat strategi yang sedang jadi Menu Scalping: sekarang CRT D1->M15 (sebelumnya Money Magnet H4->M30 dan Fakeout M15, dibuang dari menu).
+// Kriteria (dipertahankan): setelah >= 100 sinyal berlabel strategi itu resolve, win rate > 38% DAN avgR (RR 1:2, setelah biaya) > 0 -> dipertahankan.
+// Kalau tidak -> evaluasi ulang / buang. Catatan CRT: backtest (tanpa biaya) filter-nya ~39,6% tapi threshold dipilih in-sample, jadi forward test ini bukti yang menentukan.
+// Basis R konsisten dgn aturan RR 1:2: WIN (TP1 atau TP2) = +2R, LOSE = -1R. (TP2 RR 1:3 hanya info target, tidak dipakai buat menghitung R.)
+// Biaya = asumsi round-trip 0.08% dari harga, dikonversi ke R lewat jarak SL (|entry - SL|).
+export const SCALP_FORWARD = { MIN_RESOLVED: 100, MIN_WIN_RATE: 38, FEE_ROUNDTRIP: 0.0008 } as const;
+
+export interface ScalpForwardTest {
+  total: number;      // semua sinyal berlabel strategi ini (termasuk pending/expired)
+  resolved: number;   // win + lose
+  win: number;
+  lose: number;
+  pending: number;
+  expired: number;
+  winRate: number | null;     // %
+  avgR: number | null;        // RR 1:2, sebelum biaya
+  avgRNet: number | null;     // setelah asumsi biaya
+  progressPct: number;        // resolved / MIN_RESOLVED (maks 100)
+  /** rincian per arah trade (informasional, bukan kriteria lolos): win/resolve */
+  bySide: { side: 'BUY' | 'SELL'; resolved: number; win: number }[];
+  verdict: 'belum_cukup' | 'lolos' | 'gagal';
+  verdictText: string;
+}
+
+export function buildScalpForwardTest(entries: JournalEntry[], skill: string, shortName: string): ScalpForwardTest {
+  const sk = entries.filter(e => e.sourceMenu === 'Scalping' && e.sourceSkill === skill);
+  const resolvedE = sk.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2' || e.status === 'lose');
+  const win = resolvedE.filter(e => e.status !== 'lose').length;
+  const lose = resolvedE.length - win;
+  let sumR = 0, sumNet = 0;
+  for (const e of resolvedE) {
+    const r = e.status === 'lose' ? -1 : 2;
+    const risk = Math.abs(e.entryPrice - e.stopLoss);
+    const feeR = risk > 0 ? (SCALP_FORWARD.FEE_ROUNDTRIP * e.entryPrice) / risk : 0;
+    sumR += r; sumNet += r - feeR;
+  }
+  const n = resolvedE.length;
+  const winRate = n > 0 ? (win / n) * 100 : null;
+  const avgR = n > 0 ? sumR / n : null;
+  const avgRNet = n > 0 ? sumNet / n : null;
+  const progressPct = Math.min(100, Math.round((n / SCALP_FORWARD.MIN_RESOLVED) * 100));
+  let verdict: ScalpForwardTest['verdict'] = 'belum_cukup';
+  let verdictText = `Belum cukup data: ${n}/${SCALP_FORWARD.MIN_RESOLVED} sinyal ${shortName} yang sudah resolve. Jangan simpulkan apa-apa sebelum ${SCALP_FORWARD.MIN_RESOLVED}.`;
+  if (n >= SCALP_FORWARD.MIN_RESOLVED && winRate !== null && avgRNet !== null) {
+    if (winRate > SCALP_FORWARD.MIN_WIN_RATE && avgRNet > 0) {
+      verdict = 'lolos';
+      verdictText = `LOLOS forward test: win ${winRate.toFixed(1)}% (> ${SCALP_FORWARD.MIN_WIN_RATE}%) dan avgR setelah biaya ${avgRNet.toFixed(2)}R (> 0). Strategi dipertahankan.`;
+    } else {
+      verdict = 'gagal';
+      verdictText = `GAGAL forward test: win ${winRate.toFixed(1)}% / avgR setelah biaya ${avgRNet.toFixed(2)}R. Kriteria: win > ${SCALP_FORWARD.MIN_WIN_RATE}% dan avgR > 0. Strategi ini tidak menunjukkan keunggulan di data futures nyata -> evaluasi ulang atau buang.`;
+    }
+  }
+  const bySide = (['BUY', 'SELL'] as const).map(side => {
+    const rs = resolvedE.filter(e => (e.bias === 'bullish') === (side === 'BUY'));
+    return { side, resolved: rs.length, win: rs.filter(e => e.status !== 'lose').length };
+  });
+  return {
+    total: sk.length, resolved: n, win, lose,
+    pending: sk.filter(e => e.status === 'pending').length,
+    expired: sk.filter(e => e.status === 'expired').length,
+    winRate, avgR, avgRNet, progressPct, bySide, verdict, verdictText,
+  };
+}
+
+/** Forward test Menu Scalping yang aktif sekarang: CRT D1->M15 (Longgar-4, tanpa filter). */
+export function buildCrtForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_CRT, 'CRT D1→M15');
+}
+
+/** LEGACY: forward test Money Magnet (menu sudah diganti CRT; sinyal lama tetap bisa dihitung). */
+export function buildMagnetForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_MAGNET, 'Money Magnet');
 }
 
 export interface JournalSummary {
@@ -1022,7 +1169,6 @@ export function buildLoseConditionProfiles(entries: JournalEntry[], groupBy: 'me
     const [tfStrukturLabel, tfEksekusiLabel] = dominantTf.split('→');
 
     const buyCount = group.filter(e => e.bias === 'bullish').length;
-    const sellCount = group.length - buyCount;
     const buyPct = Math.round((buyCount / group.length) * 100);
     const sellPct = 100 - buyPct;
 
@@ -1315,7 +1461,6 @@ export function buildDiagnosticReport(
 
   const resolved = entries.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2' || e.status === 'lose');
   const wins = resolved.filter(e => e.status !== 'lose');
-  const loses = resolved.filter(e => e.status === 'lose');
   const totalResolved = resolved.length;
   const overallWinRate = totalResolved > 0 ? Math.round((wins.length / totalResolved) * 100) : 0;
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
-  analyzeTrendIdentification, analyzeMultiTFReading, analyzeBreakoutBounceFilter,
-  analyzeLongShortScore, analyzeMarketStructureV2, analyzeDivergenceTrend, analyzeBtcCorrelation, fetchKlines,
+  analyzeTrendIdentification, analyzeMultiTFReading, analyzeSnrZones,
+  analyzeLongShortScore, analyzeDivergenceTrend, analyzeBtcCorrelation, fetchKlines,
   TA_PRO_CANDLE_LIMIT,
 } from '../lib/smc';
 import type { TFLabelV2 } from '../lib/smc';
@@ -50,39 +50,20 @@ router.get('/technical-analysis-pro/multi-tf', async (req, res) => {
   }
 });
 
-// GET /api/technical-analysis-pro/transition?symbol=BTCUSDT&tf=H4 -- FITUR 3 (reuse Market Structure V2)
-router.get('/technical-analysis-pro/transition', async (req, res) => {
+// GET /api/technical-analysis-pro/snr-zones?symbol=BTCUSDT&tf=H4|H1|M15|M5 -- FITUR 4 (200 candle, default H4)
+router.get('/technical-analysis-pro/snr-zones', async (req, res) => {
   const symbol = req.query['symbol'] as string;
-  const tf = req.query['tf'] as string;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
-  if (!tf || !TF_TO_INTERVAL[tf]) { res.status(400).json({ error: TF_REQUIRED_MSG }); return; }
   try {
-    const normalized = normalizeSymbol(symbol);
-    const k = await fetchKlines(normalized, TF_TO_INTERVAL[tf]!, TA_PRO_CANDLE_LIMIT[tf as keyof typeof TA_PRO_CANDLE_LIMIT]);
-    const result = analyzeMarketStructureV2(k.opens, k.highs, k.lows, k.closes, tf as TFLabelV2, k.volumes);
-    res.json(result);
+    const tfQ = req.query['tf'];
+    const tf = tfQ === 'H1' || tfQ === 'M15' || tfQ === 'M5' ? tfQ : 'H4';
+    res.json(await analyzeSnrZones(normalizeSymbol(symbol), tf));
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
   }
 });
 
-// GET /api/technical-analysis-pro/breakout-bounce?symbol=BTCUSDT&tf=H4 -- FITUR 4
-router.get('/technical-analysis-pro/breakout-bounce', async (req, res) => {
-  const symbol = req.query['symbol'] as string;
-  const tf = req.query['tf'] as string;
-  if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
-  if (!tf || !TF_TO_INTERVAL[tf]) { res.status(400).json({ error: TF_REQUIRED_MSG }); return; }
-  try {
-    const normalized = normalizeSymbol(symbol);
-    const k = await fetchKlines(normalized, TF_TO_INTERVAL[tf]!, TA_PRO_CANDLE_LIMIT[tf as keyof typeof TA_PRO_CANDLE_LIMIT]);
-    const result = analyzeBreakoutBounceFilter(k.opens, k.highs, k.lows, k.closes, k.volumes, tf as TFLabelV2);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
-  }
-});
-
-// GET /api/technical-analysis-pro/long-short-score?symbol=BTCUSDT -- FITUR 5 (TF fixed D1 vs H4)
+// GET /api/technical-analysis-pro/long-short-score?symbol=BTCUSDT -- FITUR 5 (struktur H4+H1, OI, L/S ratio, funding)
 router.get('/technical-analysis-pro/long-short-score', async (req, res) => {
   const symbol = req.query['symbol'] as string;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }

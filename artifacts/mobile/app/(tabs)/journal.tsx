@@ -10,7 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
-import { DonutChart, StackedBar, HorizontalBarChart, DivergingBar, TimingBar, StatTile, Sparkline, LoseConditionHeatmap, TrendChart, SlTpDistanceDiagram } from '@/components/JournalCharts';
+import { DonutChart, StackedBar, DivergingBar, StatTile, LoseConditionHeatmap, TrendChart } from '@/components/JournalCharts';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
@@ -23,7 +23,7 @@ import {
   getJournalBaseline, setJournalBaseline, filterByBaseline,
   registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
   buildDiagnosticReport, buildDailyWinRateTrend, buildLoseConditionHeatmap, type DiagnosticFinding, type FindingSeverity,
-  type JournalBreakdown, type JournalSummary, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
+  type JournalBreakdown, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
 
 const ACCENT = MENU_COLORS.journal;
@@ -134,6 +134,21 @@ function JournalEntryCard({
                     <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: signalStatusColor }}>{signalStatusLabel}</Text>
                   </View>
                 )}
+                {entry.fkVersion && (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: colors.gold }}>↩ FAKEOUT</Text>
+                  </View>
+                )}
+                {entry.mmVersion && (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: colors.gold }}>🧲 MAGNET</Text>
+                  </View>
+                )}
+                {entry.crtVersion && (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: colors.gold }}>🎯 CRT #{entry.crtOrderNo ?? '?'}</Text>
+                  </View>
+                )}
               </View>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -173,6 +188,63 @@ function JournalEntryCard({
             {entry.rr1 !== undefined && <IndicatorRow label="RR rencana" value={`1:${entry.rr1.toFixed(1)}`} colors={colors} />}
             {entry.rr !== undefined && <IndicatorRow label="RR hasil" value={entry.rr > 0 ? `1:${entry.rr}` : '-1'} colors={colors} />}
             {entry.evaluatedAt && <IndicatorRow label="Dievaluasi" value={entry.evaluatedAt} colors={colors} />}
+            {entry.mmVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  SCALPING MONEY MAGNET H4→M30
+                </Text>
+                {entry.mmAdxH4 !== undefined && <IndicatorRow label="ADX H4" value={`${entry.mmAdxH4.toFixed(1)} (aturan > 25)`} colors={colors} />}
+                {entry.mmMagnetLevelUsed && <IndicatorRow label="Entry di" value={entry.mmMagnetLevelUsed === 'broken_level' ? 'level breakout' : 'EMA26 M30'} colors={colors} />}
+                {entry.mmConfluencePct !== undefined && <IndicatorRow label="Level ↔ EMA26 M30" value={`${entry.mmConfluencePct.toFixed(2)}% (aturan ≤ 1)`} colors={colors} />}
+                {entry.mmForceIndex !== undefined && <IndicatorRow label="Force Index M30 (retest)" value={entry.mmForceIndex.toFixed(2)} colors={colors} />}
+                {entry.mmH4Cross !== undefined && <IndicatorRow label="Crossing EMA26 H4 / 20 candle" value={`${entry.mmH4Cross}x (info, > 3 = agak exhausted)`} colors={colors} />}
+                {entry.mmStochK !== undefined && <IndicatorRow label="Stochastic Slow (info)" value={`%K ${entry.mmStochK.toFixed(1)} / %D ${(entry.mmStochD ?? 0).toFixed(1)}`} colors={colors} />}
+                {entry.entryDistAtr !== undefined && <IndicatorRow label="Jarak limit dari harga" value={`${entry.entryDistAtr.toFixed(2)} ATR M30`} colors={colors} />}
+              </>
+            )}
+            {entry.taLongScore !== undefined && entry.taShortScore !== undefined && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  SKOR TA PRO (info, saat disimpan)
+                </Text>
+                <IndicatorRow label="Skor LONG" value={`${entry.taLongScore}/9 — ${entry.taLongGrade ?? '-'}`} colors={colors} />
+                <IndicatorRow label="Skor SHORT" value={`${entry.taShortScore}/9 — ${entry.taShortGrade ?? '-'}`} colors={colors} />
+                {entry.taLongPts && <IndicatorRow label="Poin LONG" value={entry.taLongPts} colors={colors} />}
+                {entry.taShortPts && <IndicatorRow label="Poin SHORT" value={entry.taShortPts} colors={colors} />}
+              </>
+            )}
+            {entry.crtVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  SCALPING CRT D1→M15
+                </Text>
+                {entry.crtOrderNo !== undefined && <IndicatorRow label="Order ke-" value={`${entry.crtOrderNo}`} colors={colors} />}
+                {entry.crtD1RangeAtr !== undefined && <IndicatorRow label="Range D1 / ATR14 D1" value={`${entry.crtD1RangeAtr.toFixed(2)}x`} colors={colors} />}
+                {entry.crtDepthPct !== undefined && <IndicatorRow label="Kedalaman sweep" value={`${entry.crtDepthPct.toFixed(2)}%`} colors={colors} />}
+                {entry.crtPosPct !== undefined && <IndicatorRow label="Posisi entry di range D1" value={`${entry.crtPosPct.toFixed(0)}% (aturan 0–50%)`} colors={colors} />}
+                {entry.crtRoomR !== undefined && <IndicatorRow label="Ruang ke High/Low D1" value={`${entry.crtRoomR.toFixed(2)}R (aturan ≥ 2R)`} colors={colors} />}
+                {entry.crtRiskAtr !== undefined && <IndicatorRow label="Risk / ATR14 M15" value={`${entry.crtRiskAtr.toFixed(2)}x`} colors={colors} />}
+                {entry.crtMssTime !== undefined && <IndicatorRow label="Candle MSS (open, UTC)" value={new Date(entry.crtMssTime).toISOString().slice(0, 16).replace('T', ' ')} colors={colors} />}
+                {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
+                {entry.entryDistAtr !== undefined && <IndicatorRow label="Jarak limit dari harga" value={`${entry.entryDistAtr.toFixed(2)} ATR M15`} colors={colors} />}
+              </>
+            )}
+            {entry.fkVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  SCALPING FAKEOUT M15
+                </Text>
+                <IndicatorRow label="Breakout yang gagal" value={entry.fkBreakoutSide === 'up' ? 'naik (trade SELL)' : entry.fkBreakoutSide === 'down' ? 'turun (trade BUY)' : '—'} colors={colors} />
+                {entry.fkLevel !== undefined && <IndicatorRow label="Level S/R (= entry)" value={formatPrice(entry.fkLevel)} colors={colors} />}
+                {entry.fkVolX !== undefined && <IndicatorRow label="Volume breakout" value={`${entry.fkVolX.toFixed(1)}x MA20 (aturan ≥ 2.0)`} colors={colors} />}
+                {entry.fkLvlEmaDistAtr !== undefined && <IndicatorRow label="Level ↔ EMA21 M15" value={`${entry.fkLvlEmaDistAtr.toFixed(2)} ATR (aturan ≤ 0.5)`} colors={colors} />}
+                {entry.fkRsi1h !== undefined && <IndicatorRow label="RSI 1H saat breakout" value={entry.fkRsi1h.toFixed(1)} colors={colors} />}
+                {entry.fkRiskAtr !== undefined && <IndicatorRow label="Jarak SL struktural" value={`${entry.fkRiskAtr.toFixed(2)} ATR (aturan 0.5–3.0)`} colors={colors} />}
+                {entry.fkCandlesSinceFail !== undefined && <IndicatorRow label="Candle sejak gagal" value={String(entry.fkCandlesSinceFail)} colors={colors} />}
+                {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
+                {entry.entryDistAtr !== undefined && <IndicatorRow label="Jarak limit dari harga" value={`${entry.entryDistAtr.toFixed(2)} ATR`} colors={colors} />}
+              </>
+            )}
 
             {entry.technicalSnapshot && (
               <>
@@ -381,6 +453,24 @@ export default function JournalScreen() {
         savedAt: e.savedAt, timestamp: e.timestamp,
         status: e.status, entryHitAt: e.entryHitAt, resolvedAt: e.resolvedAt,
         exitPrice: e.exitPrice, rr: e.rr,
+        d1Aligned: e.d1Aligned, d1ChangePct: e.d1ChangePct,
+        rsi4H: e.rsi4H, rsi1H: e.rsi1H, rsi15M: e.rsi15M,
+        // LEGACY Scalping RSI v2 Gate (sudah diganti Fakeout): tetap diekspor buat entry lama
+        scalpGate: e.scalpGate, gateEma50DistAtr: e.gateEma50DistAtr, gateRange12Atr: e.gateRange12Atr,
+        buyRule: e.buyRule, gateAdx1h: e.gateAdx1h, gateRsi15Delta: e.gateRsi15Delta, gateBtcRet24h: e.gateBtcRet24h, gateBtc4hAboveEma200: e.gateBtc4hAboveEma200,
+        // Scalping Fakeout M15 (2026-10-21): metrik setup + batas fill, buat evaluasi forward test di luar app
+        entryDistAtr: e.entryDistAtr, validUntil: e.validUntil, fkVersion: e.fkVersion, fkBreakoutSide: e.fkBreakoutSide, fkLevel: e.fkLevel,
+        fkBreakoutTime: e.fkBreakoutTime, fkFailTime: e.fkFailTime, fkVolX: e.fkVolX, fkRiskAtr: e.fkRiskAtr,
+        fkLvlEmaDistAtr: e.fkLvlEmaDistAtr, fkRsi1h: e.fkRsi1h, fkCandlesSinceFail: e.fkCandlesSinceFail,
+        // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup buat evaluasi forward test di luar app
+        mmVersion: e.mmVersion, mmAdxH4: e.mmAdxH4, mmMagnetLevelUsed: e.mmMagnetLevelUsed, mmH4Cross: e.mmH4Cross,
+        mmForceIndex: e.mmForceIndex, mmConfluencePct: e.mmConfluencePct, mmStochK: e.mmStochK, mmStochD: e.mmStochD,
+        // Scalping CRT D1->M15 (2026-10-22): metrik setup (validUntil sudah diekspor di atas)
+        crtVersion: e.crtVersion, crtOrderNo: e.crtOrderNo, crtD1RangeAtr: e.crtD1RangeAtr, crtDepthPct: e.crtDepthPct,
+        crtPosPct: e.crtPosPct, crtRoomR: e.crtRoomR, crtRiskAtr: e.crtRiskAtr, crtMssTime: e.crtMssTime,
+        // Skor TA PRO (info) saat sinyal disimpan
+        taLongScore: e.taLongScore, taLongGrade: e.taLongGrade, taShortScore: e.taShortScore, taShortGrade: e.taShortGrade,
+        taLongPts: e.taLongPts, taShortPts: e.taShortPts,
       }));
       const payload = { exportedAt: new Date().toISOString(), count: slim.length, entries: slim };
       // Baris pemicu di depan JSON (request user): cukup paste ke chat, agent

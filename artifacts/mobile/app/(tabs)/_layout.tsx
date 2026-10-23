@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -25,10 +25,6 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'bolt.circle', selected: 'bolt.circle.fill' }} />
         <Label>MM Scalping</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="multi-tf-scan">
-        <Icon sf={{ default: 'square.grid.3x3', selected: 'square.grid.3x3.fill' }} />
-        <Label>Multi-TF</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="technical-analysis-pro">
         <Icon sf={{ default: 'chart.bar.doc.horizontal', selected: 'chart.bar.doc.horizontal.fill' }} />
         <Label>TA PRO</Label>
@@ -47,8 +43,6 @@ function NativeTabLayout() {
 
 function ClassicTabLayout() {
   const colors = useColors();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
   const isIOS = Platform.OS === 'ios';
   const isWeb = Platform.OS === 'web';
 
@@ -147,22 +141,6 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="multi-tf-scan"
-        options={{
-          title: 'Multi-TF',
-          tabBarActiveTintColor: MENU_COLORS.multiTfScan,
-          tabBarIcon: ({ color, focused }) => (
-            <AnimatedTabIcon focused={focused} color={color}>
-              {isIOS ? (
-                <SymbolView name="square.grid.3x3.fill" tintColor={color} size={22} />
-              ) : (
-                <Feather name="grid" size={22} color={color} />
-              )}
-            </AnimatedTabIcon>
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="technical-analysis-pro"
         options={{
           title: 'TA PRO',
@@ -211,12 +189,8 @@ function ClassicTabLayout() {
         }}
       />
       {/* Hidden screens — file di (tabs) tapi jangan muncul di tab bar */}
-      <Tabs.Screen name="_monitoring-view" options={{ href: null }} />
-      <Tabs.Screen name="_patterns-view" options={{ href: null }} />
       <Tabs.Screen name="_calculator-view" options={{ href: null }} />
-      <Tabs.Screen name="_insight-view" options={{ href: null }} />
       {/* _backtest-view DIHAPUS (request user) */}
-      <Tabs.Screen name="monitoring-helpers" options={{ href: null }} />
     </Tabs>
   );
 }

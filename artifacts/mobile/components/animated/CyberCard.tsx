@@ -14,7 +14,7 @@ const MAGENTA = '#FF00E5';
 /**
  * Wrapper kartu tema cyberpunk (grid garis tipis cyan/magenta, border yang
  * napas nyala-redup, scanline yang lewat pelan) -- dipakai bareng di semua
- * kartu hasil Technical Analysis PRO (Tren, Multi-TF, Transisi, SNR).
+ * kartu hasil Technical Analysis PRO (Tren, Multi-TF, Price Action).
  */
 export function CyberCard({ children, accentColor, style }: CyberCardProps) {
   const cardOpacity = useRef(new Animated.Value(0)).current;

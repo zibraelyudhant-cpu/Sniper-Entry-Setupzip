@@ -10,11 +10,12 @@ import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
+import { TaProScoreCard } from '@/components/TaProScoreCard';
+import { fetchTaProJournalFields, fetchTaProJournalFieldsMany } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
 import { StatusBadge } from '@/components/animated/StatusBadge';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
-import { LogResultBadge } from '@/components/animated/LogResultBadge';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
 import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
@@ -82,6 +83,12 @@ interface BreakoutTradingResult {
   marketStructureV2?: MarketStructureV2Result | null;
   btcAligned?: boolean;
   btcBias?: 'bullish' | 'bearish' | 'ranging';
+  // S-006: Filter arah D1 Sniper Breakout (peringatan)
+  d1Action?: 'none' | 'warn';
+  d1Trend?: 'up' | 'down' | 'flat';
+  d1ChangePct?: number;
+  d1Aligned?: boolean;
+  d1WarningMsg?: string;
   // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
   marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null;
 }
@@ -157,6 +164,15 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
         </View>
         <Feather name="chevron-right" size={13} color={colors.mutedForeground} style={{ marginLeft: 2, flexShrink: 0 }} />
       </View>
+
+      {coin.d1Action === 'warn' && (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, padding: 8, marginTop: 8, borderRadius: 8, backgroundColor: `${colors.bearish}18`, borderWidth: 1, borderColor: colors.bearish }}>
+          <Text style={{ fontSize: 12 }}>⚠️</Text>
+          <Text style={{ flex: 1, fontSize: 11, fontFamily: 'Inter_600SemiBold', color: colors.bearish, lineHeight: 15 }}>
+            PERINGATAN D1 — 3 candle D1 {coin.d1Trend === 'down' ? 'turun' : 'naik'} {Math.abs(coin.d1ChangePct ?? 0).toFixed(1)}%, berlawanan arah sinyal ini. Rawan ketarik arah D1.
+          </Text>
+        </View>
+      )}
 
       <View style={[scanStyles.condRow, { borderTopColor: colors.border }]}>
         <View style={scanStyles.condItem}>
@@ -255,6 +271,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     if (eligible.length === 0) return;
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const taMap = await fetchTaProJournalFieldsMany(eligible.map(c => c.symbol));
     const entries: JournalEntry[] = eligible.map(c => {
       // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill
       // 1 = analyzeCounterStructural (H4 struktur, M15 eksekusi). Label M30 lama dibuang.
@@ -269,8 +286,10 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
         tfStruktur, tfEksekusi,
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
+        ...(taMap.get(c.symbol) ?? {}), // skor TA PRO (info)
         orderType: c.orderType,
         btcAligned: c.btcAligned, btcBias: c.btcBias,
+        d1Aligned: c.d1Aligned, d1ChangePct: c.d1ChangePct,
         signalStatus: (c.status === 'siap_retest' || c.status === 'siap_breakout' || c.status === 'in_zone') ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
         timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
       };
@@ -466,7 +485,8 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     { symbol: querySymbol, mode },
     { query: { queryKey: getGetBreakoutEntryQueryKey({ symbol: querySymbol, mode }), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
   );
-  const data = liveMode ? liveData : pinnedData;
+  // liveData bertipe API (tanpa field d1*), pinnedData bertipe lokal; samakan ke tipe lokal supaya d1Aligned/d1Action/d1Trend/d1ChangePct terbaca.
+  const data = (liveMode ? liveData : pinnedData) as BreakoutTradingResult | null | undefined;
 
   useEffect(() => {
     if (onSignalReady) onSignalReady(data?.status === 'approaching' || data?.status === 'siap_retest' || data?.status === 'siap_breakout' ? data : null);
@@ -496,6 +516,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     // = analyzeCounterStructural (H4 struktur, M15 eksekusi). Label M30 lama dibuang.
     const skillLabel = 'Sniper Breakout (H4→M15)';
     const tfStruktur = 'H4';
+    const ta = await fetchTaProJournalFields(data.symbol);
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
@@ -504,8 +525,10 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur, tfEksekusi: 'M15',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
+      ...ta, // skor TA PRO (info)
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
+      d1Aligned: data.d1Aligned, d1ChangePct: data.d1ChangePct,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
@@ -577,6 +600,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: bottomPadding }} showsVerticalScrollIndicator={false}>
+          <TaProScoreCard symbol={(data as any)?.symbol ?? querySymbol} bias={(data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish' ? (data as any).bias : null} />
           {/* Banner: data terkunci dari Scan, BUKAN live */}
           {!liveMode && pinnedData && (
             <AnimatedCard index={0}>
@@ -616,6 +640,19 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
             )}
           </View>
           </AnimatedCard>
+
+          {/* S-006: Filter arah D1 — peringatan keras kalau sinyal berlawanan arah 3 candle D1 terakhir */}
+          {data.d1Action === 'warn' && (
+            <View style={{
+              flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, marginHorizontal: 12, marginBottom: 10,
+              borderRadius: 10, backgroundColor: `${colors.bearish}18`, borderWidth: 1, borderColor: colors.bearish,
+            }}>
+              <Feather name="alert-triangle" size={16} color={colors.bearish} style={{ marginTop: 1 }} />
+              <Text style={{ flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.bearish, lineHeight: 17 }}>
+                PERINGATAN D1 — 3 candle D1 terakhir {data.d1Trend === 'down' ? 'turun' : 'naik'} {Math.abs(data.d1ChangePct ?? 0).toFixed(1)}%, berlawanan arah sinyal ini. Rawan ketarik arah D1 — jangan hold terlalu lama.
+              </Text>
+            </View>
+          )}
 
           {/* Simpan ke Journal — SATU-SATUNYA cara nyimpen sinyal sekarang
               (request user: Log per-menu diganti Ringkasan dari Journal) */}

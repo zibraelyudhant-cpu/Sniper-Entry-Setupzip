@@ -84,19 +84,6 @@ function RiskBar({ leverage, maxLeverage }: { leverage: number; maxLeverage: num
   );
 }
 
-interface RowProps { label: string; value: string; valueColor?: string; mono?: boolean }
-function Row({ label, value, valueColor, mono }: RowProps) {
-  const colors = useColors();
-  return (
-    <View style={styles.row}>
-      <Text style={[styles.rowLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <Text style={[styles.rowValue, { color: valueColor ?? colors.foreground, fontFamily: mono ? 'Inter_600SemiBold' : 'Inter_500Medium' }]}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 // ─── Max Leverage per koin (approksimasi tier Binance Futures) ────────────────
 // PENTING: Binance gak punya endpoint publik buat max leverage per simbol
 // (endpoint aslinya /fapi/v1/leverageBracket butuh API key). Ini tabel manual

@@ -18,6 +18,8 @@ import { ScanLoading } from '@/components/animated/ScanLoading';
 import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
+import { TaProScoreCard } from '@/components/TaProScoreCard';
+import { fetchTaProJournalFields, fetchTaProJournalFieldsMany } from '@/components/taProJournal';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -153,6 +155,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     if (eligible.length === 0) return;
     setSavingAll(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const taMap = await fetchTaProJournalFieldsMany(eligible.map(c => c.symbol));
     const entries: JournalEntry[] = eligible.map(c => ({
       id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
       symbol: c.symbol, bias: c.bias!,
@@ -164,6 +167,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       // (jatuh ke default 15m yang SALAH).
       tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
+        ...(taMap.get(c.symbol) ?? {}), // skor TA PRO (info)
       orderType: 'limit',
       signalStatus: c.status === 'in_zone' ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
       timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
@@ -298,7 +302,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSymbol, pinnedData]);
 
-  const { data: liveData, isLoading, isFetching, isError, refetch } = useQuery({
+  const { data: liveData, isLoading, isError, refetch } = useQuery({
     queryKey: ['money-magnet-scalping-analisa', querySymbol],
     queryFn: () => fetchAnalisa(querySymbol),
     enabled: !!querySymbol && liveMode,
@@ -320,6 +324,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     if (!data || !data.entryPrice || !data.bias) return;
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const ta = await fetchTaProJournalFields(data.symbol);
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
@@ -329,6 +334,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
       tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
+      ...ta, // skor TA PRO (info)
       orderType: 'limit',
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -385,6 +391,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         </View>
       ) : data ? (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
+          <TaProScoreCard symbol={(data as any)?.symbol ?? querySymbol} bias={(data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish' ? (data as any).bias : null} />
           {!liveMode && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold, borderRadius: 10, padding: 10, marginBottom: 8 }}>
               <Feather name="lock" size={12} color={colors.gold} />

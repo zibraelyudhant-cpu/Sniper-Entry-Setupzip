@@ -10,6 +10,7 @@ import {
   journalLoadAll, breakdownBySkill,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, buildDevelopmentRecommendations,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
+  buildCrtForwardTest, SCALP_FORWARD,
 } from '../app/(tabs)/journal-helpers';
 
 /**
@@ -42,6 +43,8 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
   const loseProfiles = React.useMemo(() => buildLoseConditionProfiles(entries, 'skill'), [entries]);
   const recommendations = React.useMemo(() => buildDevelopmentRecommendations(entries), [entries]);
   const perSkill = React.useMemo(() => breakdownBySkill(entries), [entries]);
+  // Forward test Scalping CRT D1→M15 — SENGAJA pakai allEntries (bukan yang kena baseline): strategi ini sendiri titik mulainya.
+  const mmForward = React.useMemo(() => (sourceMenu === 'Scalping' ? buildCrtForwardTest(allEntries) : null), [allEntries, sourceMenu]);
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={accentColor} /></View>;
@@ -72,6 +75,35 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
           <Pressable onPress={async () => { await setJournalBaseline(null); setBaseline(null); }}><Feather name="x" size={14} color={colors.mutedForeground} /></Pressable>
         </View>
       )}
+
+      {mmForward && (() => {
+        const gf = mmForward;
+        const vColor = gf.verdict === 'lolos' ? colors.bullish : gf.verdict === 'gagal' ? colors.bearish : colors.gold;
+        return (
+          <View style={{ borderRadius: 12, borderWidth: 1, borderColor: vColor, backgroundColor: `${vColor}0D`, padding: 12, marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Feather name="activity" size={12} color={vColor} />
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: vColor, letterSpacing: 0.5 }}>FORWARD TEST — SCALPING CRT D1→M15</Text>
+            </View>
+            <View style={{ height: 6, borderRadius: 3, backgroundColor: `${colors.mutedForeground}25`, overflow: 'hidden', marginBottom: 8 }}>
+              <View style={{ width: `${gf.progressPct}%`, height: 6, backgroundColor: vColor }} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+              <StatBox label="RESOLVE" value={`${gf.resolved}/${SCALP_FORWARD.MIN_RESOLVED}`} color={vColor} colors={colors} />
+              <StatBox label="WIN RATE" value={gf.winRate === null ? '—' : `${gf.winRate.toFixed(1)}%`} color={colors.foreground} colors={colors} />
+              <StatBox label="AVG R" value={gf.avgR === null ? '—' : gf.avgR.toFixed(2)} color={colors.foreground} colors={colors} />
+              <StatBox label="AVG R NET" value={gf.avgRNet === null ? '—' : gf.avgRNet.toFixed(2)} color={colors.foreground} colors={colors} />
+            </View>
+            <Text style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: colors.foreground, lineHeight: 18 }}>{gf.verdictText}</Text>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_500Medium', color: colors.mutedForeground, lineHeight: 15, marginTop: 6 }}>
+              Per arah: {gf.bySide.map(r => `${r.side} ${r.win}/${r.resolved}`).join(' · ')} (win/resolve)
+            </Text>
+            <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginTop: 6 }}>
+              {gf.total} sinyal berlabel CRT D1→M15 ({gf.win}W/{gf.lose}L, {gf.pending} pending, {gf.expired} expired). Kriteria lolos: ≥{SCALP_FORWARD.MIN_RESOLVED} resolve, win rate &gt; {SCALP_FORWARD.MIN_WIN_RATE}%, avgR (RR 1:2) setelah biaya &gt; 0. R dihitung pakai basis RR 1:2: WIN (TP1/TP2) = +2R, LOSE = −1R; biaya = asumsi 0,08% round-trip. Backtest filter-nya (tanpa biaya) sekitar 39,6% tapi threshold dipilih dari data yang sama, jadi forward test ini bukti yang menentukan.
+            </Text>
+          </View>
+        );
+      })()}
 
       {entries.length === 0 ? (
         <View style={{ alignItems: 'center', padding: 24 }}>
