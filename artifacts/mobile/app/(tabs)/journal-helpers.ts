@@ -55,7 +55,11 @@ export const SCALPING_SKILL_FAKEOUT = 'Scalping Fakeout (M15)'; // LEGACY (digan
 export const SCALPING_SKILL_MAGNET = 'Scalping Money Magnet (H4→M30)';
 // Scalping CRT D1->M15 versi longgar level 4 original, tanpa filter (request user 2026-10-22, ganti total Money Magnet).
 // Label WAJIB sama dengan CRT_PARAMS.SKILL_LABEL di api-server/src/lib/crt-engine.ts.
-export const SCALPING_SKILL_CRT = 'Scalping CRT D1→M15 (Longgar-4)';
+export const SCALPING_SKILL_CRT = 'Scalping CRT D1→M15 (Longgar-4)'; // LEGACY: diganti Pullback D1→H1 2026-10-25, entry lama tetap tampil
+// Scalping Pullback D1→H1 (request user 2026-10-25, ganti total CRT). Label baru biar statistik forward test bersih.
+export const SCALPING_SKILL_PB = 'Scalping Pullback D1→H1'; // LEGACY: diganti Retest Fib D1→H1 2026-10-26, entry lama tetap tampil
+// Scalping Retest Fib D1→H1 (request user 2026-10-26, ganti total Pullback). Label WAJIB sama dengan SCALPING_RP.SKILL_LABEL di api-server/src/lib/smc.ts.
+export const SCALPING_SKILL_RP = 'Scalping Retest Fib D1→H1';
 
 /**
  * 1 record Journal — REQUEST USER: lengkap & detail, biar bisa dianalisa
@@ -127,14 +131,38 @@ export interface JournalEntry {
   crtRoomR?: number;         // ruang ke High/Low D1 dalam R
   crtRiskAtr?: number;       // risk / ATR14 M15
   crtMssTime?: number;       // open time candle MSS (ms)
+  // Scalping Pullback D1->H1 (2026-10-25): metrik setup saat sinyal, buat forward test & riset.
+  pbVersion?: string;
+  pbAdxD1?: number;          // ADX(14) D1 saat sinyal (aturan >= 25)
+  pbRiskAtr?: number;        // jarak entry-SL / ATR H1 (aturan 1-3)
+  pbTpMode?: 'level_d1' | 'fixed_2r'; // TP di SNR D1 atau 2R tetap
+  pbRoomR?: number;          // ruang ke SNR D1 terdekat (R)
+  pbZoneLo?: number;
+  pbZoneHi?: number;
+  pbPullbackBars?: number;   // candle H1 sejak harga terakhir >= 1 ATR dari zona
+  // Scalping Retest Fib D1->H1 (2026-10-26): metrik setup saat sinyal, buat forward test & riset. validUntil = batas fill limit.
+  rpVersion?: string;
+  rpAdxD1?: number;          // ADX(14) D1 (aturan > 25)
+  rpRsiD1?: number;          // RSI(14) D1 (LONG 50-60, SHORT 40-50)
+  rpSwingHigh?: number;      // ujung leg Fibonacci H1
+  rpSwingLow?: number;
+  rpRangeAtr?: number;       // range leg / ATR H1
+  rpLegAgeBars?: number;     // umur swing akhir leg (candle H1)
+  rpZoneLo?: number;         // zona retrace 0,5-0,618
+  rpZoneHi?: number;
+  rpBasis?: 'fvg' | 'ob' | 'snr' | 'mid'; // dasar level limit (mid = tengah zona, tanpa konfluensi)
+  rpConfluence?: string;     // mis. 'FVG+SNR' ('' = tidak ada)
+  rpRetracePct?: number;     // posisi limit dalam retrace (0,5-0,618)
   // Skor TA PRO (Fitur 5) saat sinyal disimpan (info, TIDAK memblokir). Kosong kalau fetch gagal.
-  taLongScore?: number;      // 0-9
+  taLongScore?: number;      // v1: -9..9 (maks 9), v2: maks 11 (lihat taMaxScore)
   taLongGrade?: 'A+' | 'B' | 'Tidak layak';
   taShortScore?: number;
   taShortGrade?: 'A+' | 'B' | 'Tidak layak';
-  taLongPts?: string;        // poin per komponen: structH4|structH1|oi|lsr|funding (x = data tidak ada)
+  taLongPts?: string;        // poin per komponen. v1: structH4|structH1|oi|lsr|funding; v2: structH4|structM30|locH4|oi|lsr|funding; v3: structD1|structH1f|locH4|oi|lsr|funding (x = data tidak ada)
   taShortPts?: string;
   taScoreAt?: number;        // ms epoch saat skor diambil
+  taScoreVer?: number;       // versi skor: kosong/1 = lama (H4+H1, A+ 7-9), 2 = H4+M30+lokasi H4, 3 = D1+H1+lokasi H4 (A+ >= 8, maks 11)
+  taMaxScore?: number;       // skor maksimum versi itu (9 atau 11)
   d1ChangePct?: number; // perubahan harga 3 candle D1 saat sinyal (%)
   entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif) DAN statistik timing (request user)
   resolvedAt?: number; // timestamp candle saat SL/TP kena — buat statistik "rata-rata berapa jam sampe resolve"
@@ -243,11 +271,13 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
  * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
  * (dianggap kejadian baru, bukan re-save yang gak sengaja).
  */
-function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType'> & { entryPrice?: number }): string {
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow'> & { entryPrice?: number }): string {
   const orderType = e.orderType ?? 'limit';
   // Fakeout: satu koin bisa punya beberapa setup berbeda dalam 24 jam (level beda) -> entryPrice ikut kunci. Setup yang SAMA tetap ke-dedupe.
   const lv = (e.sourceSkill === SCALPING_SKILL_FAKEOUT || e.sourceSkill === SCALPING_SKILL_CRT) ? `|${e.entryPrice}` : '';
-  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}`;
+  // Retest Fib: satu sinyal per LEG (swing high+low yang sama), bukan per entryPrice (level limit bisa bergeser sedikit di leg yang sama).
+  const leg = e.sourceSkill === SCALPING_SKILL_RP ? `|${e.rpSwingHigh}|${e.rpSwingLow}` : '';
+  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}${leg}`;
 }
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -771,7 +801,7 @@ function toVerdict(b: JournalBreakdown): SimpleVerdict {
 }
 
 // ═══ FORWARD TEST Scalping (request user 2026-10-21) ═══
-// Dipakai buat strategi yang sedang jadi Menu Scalping: sekarang CRT D1->M15 (sebelumnya Money Magnet H4->M30 dan Fakeout M15, dibuang dari menu).
+// Dipakai buat strategi yang sedang jadi Menu Scalping: sekarang Pullback D1->H1 (sebelumnya CRT D1->M15, Money Magnet H4->M30 dan Fakeout M15; semuanya Money Magnet H4->M30 dan Fakeout M15, dibuang dari menu).
 // Kriteria (dipertahankan): setelah >= 100 sinyal berlabel strategi itu resolve, win rate > 38% DAN avgR (RR 1:2, setelah biaya) > 0 -> dipertahankan.
 // Kalau tidak -> evaluasi ulang / buang. Catatan CRT: backtest (tanpa biaya) filter-nya ~39,6% tapi threshold dipilih in-sample, jadi forward test ini bukti yang menentukan.
 // Basis R konsisten dgn aturan RR 1:2: WIN (TP1 atau TP2) = +2R, LOSE = -1R. (TP2 RR 1:3 hanya info target, tidak dipakai buat menghitung R.)
@@ -802,8 +832,14 @@ export function buildScalpForwardTest(entries: JournalEntry[], skill: string, sh
   const lose = resolvedE.length - win;
   let sumR = 0, sumNet = 0;
   for (const e of resolvedE) {
-    const r = e.status === 'lose' ? -1 : 2;
+    // WIN Retest Fib = jarak ke target yang kena (TP1 Fib 1,272 atau TP2 Fib 1,618) / risk; Pullback lama = rr1 (TP bisa di SNR D1); strategi lain tetap 2R.
     const risk = Math.abs(e.entryPrice - e.stopLoss);
+    let r: number;
+    if (e.status === 'lose') r = -1;
+    else if (e.sourceSkill === SCALPING_SKILL_RP && risk > 0) {
+      const tgt = e.status === 'win_tp2' && e.takeProfit2 ? e.takeProfit2 : e.takeProfit1;
+      r = Math.abs(tgt - e.entryPrice) / risk;
+    } else r = (e.sourceSkill === SCALPING_SKILL_PB && typeof e.rr1 === 'number' && e.rr1 > 0 ? e.rr1 : 2);
     const feeR = risk > 0 ? (SCALP_FORWARD.FEE_ROUNDTRIP * e.entryPrice) / risk : 0;
     sumR += r; sumNet += r - feeR;
   }
@@ -835,7 +871,17 @@ export function buildScalpForwardTest(entries: JournalEntry[], skill: string, sh
   };
 }
 
-/** Forward test Menu Scalping yang aktif sekarang: CRT D1->M15 (Longgar-4, tanpa filter). */
+/** Forward test Menu Scalping yang aktif sekarang: Retest Fib D1->H1. */
+export function buildRpForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_RP, 'Retest Fib D1→H1');
+}
+
+/** LEGACY: forward test Pullback D1->H1 (menu sudah diganti Retest Fib; sinyal lama tetap bisa dihitung). */
+export function buildPbForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_PB, 'Pullback D1→H1');
+}
+
+/** LEGACY: forward test CRT D1->M15 (menu sudah diganti Pullback D1->H1; sinyal lama tetap bisa dihitung). */
 export function buildCrtForwardTest(entries: JournalEntry[]): ScalpForwardTest {
   return buildScalpForwardTest(entries, SCALPING_SKILL_CRT, 'CRT D1→M15');
 }
@@ -1782,20 +1828,39 @@ export function buildLoseConditionHeatmap(entries: JournalEntry[]): HeatmapData 
 // ─── Skor TA PRO (info) — dibekukan saat sinyal disimpan, dipakai buat analisa Jurnal ───
 
 /** Skor sisi yang searah sinyal (bullish→LONG, bearish→SHORT). null = sinyal lama tanpa skor. */
-export function taScoreOfEntry(e: JournalEntry): { score: number; grade: 'A+' | 'B' | 'Tidak layak' } | null {
+export function taScoreOfEntry(e: JournalEntry): { score: number; grade: 'A+' | 'B' | 'Tidak layak'; ver: number; max: number } | null {
   const long = e.bias === 'bullish';
   const score = long ? e.taLongScore : e.taShortScore;
   const grade = long ? e.taLongGrade : e.taShortGrade;
   if (typeof score !== 'number' || !grade) return null;
-  return { score, grade };
+  const ver = e.taScoreVer === 3 ? 3 : e.taScoreVer === 2 ? 2 : 1;
+  return { score, grade, ver, max: typeof e.taMaxScore === 'number' ? e.taMaxScore : ver >= 2 ? 11 : 9 };
 }
 
-const TA_GRADE_LABELS = ['A+ (skor 7–9)', 'B (skor 5–6)', 'Tidak layak (skor ≤4)', 'Tanpa skor (sinyal lama)'];
+// Skor v1 (H4+H1), v2 (H4+M30+lokasi H4), dan v3 (D1+H1+lokasi H4) TIDAK boleh digabung: komponen dan batas grade beda.
+const TA_GRADE_LABELS = [
+  'A+ v3 (skor ≥8)', 'B v3 (skor 6–7)', 'Tidak layak v3 (skor ≤5)',
+  'A+ v2 (skor ≥8)', 'B v2 (skor 6–7)', 'Tidak layak v2 (skor ≤5)',
+  'A+ v1 (skor 7–9)', 'B v1 (skor 5–6)', 'Tidak layak v1 (skor ≤4)',
+  'Tanpa skor (sinyal lama)',
+];
 
 function taGradeLabel(e: JournalEntry): string {
   const s = taScoreOfEntry(e);
-  if (!s) return TA_GRADE_LABELS[3]!;
-  return s.grade === 'A+' ? TA_GRADE_LABELS[0]! : s.grade === 'B' ? TA_GRADE_LABELS[1]! : TA_GRADE_LABELS[2]!;
+  if (!s) return TA_GRADE_LABELS[9]!;
+  const base = s.ver === 3 ? 0 : s.ver === 2 ? 3 : 6;
+  return s.grade === 'A+' ? TA_GRADE_LABELS[base]! : s.grade === 'B' ? TA_GRADE_LABELS[base + 1]! : TA_GRADE_LABELS[base + 2]!;
+}
+
+/** Pilih sinyal bernilai skor satu versi saja: versi terbaru yang sudah punya >=30 sinyal selesai (v3, lalu v2), selain itu v1. */
+function taSameVersion(entries: JournalEntry[]): { ver: number; list: JournalEntry[] } {
+  const scored = entries.filter(e => taScoreOfEntry(e));
+  for (const v of [3, 2]) {
+    const list = scored.filter(e => taScoreOfEntry(e)!.ver === v);
+    const done = list.filter(e => e.status === 'lose' || e.status === 'win_tp1' || e.status === 'win_tp2').length;
+    if (done >= 30) return { ver: v, list };
+  }
+  return { ver: 1, list: scored.filter(e => taScoreOfEntry(e)!.ver === 1) };
 }
 
 /** Win rate per grade Skor TA PRO (sisi searah sinyal). */
@@ -1804,16 +1869,19 @@ export function breakdownByTaGrade(entries: JournalEntry[]): JournalBreakdown[] 
   return r.sort((a, b) => TA_GRADE_LABELS.indexOf(a.label) - TA_GRADE_LABELS.indexOf(b.label));
 }
 
-/** Win rate per angka skor (-9..9), skor tertinggi dulu; sinyal lama tanpa skor di paling bawah. */
+/** Win rate per angka skor, versi terbaru dulu lalu skor tertinggi; sinyal lama tanpa skor di paling bawah. */
 export function breakdownByTaScore(entries: JournalEntry[]): JournalBreakdown[] {
-  const scoreOf = (e: JournalEntry) => taScoreOfEntry(e)?.score;
-  const r = buildBreakdown(entries, e => { const s = scoreOf(e); return s === undefined ? 'Tanpa skor' : `Skor ${s > 0 ? '+' : ''}${s}/9`; });
-  const num = (l: string) => (l === 'Tanpa skor' ? -999 : parseInt(l.replace('Skor ', ''), 10));
+  const r = buildBreakdown(entries, e => { const s = taScoreOfEntry(e); return !s ? 'Tanpa skor' : `Skor v${s.ver} ${s.score > 0 ? '+' : ''}${s.score}/${s.max}`; });
+  const num = (l: string): number => {
+    const m = /^Skor v(\d) ([+-]?\d+)\//.exec(l);
+    return m ? Number(m[1]) * 1000 + Number(m[2]) : -99999;
+  };
   return r.sort((a, b) => num(b.label) - num(a.label));
 }
 
 /** Rata-rata skor pada sinyal WIN vs LOSE. Butuh minimal 3 di kedua sisi. */
 export function compareTaScoreWinLose(entries: JournalEntry[]): { winAvg: number; loseAvg: number; sampleWin: number; sampleLose: number; insight: string } | null {
+  entries = taSameVersion(entries).list;
   const wins = entries.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2').map(e => taScoreOfEntry(e)?.score).filter((v): v is number => v !== undefined);
   const loses = entries.filter(e => e.status === 'lose').map(e => taScoreOfEntry(e)?.score).filter((v): v is number => v !== undefined);
   if (wins.length < 3 || loses.length < 3) return null;
@@ -1830,19 +1898,20 @@ export function compareTaScoreWinLose(entries: JournalEntry[]): { winAvg: number
 
 /** Temuan Diagnosa: apakah grade A+ memang lebih sering menang dari sisanya. null = tidak ada data skor sama sekali. */
 export function taGradeFinding(resolved: JournalEntry[]): { finding: DiagnosticFinding | null; gap: string | null } {
-  const scored = resolved.filter(e => taScoreOfEntry(e));
+  const { ver, list: scored } = taSameVersion(resolved);
   if (scored.length === 0) return { finding: null, gap: null };
+  const vTag = ver >= 2 ? `skor v${ver}` : 'skor v1 (lama)';
   const wr = (arr: JournalEntry[]) => arr.length ? Math.round((arr.filter(e => e.status !== 'lose').length / arr.length) * 100) : 0;
   const top = scored.filter(e => taScoreOfEntry(e)!.grade === 'A+');
   const rest = scored.filter(e => taScoreOfEntry(e)!.grade !== 'A+');
   if (top.length < 10 || rest.length < 10) {
     return {
       finding: null,
-      gap: `Skor TA PRO: baru ${top.length} sinyal A+ dan ${rest.length} sinyal grade lain yang selesai (butuh minimal 10 di masing-masing) — belum cukup buat menilai skor.`,
+      gap: `Skor TA PRO (${vTag}): baru ${top.length} sinyal A+ dan ${rest.length} sinyal grade lain yang selesai (butuh minimal 10 di masing-masing) — belum cukup buat menilai skor.`,
     };
   }
   const wTop = wr(top), wRest = wr(rest), diff = wTop - wRest;
-  const evidence = `A+: ${wTop}% win (${top.length} sinyal). Grade B/Tidak layak: ${wRest}% win (${rest.length} sinyal).`;
+  const evidence = `(${vTag}) A+: ${wTop}% win (${top.length} sinyal). Grade B/Tidak layak: ${wRest}% win (${rest.length} sinyal).`;
   if (diff >= 10) return { finding: { severity: 'good', title: `Skor TA PRO berfungsi: A+ menang ${diff} poin lebih sering`, evidence, action: 'Skor layak dipakai sebagai acuan urutan scan. Tetap pantau saat sampel bertambah.', sampleSize: scored.length }, gap: null };
   if (diff <= -5) return { finding: { severity: 'warning', title: `Skor TA PRO belum terbukti: A+ justru ${Math.abs(diff)} poin lebih jarang menang`, evidence, action: 'Cek PER SKOR di tab Analisa dan "Poin" per komponen di detail sinyal buat cari komponen yang menyesatkan sebelum skor dijadikan acuan.', sampleSize: scored.length }, gap: null };
   return { finding: { severity: 'info', title: 'Skor TA PRO belum membedakan hasil: win rate A+ dan grade lain mirip', evidence, action: 'Belum ada bukti skor menaikkan peluang menang. Kumpulkan sampel lebih banyak sebelum dijadikan acuan.', sampleSize: scored.length }, gap: null };

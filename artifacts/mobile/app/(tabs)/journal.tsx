@@ -150,6 +150,16 @@ function JournalEntryCard({
                     <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: colors.gold }}>🎯 CRT #{entry.crtOrderNo ?? '?'}</Text>
                   </View>
                 )}
+                {entry.pbVersion && (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: colors.gold }}>↩ PULLBACK D1→H1</Text>
+                  </View>
+                )}
+                {entry.rpVersion && (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: colors.gold }}>📐 RETEST FIB {entry.rpBasis === 'mid' ? 'MID' : (entry.rpConfluence || '').replace(/\+/g, '+')}</Text>
+                  </View>
+                )}
               </View>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -208,10 +218,41 @@ function JournalEntryCard({
                 <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
                   SKOR TA PRO (info, saat disimpan)
                 </Text>
-                <IndicatorRow label="Skor LONG" value={`${entry.taLongScore}/9 — ${entry.taLongGrade ?? '-'}`} colors={colors} />
-                <IndicatorRow label="Skor SHORT" value={`${entry.taShortScore}/9 — ${entry.taShortGrade ?? '-'}`} colors={colors} />
+                <IndicatorRow label="Skor LONG" value={`${entry.taLongScore}/${entry.taMaxScore ?? 9} — ${entry.taLongGrade ?? '-'}`} colors={colors} />
+                <IndicatorRow label="Skor SHORT" value={`${entry.taShortScore}/${entry.taMaxScore ?? 9} — ${entry.taShortGrade ?? '-'}`} colors={colors} />
                 {entry.taLongPts && <IndicatorRow label="Poin LONG" value={entry.taLongPts} colors={colors} />}
                 {entry.taShortPts && <IndicatorRow label="Poin SHORT" value={entry.taShortPts} colors={colors} />}
+              </>
+            )}
+            {entry.pbVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  SCALPING PULLBACK D1→H1
+                </Text>
+                {entry.pbAdxD1 !== undefined && <IndicatorRow label="ADX D1" value={`${entry.pbAdxD1.toFixed(1)} (aturan ≥ 25)`} colors={colors} />}
+                {entry.pbRiskAtr !== undefined && <IndicatorRow label="Jarak SL / ATR H1" value={`${entry.pbRiskAtr.toFixed(2)}x (aturan 1–3x)`} colors={colors} />}
+                {entry.pbTpMode !== undefined && <IndicatorRow label="TP" value={entry.pbTpMode === 'level_d1' ? 'SNR D1 terdekat' : '2R tetap'} colors={colors} />}
+                {entry.pbRoomR !== undefined && <IndicatorRow label="Ruang ke SNR D1" value={`${entry.pbRoomR.toFixed(2)}R`} colors={colors} />}
+                {entry.pbZoneLo !== undefined && entry.pbZoneHi !== undefined && <IndicatorRow label="Zona SNR H1" value={`${entry.pbZoneLo} – ${entry.pbZoneHi}`} colors={colors} />}
+                {entry.pbPullbackBars !== undefined && <IndicatorRow label="Pullback (candle H1 lalu)" value={`${entry.pbPullbackBars} (aturan ≤ 24)`} colors={colors} />}
+                {entry.validUntil !== undefined && <IndicatorRow label="Sinyal berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
+              </>
+            )}
+            {entry.rpVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  SCALPING RETEST FIB D1→H1
+                </Text>
+                {entry.rpAdxD1 !== undefined && <IndicatorRow label="ADX D1" value={`${entry.rpAdxD1.toFixed(1)} (aturan > 25)`} colors={colors} />}
+                {entry.rpRsiD1 !== undefined && <IndicatorRow label="RSI D1" value={`${entry.rpRsiD1.toFixed(1)} (BUY 50–60, SELL 40–50)`} colors={colors} />}
+                {entry.rpSwingLow !== undefined && entry.rpSwingHigh !== undefined && <IndicatorRow label="Leg Fib H1 (low – high)" value={`${entry.rpSwingLow} – ${entry.rpSwingHigh}`} colors={colors} />}
+                {entry.rpRangeAtr !== undefined && <IndicatorRow label="Range leg / ATR H1" value={`${entry.rpRangeAtr.toFixed(2)}x`} colors={colors} />}
+                {entry.rpLegAgeBars !== undefined && <IndicatorRow label="Umur swing akhir leg" value={`${entry.rpLegAgeBars} candle H1`} colors={colors} />}
+                {entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && <IndicatorRow label="Zona retrace 0,5–0,618" value={`${entry.rpZoneLo} – ${entry.rpZoneHi}`} colors={colors} />}
+                {entry.rpBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.rpBasis === 'mid' ? 'Tengah zona (tanpa konfluensi)' : `Tepi ${entry.rpBasis.toUpperCase()}`} colors={colors} />}
+                {entry.rpConfluence !== undefined && <IndicatorRow label="Konfluensi di zona" value={entry.rpConfluence ? entry.rpConfluence.replace(/\+/g, ' + ') : 'tidak ada'} colors={colors} />}
+                {entry.rpRetracePct !== undefined && <IndicatorRow label="Retrace level limit" value={`${(entry.rpRetracePct * 100).toFixed(1)}%`} colors={colors} />}
+                {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
               </>
             )}
             {entry.crtVersion && (
@@ -480,9 +521,15 @@ export default function JournalScreen() {
         // Scalping CRT D1->M15 (2026-10-22): metrik setup (validUntil sudah diekspor di atas)
         crtVersion: e.crtVersion, crtOrderNo: e.crtOrderNo, crtD1RangeAtr: e.crtD1RangeAtr, crtDepthPct: e.crtDepthPct,
         crtPosPct: e.crtPosPct, crtRoomR: e.crtRoomR, crtRiskAtr: e.crtRiskAtr, crtMssTime: e.crtMssTime,
+        pbVersion: e.pbVersion, pbAdxD1: e.pbAdxD1, pbRiskAtr: e.pbRiskAtr, pbTpMode: e.pbTpMode, pbRoomR: e.pbRoomR,
+        pbZoneLo: e.pbZoneLo, pbZoneHi: e.pbZoneHi, pbPullbackBars: e.pbPullbackBars,
+        // Scalping Retest Fib D1->H1 (2026-10-26): metrik setup (validUntil sudah diekspor di atas)
+        rpVersion: e.rpVersion, rpAdxD1: e.rpAdxD1, rpRsiD1: e.rpRsiD1, rpSwingHigh: e.rpSwingHigh, rpSwingLow: e.rpSwingLow,
+        rpRangeAtr: e.rpRangeAtr, rpLegAgeBars: e.rpLegAgeBars, rpZoneLo: e.rpZoneLo, rpZoneHi: e.rpZoneHi,
+        rpBasis: e.rpBasis, rpConfluence: e.rpConfluence, rpRetracePct: e.rpRetracePct,
         // Skor TA PRO (info) saat sinyal disimpan
         taLongScore: e.taLongScore, taLongGrade: e.taLongGrade, taShortScore: e.taShortScore, taShortGrade: e.taShortGrade,
-        taLongPts: e.taLongPts, taShortPts: e.taShortPts,
+        taLongPts: e.taLongPts, taShortPts: e.taShortPts, taScoreVer: e.taScoreVer, taMaxScore: e.taMaxScore,
       }));
       const payload = { exportedAt: new Date().toISOString(), count: slim.length, entries: slim };
       // Baris pemicu di depan JSON (request user): cukup paste ke chat, agent

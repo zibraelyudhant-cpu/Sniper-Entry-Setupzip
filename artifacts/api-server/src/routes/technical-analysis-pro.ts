@@ -63,7 +63,7 @@ router.get('/technical-analysis-pro/snr-zones', async (req, res) => {
   }
 });
 
-// GET /api/technical-analysis-pro/long-short-score?symbol=BTCUSDT -- FITUR 5 (struktur H4+H1, OI, L/S ratio, funding)
+// GET /api/technical-analysis-pro/long-short-score?symbol=BTCUSDT -- FITUR 5 v3 (struktur D1, struktur H1, lokasi H4, OI, L/S ratio, funding; A+ >= 8, maks 11)
 router.get('/technical-analysis-pro/long-short-score', async (req, res) => {
   const symbol = req.query['symbol'] as string;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }

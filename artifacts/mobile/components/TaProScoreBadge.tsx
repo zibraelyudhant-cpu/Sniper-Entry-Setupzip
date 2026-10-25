@@ -145,7 +145,7 @@ export function TaProScoreBadge({ coin }: { coin: any }) {
             ...(fire ? { textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 3, textShadowOffset: { width: 0, height: 0 } } : null),
           }}
         >
-          SKOR {s.score}/9 • {s.grade === 'Tidak layak' ? 'Tdk layak' : s.grade}
+          SKOR {s.score}/{s.max} • {s.grade === 'Tidak layak' ? 'Tdk layak' : s.grade}
         </Text>
       </View>
     </View>

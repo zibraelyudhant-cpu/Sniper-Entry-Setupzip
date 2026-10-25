@@ -9,7 +9,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useGetScalping, useGetScalpingScan, getGetScalpingQueryKey, getGetScalpingScanQueryKey, type ScalpingResult } from '@workspace/api-client-react';
-import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_CRT, type JournalEntry } from './journal-helpers';
+import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_RP, type JournalEntry } from './journal-helpers';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
@@ -38,17 +38,16 @@ function formatPrice(price: number): string {
   return price.toFixed(6);
 }
 
-// 2026-10-22: Menu Scalping GANTI TOTAL ke CRT D1->M15 (versi longgar level 4 original, tanpa filter). Label skill baru biar statistik forward test bersih.
-const SCALPING_SKILL = SCALPING_SKILL_CRT;
-// Field setup CRT yang ikut disimpan ke Journal (buat forward test & riset). Semua optional.
+// 2026-10-26: Menu Scalping GANTI TOTAL ke Retest Fib D1->H1 (EMA26/60 + ADX + RSI di D1, Fibonacci 0,5-0,618 di H1, entry LIMIT). Label skill baru biar statistik forward test bersih.
+const SCALPING_SKILL = SCALPING_SKILL_RP;
+// Field setup Retest Fib yang ikut disimpan ke Journal (buat forward test & riset). Semua optional.
 // validUntil = batas waktu limit (ms) — Journal menandai EXPIRED kalau belum ke-fill sampai batas ini.
-function crtJournalFields(c: any): Partial<JournalEntry> {
+function rpJournalFields(c: any): Partial<JournalEntry> {
   return {
-    entryDistAtr: c?.entryDistAtr,
     validUntil: c?.validUntilMs,
-    crtVersion: c?.crtVersion, crtOrderNo: c?.crtOrderNo, crtD1RangeAtr: c?.crtD1RangeAtr,
-    crtDepthPct: c?.crtDepthPct, crtPosPct: c?.crtPosPct, crtRoomR: c?.crtRoomR, crtRiskAtr: c?.crtRiskAtr,
-    crtMssTime: c?.crtMssTime,
+    rpVersion: c?.rpVersion, rpAdxD1: c?.rpAdxD1, rpRsiD1: c?.rpRsiD1,
+    rpSwingHigh: c?.rpSwingHigh, rpSwingLow: c?.rpSwingLow, rpRangeAtr: c?.rpRangeAtr, rpLegAgeBars: c?.rpLegAgeBars,
+    rpZoneLo: c?.rpZoneLo, rpZoneHi: c?.rpZoneHi, rpBasis: c?.rpBasis, rpConfluence: c?.rpConfluence, rpRetracePct: c?.rpRetracePct,
   };
 }
 
@@ -75,16 +74,16 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ CRT D1→M15</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ RETEST FIB D1→H1</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
                 <Text style={[scanStyles.biasBadgeText, { color: ACCENT }]}>⚡ SQUEEZE</Text>
               </View>
             )}
-            {(coin as any).crtVersion && (
+            {(coin as any).rpVersion && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${colors.gold}18`, borderColor: colors.gold }]}>
-                <Text style={[scanStyles.biasBadgeText, { color: colors.gold }]}>🎯 CRT · #{(coin as any).crtOrderNo} · D1 {(coin as any).crtD1RangeAtr?.toFixed(2)}x</Text>
+                <Text style={[scanStyles.biasBadgeText, { color: colors.gold }]}>🎯 {(coin as any).rpBasis === 'mid' ? 'MID 0,559' : String((coin as any).rpConfluence || '').replace(/\+/g, ' + ') || 'FIB'} · RR {coin.rr1?.toFixed(1)}</Text>
               </View>
             )}
           </View>
@@ -230,8 +229,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
         entryPrice: c.entryPrice!, stopLoss: c.stopLoss!, takeProfit1: c.takeProfit1!, takeProfit2: c.takeProfit2,
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
-        tfStruktur: 'D1', tfEksekusi: 'M15',
-        ...crtJournalFields(c),
+        tfStruktur: 'D1', tfEksekusi: 'H1',
+        ...rpJournalFields(c),
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
         orderType: 'limit',
@@ -256,7 +255,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Retest Fib D1→H1 (EMA26/60 + ADX + RSI, Fib 0,5–0,618 H1, limit)</Text>
       </View>
     );
   }
@@ -290,7 +289,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Retest Fib D1→H1 (EMA26/60 + ADX + RSI, Fib 0,5–0,618 H1, limit)'}
           </Text>
         </View>
       );
@@ -456,11 +455,11 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: 'D1', tfEksekusi: 'M15',
-      ...crtJournalFields(data),
+      tfStruktur: 'D1', tfEksekusi: 'H1',
+      ...rpJournalFields(data),
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
-      orderType: 'limit', // CRT pasang LIMIT order di retrace 50% displacement
+      orderType: 'limit', // BUY/SELL LIMIT di zona Fib; Journal anggap terisi begitu harga menyentuh entry, EXPIRED kalau belum terisi sampai validUntil
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -509,7 +508,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Scalping Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Retest Fib D1→H1 (EMA26/60 + ADX + RSI, Fib 0,5–0,618 H1, limit)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -586,7 +585,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
           {data.entryPrice && (
             <AnimatedCard index={3}>
             <View style={[styles.section, { backgroundColor: 'rgba(251,191,36,0.06)', borderColor: 'rgba(251,191,36,0.22)' }]}>
-              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>LIMIT ORDER</Text>
+              <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>ENTRY</Text>
               {(data as any).taProBonusConfirmed && (
                 <TaProBonusBanner classification={(data as any).taProBonusClassification} score={(data as any).taProBonusScore} />
               )}
@@ -600,7 +599,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — retrace 50% displacement (order ke-{(data as any).crtOrderNo ?? '?'})
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — {(data as any).rpBasis === 'mid' ? 'tengah zona Fib 0,5–0,618 (tanpa konfluensi)' : `tepi ${String((data as any).rpBasis || '').toUpperCase()} di zona Fib 0,5–0,618`} {(data as any).rpZoneLo !== undefined ? `(${formatPrice((data as any).rpZoneLo)} – ${formatPrice((data as any).rpZoneHi)})` : ''}{(data as any).rpConfluence ? ` · konfluensi: ${String((data as any).rpConfluence).replace(/\+/g, ' + ')}` : ''}
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -609,14 +608,14 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 (RR 1:{data.rr1?.toFixed(1)})</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 Fib 1,272 (RR 1:{data.rr1?.toFixed(1)})</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
               {data.takeProfit2 ? (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1)})</Text>
+                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 Fib 1,618 (RR 1:{data.rr2?.toFixed(1)})</Text>
                     <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
                   </View>
                 </>
@@ -721,7 +720,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scalping</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>CRT D1→M15 (sweep D1 + MSS, limit retrace 50%)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Retest Fib D1→H1 (EMA26/60 + ADX + RSI, Fib 0,5–0,618 H1, limit)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -761,23 +760,23 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Menu Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Scalping CRT D1→M15 (ganti total dari Money Magnet, 2026-10-22; versi LONGGAR level 4 dari backtest CRT + filter hasil analisa). Idenya: candle D1 kemarin menandai area likuiditas (High/Low). Kalau hari ini harga menyapu Low D1 lalu kembali ke atasnya (reclaim) dan M15 membuat MSS naik, entry LIMIT dipasang di retrace 50% displacement. SHORT adalah cerminannya (sweep High D1). Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
-          Syarat wajib: sweep 0,01%–10% di luar Low/High D1, reclaim maksimal 24 candle M15 dengan candle reclaim searah (body ≥ 10%), MSS (close di atas swing high internal) maksimal 24 candle setelah reclaim, entry di 0–50% range D1 dari sisi sweep, ruang ke High/Low D1 minimal 2R, SL = ekstrem sweep ∓ 0,2x ATR14 M15, TP = 2R (RR 1:2 tetap). Limit batal kalau midpoint D1 tersentuh sebelum fill, atau lewat 32 candle M15 sejak candle MSS.{'\n\n'}
-          Tanpa filter tambahan: semua order yang limit-nya masih menunggu ditampilkan (maksimal 3 per hari per arah). Backtest awal level 4 di data ALT futures (tanpa biaya): winrate dasar 32,6%, di bawah break-even RR 1:2 (33,3%), jadi hasil forward test yang menentukan.{'\n\n'}
-          Status: BELUM di-forward-test. Break-even RR 1:2 tanpa biaya = winrate 33,3%. Sinyal hanya muncul selagi limit masih menunggu fill. Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0).
+          Scalping Retest Fib D1→H1 (ganti total dari Pullback D1→H1, 2026-10-26; strategi dari file "NEW Strategi Retest/Pullback"). Idenya: ikuti tren D1 yang kuat, lalu pasang LIMIT order di zona retracement Fibonacci 0,5–0,618 dari leg H1 terakhir, dengan level limit diarahkan ke FVG / Order Block / SNR bila ada. SHORT adalah cerminannya. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
+          Status: strategi ini BELUM di-backtest, sengaja dibuktikan lewat Jurnal (forward test). Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0). Sinyal yang tidak terisi sampai 24 jam dicatat EXPIRED dan tidak dihitung menang/kalah.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. Referensi: candle D1 UTC kemarin (High/Low), ATR14 D1 (Wilder), butuh ≥ 20 candle D1{'\n'}
-          2. Sweep: M15 hari ini menembus Low D1 (SHORT: High D1), kedalaman 0,01%–10%{'\n'}
-          3. Reclaim: close M15 kembali di atas Low D1 dalam ≤ 24 candle; candle reclaim bullish (body ≥ 10% range){'\n'}
-          4. MSS: close M15 di atas swing high internal terdekat (fractal 2-2, mundur ≤ 40 candle) dalam ≤ 24 candle sejak reclaim{'\n'}
-          5. Displacement = ekstrem sweep → high tertinggi sampai candle MSS. Entry LIMIT di retrace 50%; posisi di range D1 0–50%{'\n'}
-          6. SL = ekstrem sweep − 0,2x ATR14 M15; TP = 2R; ruang ke High D1 ≥ 2R; batal kalau midpoint D1 tersentuh sebelum fill{'\n'}
-          7. Tanpa filter tambahan; maksimal 3 order per hari per arah (urutan waktu MSS){'\n'}
-          8. Limit berlaku 32 candle M15 sejak candle MSS; Jurnal memakai batas itu (lewat = EXPIRED), label "Scalping CRT D1→M15 (Longgar-4)"
+          1. D1: close di atas EMA26 dan EMA60 → BUY; di bawah keduanya → SELL{'\n'}
+          2. D1: ADX(14) &gt; 25 (tanpa syarat arah DI){'\n'}
+          3. D1: RSI(14) 50–60 untuk BUY, 40–50 untuk SELL{'\n'}
+          4. H1: tren searah D1 (close di atas/bawah EMA26 dan EMA60 H1){'\n'}
+          5. H1: swing fractal 2-2 dalam 100 candle. BUY: swing high terbaru lebih tinggi dari swing high sebelumnya; leg = swing low terakhir sebelum swing high itu → swing high. SELL = cermin{'\n'}
+          6. Zona entry = retrace Fibonacci 0,5–0,618 dari leg itu{'\n'}
+          7. Konfluensi di zona (scan 100 candle H1): FVG yang belum tertutup, Order Block yang belum dimitigasi, atau SNR (cluster swing, ≥ 2 sentuhan). Bukan filter wajib, hanya menentukan level limit{'\n'}
+          8. LIMIT di tepi konfluensi terdekat ke harga (tetap di dalam zona); tanpa konfluensi → limit di tengah zona (retrace 0,559){'\n'}
+          9. SL = di luar swing low (SELL: swing high) ∓ 0,15 ATR H1. TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618{'\n'}
+          10. Tanpa batas minimal range leg dan tanpa batas jarak SL. Sinyal batal bila ada close H1 menembus swing low/high (level SL) atau limit sudah tersentuh sebelumnya; kedaluwarsa 24 jam. Satu sinyal per leg. Label Jurnal "Scalping Retest Fib D1→H1"
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />

@@ -69,11 +69,11 @@ export function SortSelector({ value, onChange }: { value: SortKey; onChange: (k
  * Skor TA PRO sisi yang SEARAH sinyal (bullish -> LONG, bearish -> SHORT), dari `taPro` yang dibekukan server
  * saat sinyal dibuat. null kalau koin itu belum punya skor (mis. status waiting / data lama).
  */
-export function taProScoreOf(item: any): { score: number; grade: 'A+' | 'B' | 'Tidak layak' } | null {
+export function taProScoreOf(item: any): { score: number; grade: 'A+' | 'B' | 'Tidak layak'; max: number } | null {
   const snap = item?.taPro;
   if (!snap?.long || !snap?.short) return null;
   const side = item?.bias === 'bearish' ? snap.short : snap.long;
-  return typeof side?.score === 'number' ? { score: side.score, grade: side.grade } : null;
+  return typeof side?.score === 'number' ? { score: side.score, grade: side.grade, max: typeof snap.maxScore === 'number' ? snap.maxScore : 9 } : null;
 }
 
 export function applySorting<T>(items: T[], sortKey: SortKey, getMeta: (item: T) => MarketMeta | null | undefined): T[] {

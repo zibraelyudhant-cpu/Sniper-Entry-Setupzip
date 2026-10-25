@@ -14,7 +14,11 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 // ─── Poin per komponen skor TA PRO (sisi searah sinyal) ───
 export const TA_COMPONENTS = [
   { key: 'structH4', label: 'Struktur H4' },
-  { key: 'structH1', label: 'Struktur H1' },
+  { key: 'structD1', label: 'Struktur D1 (skor v3)' },
+  { key: 'structH1f', label: 'Struktur H1 + MSS/CHoCH (skor v3)' },
+  { key: 'structM30', label: 'Struktur M30 (skor v2 lama)' },
+  { key: 'locH4', label: 'Lokasi H4 (skor v2/v3)' },
+  { key: 'structH1', label: 'Struktur H1 (skor v1 lama)' },
   { key: 'oi', label: 'Open Interest' },
   { key: 'lsr', label: 'Long/Short ratio' },
   { key: 'funding', label: 'Funding' },
@@ -38,7 +42,9 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && isFini
 const bool = (v: boolean | undefined): number | undefined => (v === undefined ? undefined : v ? 1 : 0);
 
 const FEATURES: Feature[] = [
-  { id: 'taScore', label: 'Skor TA PRO', get: e => taScoreOfEntry(e)?.score },
+  { id: 'taScore', label: 'Skor TA PRO v3', get: e => { const t = taScoreOfEntry(e); return t && t.ver === 3 ? t.score : undefined; } },
+  { id: 'taScoreV2', label: 'Skor TA PRO v2 (lama)', get: e => { const t = taScoreOfEntry(e); return t && t.ver === 2 ? t.score : undefined; } },
+  { id: 'taScoreV1', label: 'Skor TA PRO v1 (lama)', get: e => { const t = taScoreOfEntry(e); return t && t.ver === 1 ? t.score : undefined; } },
   ...TA_COMPONENTS.map(c => ({ id: 'ta_' + c.key, label: 'Poin ' + c.label, get: (e: JournalEntry) => { const p = taPtsOf(e); const v = p?.[c.key]; return v === null || v === undefined ? undefined : v; } })),
   { id: 'adxS', label: 'ADX struktur', get: e => num(e.technicalSnapshot?.struktur?.adx) },
   { id: 'adxE', label: 'ADX eksekusi', get: e => num(e.technicalSnapshot?.eksekusi?.adx) },
@@ -164,7 +170,9 @@ export function taComponentAnalysis(entries: JournalEntry[]): TaComponentSection
   const out: TaComponentSection[] = [];
   for (const c of TA_COMPONENTS) {
     const groups = new Map<string, JournalEntry[]>();
-    for (const e of withPts) {
+    const hasKey = withPts.filter(e => Object.prototype.hasOwnProperty.call(taPtsOf(e)!, c.key)); // komponen khusus satu versi skor
+    if (hasKey.length === 0) continue;
+    for (const e of hasKey) {
       const v = taPtsOf(e)![c.key];
       const lab = v === null || v === undefined ? 'x (data tidak ada)' : `${v > 0 ? '+' : ''}${v}`;
       if (!groups.has(lab)) groups.set(lab, []);
@@ -174,7 +182,7 @@ export function taComponentAnalysis(entries: JournalEntry[]): TaComponentSection
       const win = g.filter(isWin).length, lose = g.filter(e => e.status === 'lose').length;
       return { label: `${c.label}: ${label}`, total: g.length, win, lose, pending: g.filter(e => e.status === 'pending').length, winRate: win + lose > 0 ? Math.round((win / (win + lose)) * 100) : 0 };
     }).sort((a, b) => (parseFloat(b.label.split(': ')[1]!) || -99) - (parseFloat(a.label.split(': ')[1]!) || -99));
-    const dec = (pred: (v: number) => boolean) => withPts.filter(isResolved).filter(e => { const v = taPtsOf(e)![c.key]; return v !== null && v !== undefined && pred(v); });
+    const dec = (pred: (v: number) => boolean) => hasKey.filter(isResolved).filter(e => { const v = taPtsOf(e)![c.key]; return v !== null && v !== undefined && pred(v); });
     const pos = dec(v => v > 0), neg = dec(v => v < 0);
     let hint: string;
     if (pos.length < 10 || neg.length < 10) hint = `Sampel kecil (poin positif ${pos.length}, negatif ${neg.length} sinyal selesai; butuh ≥10 masing-masing).`;

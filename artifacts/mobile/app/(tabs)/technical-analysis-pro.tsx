@@ -238,8 +238,8 @@ function LongShortSideCard({ title, side, max }: { title: string; side: any; max
 function LongShortScoreResultView({ data }: { data: any }) {
   return (
     <View>
-      <LongShortSideCard title="SKOR LONG" side={data.long} max={data.maxScore ?? 9} />
-      <LongShortSideCard title="SKOR SHORT (kebalikan long)" side={data.short} max={data.maxScore ?? 9} />
+      <LongShortSideCard title="SKOR LONG" side={data.long} max={data.maxScore ?? 11} />
+      <LongShortSideCard title="SKOR SHORT (kebalikan long)" side={data.short} max={data.maxScore ?? 11} />
       {(data.notes ?? []).map((t: string, i: number) => <Text key={`n${i}`} style={[styles.tfDetail, { fontStyle: 'italic', marginBottom: 6 }]}>{t}</Text>)}
     </View>
   );
