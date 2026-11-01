@@ -19,7 +19,7 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="breakout">
         <Icon sf={{ default: 'bolt.horizontal', selected: 'bolt.horizontal.fill' }} />
-        <Label>Scalping</Label>
+        <Label>Fib Retest</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="money-magnet-scalping">
         <Icon sf={{ default: 'bolt.circle', selected: 'bolt.circle.fill' }} />
@@ -103,7 +103,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="breakout"
         options={{
-          title: 'Scalping',
+          title: 'Fib Retest',
           // FIX (request user): sama kayak di atas -- 'breakout' ini file
           // Scalping (Structural+Skill15M), TANPA lazy=false dia baru
           // ke-mount pas user pertama kali tap tab 'Scalping', jadi scan-nya

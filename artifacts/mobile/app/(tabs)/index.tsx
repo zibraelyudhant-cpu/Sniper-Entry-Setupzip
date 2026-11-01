@@ -90,6 +90,13 @@ interface BreakoutTradingResult {
   d1ChangePct?: number;
   d1Aligned?: boolean;
   d1WarningMsg?: string;
+  // Sniper Breakout H1->M5 Breakout+Fib (bk1)
+  validUntilMs?: number;
+  bkVersion?: string; bkLevelLo?: number; bkLevelHi?: number; bkVolRatio?: number;
+  bkSwingHigh?: number; bkSwingLow?: number; bkZoneLo?: number; bkZoneHi?: number;
+  bkBasis?: 'fvg' | 'snr' | 'mid'; bkConfluence?: string; bkRetracePct?: number; bkTp2Fib?: number;
+  bkRangeAtr?: number; bkLegAgeBars?: number;
+  bkH1High?: number; bkH1Low?: number; bkH1Fib705?: number; bkH1Struct?: 'LL' | 'HH';
   // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
   marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null;
 }
@@ -275,10 +282,10 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const entries: JournalEntry[] = eligible.map(c => {
       // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill
-      // 1 = analyzeCounterStructural (H4 struktur, M15 eksekusi). Label M30 lama dibuang.
-      const skillLabel = 'Sniper Breakout (H4→M15)';
-      const tfStruktur = 'H4';
-      const tfEksekusi = 'M15';
+      // 1 = analyzeCounterStructural (D1 struktur, H1 eksekusi; ganti TF dari H4→M15 pada 2026-10-26). Label lama dibuang.
+      const skillLabel = 'Sniper Breakout (H1→M5)'; // label baru (Breakout+Fib 2026-10-30) biar statistik Jurnal terpisah dari D1→H1 CRT
+      const tfStruktur = 'H1';
+      const tfEksekusi = 'M5';
       return {
         id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
         symbol: c.symbol, bias: c.bias!,
@@ -290,7 +297,12 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
         orderType: c.orderType,
         btcAligned: c.btcAligned, btcBias: c.btcBias,
-        d1Aligned: c.d1Aligned, d1ChangePct: c.d1ChangePct,
+        validUntil: c.validUntilMs,
+        bkVersion: c.bkVersion, bkLevelLo: c.bkLevelLo, bkLevelHi: c.bkLevelHi, bkVolRatio: c.bkVolRatio,
+        bkSwingHigh: c.bkSwingHigh, bkSwingLow: c.bkSwingLow, bkZoneLo: c.bkZoneLo, bkZoneHi: c.bkZoneHi,
+        bkBasis: c.bkBasis, bkConfluence: c.bkConfluence, bkRetracePct: c.bkRetracePct, bkTp2Fib: c.bkTp2Fib,
+        bkRangeAtr: c.bkRangeAtr, bkLegAgeBars: c.bkLegAgeBars,
+        bkH1High: c.bkH1High, bkH1Low: c.bkH1Low, bkH1Fib705: c.bkH1Fib705, bkH1Struct: c.bkH1Struct,
         signalStatus: (c.status === 'siap_retest' || c.status === 'siap_breakout' || c.status === 'in_zone') ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
         timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
       };
@@ -310,7 +322,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — H4→M15 CRT</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Sniper Breakout — H1→M5 Breakout + Fibonacci</Text>
       </View>
     );
   }
@@ -339,7 +351,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — H4→M15 CRT'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Sniper Breakout — H1→M5 Breakout + Fibonacci'}
           </Text>
         </View>
       );
@@ -514,21 +526,26 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     setSavingJournal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // REVISI (request user): Money Magnet 3 dihapus, Sniper Breakout Skill 1
-    // = analyzeCounterStructural (H4 struktur, M15 eksekusi). Label M30 lama dibuang.
-    const skillLabel = 'Sniper Breakout (H4→M15)';
-    const tfStruktur = 'H4';
+    // = analyzeCounterStructural (D1 struktur, H1 eksekusi; ganti TF dari H4→M15 pada 2026-10-26). Label lama dibuang.
+    const skillLabel = 'Sniper Breakout (H1→M5)'; // label baru (Breakout+Fib 2026-10-30) biar statistik Jurnal terpisah dari D1→H1 CRT
+    const tfStruktur = 'H1';
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
       sourceMenu: 'Sniper Breakout', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur, tfEksekusi: 'M15',
+      tfStruktur, tfEksekusi: 'M5',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
-      d1Aligned: data.d1Aligned, d1ChangePct: data.d1ChangePct,
+      validUntil: data.validUntilMs,
+        bkVersion: data.bkVersion, bkLevelLo: data.bkLevelLo, bkLevelHi: data.bkLevelHi, bkVolRatio: data.bkVolRatio,
+        bkSwingHigh: data.bkSwingHigh, bkSwingLow: data.bkSwingLow, bkZoneLo: data.bkZoneLo, bkZoneHi: data.bkZoneHi,
+        bkBasis: data.bkBasis, bkConfluence: data.bkConfluence, bkRetracePct: data.bkRetracePct, bkTp2Fib: data.bkTp2Fib,
+        bkRangeAtr: data.bkRangeAtr, bkLegAgeBars: data.bkLegAgeBars,
+        bkH1High: data.bkH1High, bkH1Low: data.bkH1Low, bkH1Fib705: data.bkH1Fib705, bkH1Struct: data.bkH1Struct,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
@@ -815,7 +832,7 @@ export default function BreakoutEntryScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Sniper Breakout</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H4→M15 CRT (Candle Range Theory + ICT) — entry pakai buy/sell LIMIT</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H1→M5 Breakout SnR + Retest Fibonacci — entry pakai buy/sell LIMIT</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -855,18 +872,21 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Sniper Breakout</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          H4 nentuin bias (Discount/Premium dari posisi harga dalam range H4, Range/ATR14 nentuin validitas). Di M15, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H4 max 5, M15 max 11), minimum 12/16 baru dieksekusi.
+          H1 nentuin arah lewat EMA50 dan EMA200 (close di atas keduanya = bullish, di bawah keduanya = bearish), lalu cek struktur H1: swing terbaru harus LL (bearish) atau HH (bullish) dan close H1 belum menembus Fib 0,705 dari leg H1. Di M5, cari breakout SnR searah H1 dengan volume ≥ 1,6x rata-rata 20 candle. Setelah breakout, tunggu swing high/low baru terbentuk, lalu tarik Fibonacci dan pasang LIMIT di area retest (pakai FVG atau SNR kuat dalam zona 0,382–0,618 kalau ada; kalau tidak ada, BUY di Fib 0,705 dan SELL di Fib 0,5).
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. H4 Bias — posisi harga dalam range H4 (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
-          2. M15 Liquidity Sweep — nembus swing high/low ≥0,10x ATR M15{'\n'}
-          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body/range ≥70% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
-          4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
-          5. Scoring 16 poin (H4 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M15 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR TP2 ≥3,5 +2, 3,0–3,5 +1){'\n'}
-          6. Entry LIMIT di 50% FVG (CE), SL = entry ± 2,0x ATR M15, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 12 candle M15 (~3 jam)
+          1. H1 (fetch 300 candle): close di atas EMA50 dan EMA200 = BULLISH, di bawah keduanya = BEARISH, selain itu dilewati{'\n'}
+          1b. Struktur H1 (swing fractal 3): BEARISH = swing low terbaru harus LL (lebih rendah dari swing low sebelumnya), BULLISH = swing high terbaru harus HH. Leg H1 = swing high terakhir sebelum swing low itu (BULLISH: kebalikannya). Tolak bila ada close H1 melewati Fib 0,705 leg itu (struktur patah, ekor candle tidak dihitung), atau close H1 terakhir sudah melewati swing itu (low/high baru masih terbentuk, tunggu swing){'\n'}
+          2. M5 (fetch 300 candle): cari breakout SnR searah H1. SnR = cluster swing fractal 3 (toleransi 0,5 ATR, minimal 2 sentuhan). Breakout valid = close M5 pertama di luar cluster dengan volume ≥ 1,6x MA20{'\n'}
+          3. Biarkan breakout membentuk swing high/low terbaru dulu (swing fractal 3; leg: swing low → swing high untuk BUY, kebalikannya untuk SELL){'\n'}
+          4. Area retest Fibonacci 0,382–0,618 dari leg. Ada FVG atau SNR kuat di zona → limit di tepi terdekat ke harga. Tidak ada → BUY limit di Fib 0,705, SELL limit di Fib 0,5{'\n'}
+          5. SL = entry ∓ 2x ATR M5{'\n'}
+          6. TP1 = RR 1:2. TP2 = level Fib terkecil di 1,13 / 1,272 / 1,414 / 1,618 (SELL: -0,13 / -0,272 / -0,414 / -0,618) yang melewati TP1; kalau tidak ada yang melewati TP1 sinyal dilewati{'\n'}
+          7. Batal bila: high/low baru melewati ujung leg, close menembus awal leg, limit sudah tersentuh, atau close kembali ke dalam level SnR (breakout gagal). Limit berlaku 24 jam.{'\n'}
+          Catatan: strategi ini belum di-backtest, Journal yang jadi pembuktiannya. Detail yang tidak dijelaskan di file strategi (definisi SnR valid, pemilihan swing, level TP2) memakai tafsiran gua.
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Sniper Breakout" accentColor={ACCENT} />

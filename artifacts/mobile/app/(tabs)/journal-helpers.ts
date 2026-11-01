@@ -58,8 +58,14 @@ export const SCALPING_SKILL_MAGNET = 'Scalping Money Magnet (H4→M30)';
 export const SCALPING_SKILL_CRT = 'Scalping CRT D1→M15 (Longgar-4)'; // LEGACY: diganti Pullback D1→H1 2026-10-25, entry lama tetap tampil
 // Scalping Pullback D1→H1 (request user 2026-10-25, ganti total CRT). Label baru biar statistik forward test bersih.
 export const SCALPING_SKILL_PB = 'Scalping Pullback D1→H1'; // LEGACY: diganti Retest Fib D1→H1 2026-10-26, entry lama tetap tampil
-// Scalping Retest Fib D1→H1 (request user 2026-10-26, ganti total Pullback). Label WAJIB sama dengan SCALPING_RP.SKILL_LABEL di api-server/src/lib/smc.ts.
-export const SCALPING_SKILL_RP = 'Scalping Retest Fib D1→H1';
+// Scalping Retest Fib D1→H1 (rp1, 2026-10-26) — LEGACY: TF diganti ke H1→M5 pada 2026-10-27, entry lama tetap tampil dan dihitung terpisah.
+export const SCALPING_SKILL_RP_D1 = 'Scalping Retest Fib D1→H1';
+// Scalping Retest Fib H1→M5 (rp2-rp6, 2026-10-27 s/d 2026-11-01) — LEGACY: menu diganti Fibonacci Retest (rp7, H1 only) 2026-11-01, entry lama tetap tampil dan dihitung terpisah.
+export const SCALPING_SKILL_RP_M5 = 'Scalping Retest Fib H1→M5';
+// Fibonacci Retest (rp7, H1 only, request user 2026-11-01). Label WAJIB sama dengan SCALPING_RP.SKILL_LABEL di api-server/src/lib/smc.ts.
+export const SCALPING_SKILL_RP = 'Fibonacci Retest';
+// Menu Money Magnet Scalping (H1→M5 CRT). Label WAJIB sama dengan yang dipakai money-magnet-scalping.tsx saat menyimpan sinyal.
+export const SCALPING_SKILL_MMS = 'Money Magnet Scalping (H1→M5 CRT)';
 
 /**
  * 1 record Journal — REQUEST USER: lengkap & detail, biar bisa dianalisa
@@ -140,10 +146,11 @@ export interface JournalEntry {
   pbZoneLo?: number;
   pbZoneHi?: number;
   pbPullbackBars?: number;   // candle H1 sejak harga terakhir >= 1 ATR dari zona
-  // Scalping Retest Fib D1->H1 (2026-10-26): metrik setup saat sinyal, buat forward test & riset. validUntil = batas fill limit.
+  // Scalping Retest Fib (rp1 = D1->H1 2026-10-26, rp2 = H1->M5 2026-10-27): metrik setup saat sinyal (rpAdxD1/rpRsiD1 = ADX/RSI TF struktur), buat forward test & riset. validUntil = batas fill limit.
   rpVersion?: string;
   rpAdxD1?: number;          // ADX(14) D1 (aturan > 25)
-  rpRsiD1?: number;          // RSI(14) D1 (LONG 50-60, SHORT 40-50)
+  rpRsiD1?: number;          // LEGACY (rp1/rp2): RSI(14) TF struktur (LONG 50-60, SHORT 40-50)
+  rpFiH1?: number;           // rp3: Force Index EMA2 H1 (LONG > 0, SHORT < 0)
   rpSwingHigh?: number;      // ujung leg Fibonacci H1
   rpSwingLow?: number;
   rpRangeAtr?: number;       // range leg / ATR H1
@@ -153,6 +160,24 @@ export interface JournalEntry {
   rpBasis?: 'fvg' | 'ob' | 'snr' | 'mid'; // dasar level limit (mid = tengah zona, tanpa konfluensi)
   rpConfluence?: string;     // mis. 'FVG+SNR' ('' = tidak ada)
   rpRetracePct?: number;     // posisi limit dalam retrace (0,5-0,618)
+  // Sniper Breakout H1->M5 Breakout+Fib (bk1, 2026-10-30): metrik setup, buat forward test & riset. validUntil = batas fill limit.
+  bkVersion?: string;
+  bkLevelLo?: number;        // tepi bawah cluster SnR yang ditembus
+  bkLevelHi?: number;        // tepi atas cluster SnR yang ditembus
+  bkVolRatio?: number;       // volume candle breakout / rata-rata 20 candle sebelumnya (aturan >= 1,6)
+  bkSwingHigh?: number;      // ujung leg Fibonacci M5 (SHORT: awal leg)
+  bkSwingLow?: number;
+  bkZoneLo?: number;         // zona retrace 0,382-0,618
+  bkZoneHi?: number;
+  bkBasis?: 'fvg' | 'snr' | 'mid'; // dasar level limit (mid = Fib 0,5 tanpa konfluensi)
+  bkConfluence?: string;     // mis. 'FVG+SNR' ('' = tidak ada)
+  bkRetracePct?: number;     // posisi limit dalam retrace (0,382-0,618)
+  bkTp2Fib?: number;         // level Fib yang dipakai TP2 (BUY 1,13-1,618; SELL -0,13 s/d -0,618)
+  bkRangeAtr?: number;       // range leg / ATR M5
+  bkLegAgeBars?: number;     // umur swing akhir leg (candle M5)
+  bkH1High?: number; bkH1Low?: number; // leg struktur H1 (bk3)
+  bkH1Fib705?: number;       // level Fib 0,705 leg H1 (batas struktur, bk3)
+  bkH1Struct?: 'LL' | 'HH';  // struktur H1 saat sinyal (bk3)
   // Skor TA PRO (Fitur 5) saat sinyal disimpan (info, TIDAK memblokir). Kosong kalau fetch gagal.
   taLongScore?: number;      // v1: -9..9 (maks 9), v2: maks 11 (lihat taMaxScore)
   taLongGrade?: 'A+' | 'B' | 'Tidak layak';
@@ -271,13 +296,15 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
  * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
  * (dianggap kejadian baru, bukan re-save yang gak sengaja).
  */
-function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow'> & { entryPrice?: number }): string {
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow' | 'bkVersion' | 'bkSwingHigh' | 'bkSwingLow'> & { entryPrice?: number }): string {
   const orderType = e.orderType ?? 'limit';
   // Fakeout: satu koin bisa punya beberapa setup berbeda dalam 24 jam (level beda) -> entryPrice ikut kunci. Setup yang SAMA tetap ke-dedupe.
   const lv = (e.sourceSkill === SCALPING_SKILL_FAKEOUT || e.sourceSkill === SCALPING_SKILL_CRT) ? `|${e.entryPrice}` : '';
   // Retest Fib: satu sinyal per LEG (swing high+low yang sama), bukan per entryPrice (level limit bisa bergeser sedikit di leg yang sama).
-  const leg = e.sourceSkill === SCALPING_SKILL_RP ? `|${e.rpSwingHigh}|${e.rpSwingLow}` : '';
-  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}${leg}`;
+  const leg = (e.sourceSkill === SCALPING_SKILL_RP || e.sourceSkill === SCALPING_SKILL_RP_M5 || e.sourceSkill === SCALPING_SKILL_RP_D1) ? `|${e.rpSwingHigh}|${e.rpSwingLow}` : '';
+  // Sniper Breakout+Fib: satu sinyal per LEG (swing high+low yang sama).
+  const bkLeg = e.bkVersion ? `|${e.bkSwingHigh}|${e.bkSwingLow}` : '';
+  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}${leg}${bkLeg}`;
 }
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -825,8 +852,8 @@ export interface ScalpForwardTest {
   verdictText: string;
 }
 
-export function buildScalpForwardTest(entries: JournalEntry[], skill: string, shortName: string): ScalpForwardTest {
-  const sk = entries.filter(e => e.sourceMenu === 'Scalping' && e.sourceSkill === skill);
+export function buildScalpForwardTest(entries: JournalEntry[], skill: string, shortName: string, menu: SourceMenu = 'Scalping'): ScalpForwardTest {
+  const sk = entries.filter(e => e.sourceMenu === menu && e.sourceSkill === skill);
   const resolvedE = sk.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2' || e.status === 'lose');
   const win = resolvedE.filter(e => e.status !== 'lose').length;
   const lose = resolvedE.length - win;
@@ -836,7 +863,7 @@ export function buildScalpForwardTest(entries: JournalEntry[], skill: string, sh
     const risk = Math.abs(e.entryPrice - e.stopLoss);
     let r: number;
     if (e.status === 'lose') r = -1;
-    else if (e.sourceSkill === SCALPING_SKILL_RP && risk > 0) {
+    else if ((e.sourceSkill === SCALPING_SKILL_RP || e.sourceSkill === SCALPING_SKILL_RP_M5 || e.sourceSkill === SCALPING_SKILL_RP_D1 || e.sourceSkill === SCALPING_SKILL_MMS) && risk > 0) {
       const tgt = e.status === 'win_tp2' && e.takeProfit2 ? e.takeProfit2 : e.takeProfit1;
       r = Math.abs(tgt - e.entryPrice) / risk;
     } else r = (e.sourceSkill === SCALPING_SKILL_PB && typeof e.rr1 === 'number' && e.rr1 > 0 ? e.rr1 : 2);
@@ -871,9 +898,24 @@ export function buildScalpForwardTest(entries: JournalEntry[], skill: string, sh
   };
 }
 
-/** Forward test Menu Scalping yang aktif sekarang: Retest Fib D1->H1. */
+/** Forward test menu yang aktif sekarang: Fibonacci Retest (rp7, H1 only). */
 export function buildRpForwardTest(entries: JournalEntry[]): ScalpForwardTest {
-  return buildScalpForwardTest(entries, SCALPING_SKILL_RP, 'Retest Fib D1→H1');
+  return buildScalpForwardTest(entries, SCALPING_SKILL_RP, 'Fibonacci Retest');
+}
+
+/** LEGACY: forward test Retest Fib H1->M5 (rp2-rp6; menu sudah diganti Fibonacci Retest, sinyal lama tetap bisa dihitung). */
+export function buildRpM5ForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_RP_M5, 'Retest Fib H1→M5');
+}
+
+/** Forward test menu Money Magnet Scalping (H1->M5 CRT): WIN = jarak ke target yang kena (TP1 RR 1:2 atau TP2) / risk, LOSE = -1R. */
+export function buildMmsForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_MMS, 'Money Magnet Scalping', 'Money Magnet Scalping');
+}
+
+/** LEGACY: forward test Retest Fib D1->H1 (rp1; menu sudah dipindah ke H1->M5, sinyal lama tetap bisa dihitung). */
+export function buildRpD1ForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_RP_D1, 'Retest Fib D1→H1');
 }
 
 /** LEGACY: forward test Pullback D1->H1 (menu sudah diganti Retest Fib; sinyal lama tetap bisa dihitung). */

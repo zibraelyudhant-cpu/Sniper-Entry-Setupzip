@@ -10,7 +10,7 @@ import {
   journalLoadAll, breakdownBySkill,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, buildDevelopmentRecommendations,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
-  buildRpForwardTest, SCALP_FORWARD,
+  buildRpForwardTest, buildMmsForwardTest, SCALP_FORWARD,
 } from '../app/(tabs)/journal-helpers';
 
 /**
@@ -43,8 +43,16 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
   const loseProfiles = React.useMemo(() => buildLoseConditionProfiles(entries, 'skill'), [entries]);
   const recommendations = React.useMemo(() => buildDevelopmentRecommendations(entries), [entries]);
   const perSkill = React.useMemo(() => breakdownBySkill(entries), [entries]);
-  // Forward test Scalping Retest Fib D1→H1 — SENGAJA pakai allEntries (bukan yang kena baseline): strategi ini sendiri titik mulainya.
-  const mmForward = React.useMemo(() => (sourceMenu === 'Scalping' ? buildRpForwardTest(allEntries) : null), [allEntries, sourceMenu]);
+  // Forward test Fibonacci Retest (H1) — SENGAJA pakai allEntries (bukan yang kena baseline): strategi ini sendiri titik mulainya.
+  const mmForward = React.useMemo(() => (
+    sourceMenu === 'Scalping' ? buildRpForwardTest(allEntries)
+    : sourceMenu === 'Money Magnet Scalping' ? buildMmsForwardTest(allEntries)
+    : null
+  ), [allEntries, sourceMenu]);
+  // Teks kartu Forward Test per menu (Scalping = Retest Fib H1→M5, belum di-backtest; Money Magnet Scalping = CRT H1→M5).
+  const fwMeta = sourceMenu === 'Money Magnet Scalping'
+    ? { title: 'MONEY MAGNET SCALPING H1→M5', label: 'Money Magnet Scalping H1→M5 CRT', note: 'Money Magnet Scalping belum punya bukti statistik, jadi forward test ini bukti yang menentukan.' }
+    : { title: 'FIBONACCI RETEST (H1)', label: 'Fibonacci Retest H1', note: 'Strategi ini BELUM di-backtest, jadi forward test ini satu-satunya bukti.' };
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={accentColor} /></View>;
@@ -83,7 +91,7 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
           <View style={{ borderRadius: 12, borderWidth: 1, borderColor: vColor, backgroundColor: `${vColor}0D`, padding: 12, marginBottom: 14 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Feather name="activity" size={12} color={vColor} />
-              <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: vColor, letterSpacing: 0.5 }}>FORWARD TEST — SCALPING RETEST FIB D1→H1</Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: vColor, letterSpacing: 0.5 }}>FORWARD TEST — {fwMeta.title}</Text>
             </View>
             <View style={{ height: 6, borderRadius: 3, backgroundColor: `${colors.mutedForeground}25`, overflow: 'hidden', marginBottom: 8 }}>
               <View style={{ width: `${gf.progressPct}%`, height: 6, backgroundColor: vColor }} />
@@ -99,7 +107,7 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
               Per arah: {gf.bySide.map(r => `${r.side} ${r.win}/${r.resolved}`).join(' · ')} (win/resolve)
             </Text>
             <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, lineHeight: 15, marginTop: 6 }}>
-              {gf.total} sinyal berlabel Retest Fib D1→H1 ({gf.win}W/{gf.lose}L, {gf.pending} pending, {gf.expired} expired). Kriteria lolos: ≥{SCALP_FORWARD.MIN_RESOLVED} resolve, win rate &gt; {SCALP_FORWARD.MIN_WIN_RATE}%, avgR setelah biaya &gt; 0. R dihitung: WIN = jarak ke target yang kena (TP1 Fib 1,272 atau TP2 Fib 1,618) dibagi jarak SL, LOSE = −1R; biaya = asumsi 0,08% round-trip. Sinyal limit yang tidak terisi sampai 24 jam = EXPIRED (tidak dihitung menang/kalah). Strategi ini BELUM di-backtest, jadi forward test ini satu-satunya bukti.
+              {gf.total} sinyal berlabel {fwMeta.label} ({gf.win}W/{gf.lose}L, {gf.pending} pending, {gf.expired} expired). Kriteria lolos: ≥{SCALP_FORWARD.MIN_RESOLVED} resolve, win rate &gt; {SCALP_FORWARD.MIN_WIN_RATE}%, avgR setelah biaya &gt; 0. R dihitung: WIN = jarak ke target yang kena (TP1 atau TP2) dibagi jarak SL, LOSE = −1R; biaya = asumsi 0,08% round-trip. Sinyal limit yang tidak terisi sampai batas waktu = EXPIRED (tidak dihitung menang/kalah). {fwMeta.note}
             </Text>
           </View>
         );

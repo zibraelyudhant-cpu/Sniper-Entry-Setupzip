@@ -22,7 +22,8 @@ import { TaProScoreCard } from '@/components/TaProScoreCard';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
-import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
+import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_MMS, type JournalEntry } from './journal-helpers';
+import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MENU BARU (request user): Money Magnet Scalping -- logic Money Magnet
@@ -37,7 +38,7 @@ import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEn
 const ACCENT = MENU_COLORS.moneyMagnetScalping;
 
 // Nama skill di Journal (save satuan & simpan semua pakai nama yang sama biar WR gak kepecah).
-const MM_SKILL_BASE = 'Money Magnet Scalping (H1→M5 CRT)';
+const MM_SKILL_BASE = SCALPING_SKILL_MMS; // label dipakai juga oleh forward test Jurnal (journal-helpers.ts)
 
 type ScanResponse = {
   coins: Array<ScalpingResult & { marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null }>;
@@ -547,7 +548,7 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Money Magnet Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          H1 nentuin bias (Discount/Premium dari posisi harga dalam range H1 candle yang lagi berjalan (forming), Range/ATR14 nentuin validitas). Di M5, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H1 max 5, M5 max 11), minimum 12/16 baru dieksekusi.
+          H1 nentuin bias (Discount/Premium dari posisi harga dalam range H1 candle yang lagi berjalan (forming), Range/ATR14 nentuin validitas). Di M5, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H1 max 5, M5 max 11), minimum 12/16 baru dieksekusi, dan jarak entry-SL minimal 0,8x ATR M5.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
@@ -558,12 +559,10 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
           3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
           4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
           5. Scoring 16 poin (H1 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M5 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
-          6. Entry LIMIT di 50% FVG (CE), SL = extreme sweep ± buffer 0,15x ATR, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 36 candle M5 (~3 jam)
+          6. Entry LIMIT di 50% FVG (CE), SL = entry ∓ 2x ATR M5, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 36 candle M5 (~3 jam)
         </Text>
       </View>
-      <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: 'center', marginTop: 8 }}>
-        Statistik win-rate belum tersedia untuk menu ini (belum terintegrasi ke infra backtest).
-      </Text>
+      <MenuJournalSummary sourceMenu="Money Magnet Scalping" accentColor={ACCENT} />
     </ScrollView>
   );
 }
