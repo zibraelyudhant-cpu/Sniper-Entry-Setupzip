@@ -1135,6 +1135,12 @@ export interface ScalpingResult {
   technicalSnapshot?: TechnicalSnapshot; // RSI/ATR/ADX/Stochastic struktur+eksekusi — informasional, buat Journal Trading
   marketStructureV2?: MarketStructureV2Result | null; // detail Market Structure V2 (klasifikasi, skor 3 arah, breakdown layer) — primary gate, buat transparansi kenapa sinyal ini lolos/di-block
   btcAligned?: boolean; // BTC Correlation — informasional buat Journal (request user, biar riset bisa liat kombinasi bias+BTC pas WIN/LOSE)
+  mmCrtVersion?: string;            // Money Magnet CRT: versi filter ('mm2' = + cek Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 dan TP2 RR 1:3)
+  mmH1Struct?: 'ok' | 'unknown';   // hasil cek struktur H1 (patah = sinyal ditolak, tidak sampai ke sini)
+  mmH1Fib705?: number;             // level Fib 0,705 leg H1 (harga asli), kalau leg terbentuk
+  mmSlMode?: 'fib' | 'atr';        // mm3: 'fib' = SL di Fib 0,71 leg sweep->displacement, 'atr' = fallback SL 2 x ATR M5 (leg tidak terbentuk)
+  mmFib0?: number;                 // harga Fib 0 (ujung leg searah sinyal), mode fib
+  mmFib1?: number;                 // harga Fib 1 (awal leg), mode fib
   btcBias?: 'bullish' | 'bearish' | 'ranging';
   // ═══ Breakout Retest Strategy M15 (request user, REVISI TOTAL skill 15M) ══
   takeProfit3?: number; // TP3 (4.4% dari entry)
@@ -1343,7 +1349,7 @@ async function checkBtcCorrelationFilter(
 // ═══════════════════════════════════════════════════════════════════════════
 export const SCALPING_CRT = CRT_PARAMS; // LEGACY: konstanta CRT lama (tidak dipakai lagi)
 export const SCALPING_RP = {
-  VERSION: 'rp7', // rp7 (2026-11-01) = Fibonacci Retest, H1 only (struktur LL/HH + Fib 0,705, SL 1 ATR H1); rp6 (2026-10-30) = SL entry -/+ 2 x ATR(M5); rp5 = EMA 50/200, ADX > 29,4; rp3 = Force Index EMA2 H1
+  VERSION: 'rp8', // rp8 (2026-11-02) = + leg H1 minimal 2 x ATR(H1) (studi Futures Replay 4 tahun); rp7 (2026-11-01) = Fibonacci Retest, H1 only (struktur LL/HH + Fib 0,705, SL 1 ATR H1); rp6 (2026-10-30) = SL entry -/+ 2 x ATR(M5); rp5 = EMA 50/200, ADX > 29,4; rp3 = Force Index EMA2 H1
   SKILL_LABEL: 'Fibonacci Retest',
   HTF_FETCH: 300,
   HTF_MIN_BARS: 250,
@@ -1356,6 +1362,7 @@ export const SCALPING_RP = {
   FIB_NEAR: 0.5, FIB_FAR: 0.618,
   TP1_EXT: 0.272, TP2_EXT: 0.618, // ekstensi 1,272 dan 1,618 dari leg
   SL_ATR: 1.0, // SL = entry -/+ 1 x ATR(H1) (rp7, 2026-11-01)
+  MIN_LEG_ATR: 2, // rp8: range leg H1 harus >= 2 x ATR(H1), kalau kecil ditolak
   SNR_TOL_ATR: 0.5, SNR_MIN_TOUCH: 2,
   VALID_MS: 24 * 3_600_000,
 } as const;
@@ -1426,6 +1433,7 @@ function rpFindLong(
   if (il < 0) return { ok: false, why: 'tidak ada swing H1 berlawanan sebelum swing terbaru' };
   const L = l[il]!, R = H - L;
   if (!(R > 0)) return { ok: false, why: 'range leg tidak valid' };
+  if (R < K.MIN_LEG_ATR * a) return { ok: false, why: `leg H1 terlalu kecil: ${(R / a).toFixed(2)} x ATR H1 (minimal ${K.MIN_LEG_ATR})` };
   // impuls masih berlanjut? (ada high lebih tinggi dari swing, termasuk candle berjalan, belum terkonfirmasi sebagai swing)
   let maxAfter = formH ?? -Infinity;
   for (let k = ih + 1; k < n; k++) maxAfter = Math.max(maxAfter, h[k]!);
@@ -3457,8 +3465,8 @@ export interface BreakoutTradingResult {
 //   M5 (fetch 300): breakout SnR searah H1. SnR = cluster swing fractal 2-2 (toleransi 0,5 ATR, >= 2 sentuhan).
 //     Breakout valid = candle M5 tertutup pertama yang close di luar tepi cluster (candle searah), volume >= 1,6x rata-rata 20 candle sebelumnya.
 //     Setelah breakout, tunggu swing high/low fractal baru terbentuk (leg = swing low -> swing high, SHORT kebalikannya).
-//     Swing = fractal 3 (bk2, 2026-11-01). Zona konfluensi Fib 0,382-0,618. Ada FVG atau SNR kuat di zona -> limit di tepi terdekat ke harga;
-//     tidak ada -> BUY limit di Fib 0,705, SELL limit di Fib 0,5 (bk2).
+//     Swing = fractal 3 (bk2, 2026-11-01). Zona konfluensi Fib 0,5-0,618 (bk4; sebelumnya 0,382-0,618). Ada FVG atau SNR kuat di zona -> limit di tepi terdekat ke harga;
+//     tidak ada -> BUY dan SELL limit di Fib 0,559 (bk4; bk2-bk3: BUY 0,705 / SELL 0,5).
 //   SL = entry -/+ 2 x ATR(M5). TP1 = RR 1:2. TP2 = level Fib terkecil di {1,13; 1,272; 1,414; 1,618} (BUY) yang melewati TP1;
 //     SHORT = cermin ({-0,13; -0,272; -0,414; -0,618}). Tidak ada yang melewati TP1 -> sinyal dilewati.
 //   Batal: high/low baru melewati ujung leg, close menembus awal leg, limit sudah tersentuh, atau close kembali ke dalam cluster level (breakout gagal).
@@ -3469,15 +3477,16 @@ export interface BreakoutTradingResult {
 //     Fib 0,705 leg H1 = batas struktur: ada close candle H1 melewatinya sejak swing terbentuk -> sinyal ditolak (ekor candle tidak dihitung).
 //     Close H1 terakhir sudah melewati swing itu (low/high baru sedang terbentuk) -> tunggu swing.
 const SNIPER_BK = {
-  VERSION: 'bk3', // bk1 = fractal 2-2, fallback Fib 0,5; bk2 = fractal 3, fallback BUY 0,705 / SELL 0,5; bk3 (2026-11-01) = + struktur H1 (LL/HH) & batas Fib 0,705 H1
+  VERSION: 'bk5', // bk5 (2026-11-02) = + leg M5 minimal 2 x ATR(M5) (studi Futures Replay 4 tahun); bk4 (2026-11-01) = zona entry Fib 0,5-0,618 dan fallback BUY/SELL sama-sama Fib 0,559 (tengah zona); bk1 = fractal 2-2, fallback Fib 0,5; bk2 = fractal 3, fallback BUY 0,705 / SELL 0,5; bk3 (2026-11-01) = + struktur H1 (LL/HH) & batas Fib 0,705 H1
   H1_SWING: 3, H1_FIB_BREAK: 0.705,
   HTF_FETCH: 300, LTF_FETCH: 300, HTF_MIN_BARS: 250,
   SWING: 3, // fractal 3 kiri-kanan untuk SnR dan leg Fib
   EMA_FAST: 50, EMA_SLOW: 200,
   VOL_MA: 20, VOL_MIN: 1.6,
   SCAN_BARS: 200,
-  FIB_NEAR: 0.382, FIB_FAR: 0.618, FIB_FALLBACK_BUY: 0.705, FIB_FALLBACK_SELL: 0.5,
+  FIB_NEAR: 0.5, FIB_FAR: 0.618, FIB_FALLBACK_BUY: 0.559, FIB_FALLBACK_SELL: 0.559,
   SL_ATR: 2.0, TP1_RR: 2.0,
+  MIN_LEG_ATR: 2, // bk5: range leg M5 harus >= 2 x ATR(M5), kalau kecil ditolak
   TP2_FIBS: [1.13, 1.272, 1.414, 1.618],
   FIB_LEVELS: [1.618, 1.414, 1.272, 1.13, 1, 0.886, 0.786, 0.705, 0.618, 0.5, 0.382, 0.236, 0, -0.13, -0.272, -0.414, -0.618],
   SNR_TOL_ATR: 0.5, SNR_MIN_TOUCH: 2,
@@ -3550,13 +3559,14 @@ function bkFindLong(
   if (il < 0) return { ok: false, why: 'tidak ada swing low M5 sebelum swing high pasca-breakout' };
   const H = h[ih]!, L = l[il]!, R = H - L;
   if (!(R > 0)) return { ok: false, why: 'range leg tidak valid' };
+  if (R < K.MIN_LEG_ATR * a) return { ok: false, why: `leg M5 terlalu kecil: ${(R / a).toFixed(2)} x ATR M5 (minimal ${K.MIN_LEG_ATR})` };
   let maxAfter = formH ?? -Infinity;
   for (let i = ih + 1; i < n; i++) maxAfter = Math.max(maxAfter, h[i]!);
   if (maxAfter > H) return { ok: false, why: 'high baru sudah melewati swing high (impuls berlanjut, leg belum final)' };
   for (let i = ih + 1; i < n; i++) if (c[i]! < L) return { ok: false, why: 'sudah ada close M5 di bawah awal leg (swing low), setup batal' };
   if (price < L) return { ok: false, why: 'harga sekarang di bawah awal leg (swing low), setup batal' };
 
-  // 3. zona Fib 0,382-0,618 + konfluensi FVG / SNR kuat
+  // 3. zona Fib 0,5-0,618 + konfluensi FVG / SNR kuat
   const zHi = H - K.FIB_NEAR * R, zLo = H - K.FIB_FAR * R;
   const ov: { x: number; y: number; t: 'fvg' | 'snr' }[] = [];
   const clip = (lo: number, hi: number, t: 'fvg' | 'snr') => {
@@ -3728,7 +3738,7 @@ export async function analyzeCounterStructural(symbol: string): Promise<Breakout
       `✅ Struktur H1 ${h1Struct}: leg ${fmt(h1High)} ↔ ${fmt(h1Low)}, Fib 0,705 di ${fmt(h1Fib)} belum ditembus close H1`,
       `✅ Breakout SnR M5 ${s.breakoutAgeBars} candle lalu: level ${fmt(s.levelLo)} – ${fmt(s.levelHi)}, volume ${s.volRatio.toFixed(2)}x MA${K.VOL_MA} (>= ${K.VOL_MIN}x)`,
       `✅ Leg Fib M5: ${d === 1 ? 'swing low' : 'swing high'} ${fmt(d === 1 ? s.swingLow : s.swingHigh)} → ${d === 1 ? 'swing high' : 'swing low'} ${fmt(d === 1 ? s.swingHigh : s.swingLow)} (range ${s.rangeAtr}x ATR M5, swing ${s.legAgeBars} candle lalu)`,
-      `✅ Zona retrace 0,382–0,618: ${fmt(s.zoneLo)} – ${fmt(s.zoneHi)}; konfluensi: ${s.confluence.length ? s.confluence.join(' + ') : 'tidak ada'}`,
+      `✅ Zona retrace 0,5–0,618: ${fmt(s.zoneLo)} – ${fmt(s.zoneHi)}; konfluensi: ${s.confluence.length ? s.confluence.join(' + ') : 'tidak ada'}`,
       `✅ LIMIT ${d === 1 ? 'BUY' : 'SELL'} ${fmt(s.entry)} = ${basisTxt} (retrace ${(s.retracePct * 100).toFixed(1)}%)`,
       `✅ SL ${fmt(s.sl)} (entry ${d === 1 ? '−' : '+'} ${K.SL_ATR} × ATR M5); TP1 ${fmt(s.tp1)} (RR 1:${rr1.toFixed(1)}); TP2 ${fmt(s.tp2)} (Fib ${fibTp2}, RR 1:${rr2.toFixed(2)})`,
     ];
@@ -4022,6 +4032,60 @@ export async function getRecentPerformance(
 // ═══════════════════════════════════════════════════════════════════════════
 
 
+// Money Magnet mm2 (2026-11-02): FILTER struktur H1 (request user). Cuma menolak kalau ada close H1 (body) yang melewati Fib 0,705 leg H1 terakhir.
+// Tidak mensyaratkan HH/LL dan tidak mengubah logic CRT lain. Leg tidak terbentuk -> 'unknown' (sinyal TIDAK diblokir).
+const MM_H1_SWING = 3, MM_H1_FIB_BREAK = 0.705, MM_H1_FETCH = 150;
+function mmH1FibLong(h: number[], l: number[], c: number[]): { state: 'ok' | 'broken' | 'unknown'; fib?: number } {
+  const n = h.length - 1; // candle H1 TERTUTUP saja (index terakhir = candle berjalan, dibuang)
+  let ih = -1, il = -1;
+  const lows: number[] = [];
+  for (let i = MM_H1_SWING; i <= n - 1 - MM_H1_SWING; i++) {
+    let isH = true, isL = true;
+    for (let q = 1; q <= MM_H1_SWING; q++) {
+      if (!(h[i]! > h[i - q]! && h[i]! > h[i + q]!)) isH = false;
+      if (!(l[i]! < l[i - q]! && l[i]! < l[i + q]!)) isL = false;
+    }
+    if (isH) ih = i;
+    if (isL) lows.push(i);
+  }
+  if (ih < 0) return { state: 'unknown' };
+  for (const k of lows) if (k < ih) il = k;
+  if (il < 0) return { state: 'unknown' };
+  const H = h[ih]!, R = H - l[il]!;
+  if (!(R > 0)) return { state: 'unknown' };
+  const fib = H - MM_H1_FIB_BREAK * R;
+  for (let k = ih + 1; k < n; k++) if (c[k]! < fib) return { state: 'broken', fib };
+  return { state: 'ok', fib };
+}
+
+// Money Magnet mm3 (2026-11-02, request user): SL di Fib 0,71 (sedikit di luar 0,705 = batas CHoCH). Tidak ada jarak SL minimal (mau diuji di Jurnal).
+// Leg BUY: Fib 1 = awal leg, Fib 0 = high tertinggi sejak sweep sampai candle tertutup terakhir. SELL kebalikannya.
+//   reversal: Fib 1 = ekstrem sweep (low terendah sweepIdx..displacementIdx). failure-to-manipulate: Fib 1 = swing berlawanan terakhir sebelum sweep.
+// Leg tidak terbentuk -> null (pemanggil fallback ke SL 2 x ATR M5).
+const MM_SL_FIB = 0.71;
+function mmFibSlLeg(
+  type: 'reversal' | 'failure_to_manipulate', direction: 'bullish' | 'bearish', sweepIdx: number, displacementIdx: number, lastClosedIdx: number,
+  highs: number[], lows: number[], swingHighs: { price: number; index: number }[], swingLows: { price: number; index: number }[],
+): { f0: number; f1: number; sl: number } | null {
+  const bull = direction === 'bullish';
+  let f1: number;
+  if (type === 'reversal') {
+    const to = Math.max(sweepIdx, Math.min(displacementIdx, lastClosedIdx));
+    f1 = bull ? Infinity : -Infinity;
+    for (let i = sweepIdx; i <= to; i++) f1 = bull ? Math.min(f1, lows[i]!) : Math.max(f1, highs[i]!);
+  } else {
+    const prev = (bull ? swingLows : swingHighs).filter(x => x.index < sweepIdx);
+    if (prev.length === 0) return null;
+    f1 = prev[prev.length - 1]!.price;
+  }
+  let f0 = bull ? -Infinity : Infinity;
+  for (let i = sweepIdx; i <= lastClosedIdx; i++) f0 = bull ? Math.max(f0, highs[i]!) : Math.min(f0, lows[i]!);
+  if (!Number.isFinite(f0) || !Number.isFinite(f1)) return null;
+  const R = bull ? f0 - f1 : f1 - f0;
+  if (!(R > 0)) return null;
+  return { f0, f1, sl: bull ? f0 - MM_SL_FIB * R : f0 + MM_SL_FIB * R };
+}
+
 export async function analyzeMoneyMagnetScalping(symbol: string): Promise<ScalpingResult> {
   const timestamp = new Date().toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
@@ -4036,7 +4100,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     // Fetch candle H1:72/M5:36 (request user) -- guard & window internal
     // di-rescale ikut budget baru ini, lihat komentar FASE 2 di bawah.
     const [h1, m5, tickerRes] = await Promise.all([
-      fetchKlines(symbol, '1h', 72),
+      fetchKlines(symbol, '1h', MM_H1_FETCH),
       fetchKlines(symbol, '5m', 36),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
@@ -4203,10 +4267,25 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       };
     }
 
+    // ═══ FILTER mm2: struktur H1 (cuma menolak kalau close H1 sudah melewati Fib 0,705 leg H1 terakhir) ═══
+    const h1Fib = found.direction === 'bullish'
+      ? mmH1FibLong(h1.highs, h1.lows, h1.closes)
+      : mmH1FibLong(h1.lows.map(x => -x), h1.highs.map(x => -x), h1.closes.map(x => -x));
+    const mmH1Fib705 = h1Fib.fib === undefined ? undefined : (found.direction === 'bullish' ? h1Fib.fib : -h1Fib.fib);
+    if (h1Fib.state === 'broken') {
+      return {
+        status: 'no_setup', symbol, bias: found.direction, currentPrice, timestamp, mode: 'moneymagnetscalping', maxScore,
+        message: `Setup CRT ketemu (${found.direction}) tapi struktur H1 patah: ada close H1 yang melewati Fib 0,705 leg H1 (${mmH1Fib705!.toFixed(6)}) -- ditolak`,
+        filterResults: [`🚫 Struktur H1 patah: close H1 melewati Fib 0,705 (${mmH1Fib705!.toFixed(6)})`],
+        mmCrtVersion: 'mm3', mmH1Struct: 'ok', mmH1Fib705,
+      };
+    }
+
     // ═══ FASE 4: SCORING 16 POIN (sama persis Menu Scalping/Sniper Breakout) ═
     const dirMatchesH1 = (h1Location === 'discount' && found.direction === 'bullish') || (h1Location === 'premium' && found.direction === 'bearish');
     let h1Score = 0; let m5Score = 0;
     const filterResults: string[] = [];
+    filterResults.push(h1Fib.state === 'ok' ? `✅ Struktur H1 aman: belum ada close H1 melewati Fib 0,705 (${mmH1Fib705!.toFixed(6)}) (filter, +0)` : 'ℹ️ Struktur H1 belum bisa dinilai (leg H1 belum terbentuk), tidak diblokir (filter, +0)');
     if (dirMatchesH1) { h1Score += 2; filterResults.push('✅ H1 Discount/Premium SEARAH sinyal (+2)'); }
     else filterResults.push(`⚠️ H1 ${h1Location.toUpperCase()} TAPI sinyal ${found.direction} -- berlawanan arah H1 (+0)`);
     h1Score += 2; filterResults.push('✅ Liquidity jelas, swing valid (+2)');
@@ -4225,7 +4304,18 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     const dirMult = found.direction === 'bullish' ? 1 : -1;
     const entryPrice = found.ce;
     // SL = entry -/+ 2 x ATR(M5) (request user 2026-10-30; sebelumnya ekstrem sweep -/+ 0,15 ATR + filter min 0,8 ATR)
-    const stopLoss = entryPrice - 2.0 * atrM5 * dirMult;
+    // mm3: SL di Fib 0,71 leg sweep->displacement (fallback SL 2 x ATR M5 kalau leg gak kebentuk). Tanpa jarak SL minimal.
+    const fibLeg = mmFibSlLeg(found.type, found.direction, found.sweepIdx, found.displacementIdx, lastClosedIdx, m5.highs, m5.lows, swingHighs, swingLows);
+    const mmSlMode: 'fib' | 'atr' = fibLeg ? 'fib' : 'atr';
+    const stopLoss = fibLeg ? fibLeg.sl : entryPrice - 2.0 * atrM5 * dirMult;
+    if (fibLeg && !(found.direction === 'bullish' ? stopLoss < entryPrice : stopLoss > entryPrice)) {
+      return {
+        status: 'no_setup', symbol, bias: found.direction, currentPrice, timestamp, mode: 'moneymagnetscalping', maxScore,
+        message: `Setup CRT ketemu (${found.direction}) tapi CE (${entryPrice.toFixed(6)}) sudah melewati Fib 0,71 leg (${stopLoss.toFixed(6)}) -- struktur leg sudah patah, ditolak`,
+        filterResults: [`🚫 CE sudah melewati Fib 0,71 leg sweep (${stopLoss.toFixed(6)})`],
+        mmCrtVersion: 'mm3', mmSlMode,
+      };
+    }
     const risk = Math.abs(entryPrice - stopLoss);
     if (risk <= 0) {
       return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Risk gak valid (entry & SL kelewat dekat)', maxScore, filterResults };
@@ -4235,15 +4325,13 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     // TP1" (RR>=2.0) -- sekarang target WAJIB RR>=3.0 dulu.
     const minTargetRR = entryPrice + risk * 3.0 * dirMult;
     const liqPool = found.direction === 'bullish' ? swingHighs : swingLows;
-    const targetCandidate = liqPool.find(l =>
-      Math.abs(l.price - found!.sweepLevel) / found!.sweepLevel > 0.001 &&
-      (found!.direction === 'bullish' ? l.price > minTargetRR : l.price < minTargetRR),
-    );
-    const target = targetCandidate ? targetCandidate.price : entryPrice + risk * 3.0 * dirMult;
+    // mm3: TP2 = RR 1:3 tetap (sebelumnya liquidity berlawanan dengan RR >= 3). liqPool/minTargetRR tidak dipakai lagi.
+    void liqPool; void minTargetRR;
+    const target = entryPrice + risk * 3.0 * dirMult;
     const reward = Math.abs(target - entryPrice);
     const rr = reward / risk;
     if (rr >= 3.5) { m5Score += 2; filterResults.push(`✅ RR ${rr.toFixed(1)} (>=3.5) (+2)`); }
-    else if (rr >= 3.0) { m5Score += 1; filterResults.push(`⚠️ RR ${rr.toFixed(1)} (3.0-3.5) (+1)`); }
+    else if (rr >= 3.0 - 1e-9) { m5Score += 1; filterResults.push(`⚠️ RR ${rr.toFixed(1)} (3.0-3.5) (+1)`); }
     else filterResults.push(`🚫 RR ${rr.toFixed(1)} (<3.0) (+0)`);
 
     const totalScore = h1Score + m5Score;
@@ -4291,6 +4379,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
         btcCorrAction: btcFilter.action, btcCorrValue: btcFilter.correlation, btcCorrBtcDirection: btcFilter.btcDirection,
         btcCorrWarningMsg: btcFilter.action === 'warn' ? btcFilter.message : undefined,
         btcAligned, btcBias,
+        mmCrtVersion: 'mm3', mmH1Struct: h1Fib.state === 'ok' ? 'ok' : 'unknown', mmH1Fib705,
       };
     }
 
@@ -4306,7 +4395,9 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       btcCorrAction: btcFilter.action, btcCorrValue: btcFilter.correlation, btcCorrBtcDirection: btcFilter.btcDirection,
       btcCorrWarningMsg: btcFilter.action === 'warn' ? btcFilter.message : undefined,
       btcAligned, btcBias,
-      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} (CE/50% FVG) -- H1 ${h1Location}, M5 ${found.type === 'reversal' ? 'sweep+reversal (CISD)' : 'sweep+failure to manipulate (continuation)'}, skor ${totalScore}/16 (${grade}). SL ${stopLoss.toFixed(6)}, TP1 RR1:2, TP2 ke liquidity berlawanan (RR1:${rr.toFixed(1)}). Limit expired 36 candle M5 (~3 jam) kalau belum fill.${btcWarnMsgMM}`,
+      mmCrtVersion: 'mm3', mmH1Struct: h1Fib.state === 'ok' ? 'ok' : 'unknown', mmH1Fib705,
+      mmSlMode, mmFib0: fibLeg?.f0, mmFib1: fibLeg?.f1,
+      message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} (CE/50% FVG) -- H1 ${h1Location}, M5 ${found.type === 'reversal' ? 'sweep+reversal (CISD)' : 'sweep+failure to manipulate (continuation)'}, skor ${totalScore}/16 (${grade}). SL ${stopLoss.toFixed(6)} (${mmSlMode === 'fib' ? 'Fib 0,71 leg sweep' : '2 ATR M5, leg Fib belum terbentuk'}), TP1 RR1:2, TP2 RR1:3. Limit expired 36 candle M5 (~3 jam) kalau belum fill.${btcWarnMsgMM}`,
     };
   } catch (err) {
     return {

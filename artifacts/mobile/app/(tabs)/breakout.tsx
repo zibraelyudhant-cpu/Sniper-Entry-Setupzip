@@ -760,7 +760,7 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Fibonacci Retest</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Fibonacci Retest (rp7, 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di H1. Idenya: ikuti tren H1 yang kuat, masuk SEBELUM struktur berbalik (swing terbaru masih LL untuk SELL / HH untuk BUY, belum HL/LH), lalu pasang LIMIT order di zona retracement Fibonacci 0,5–0,618 dari leg H1, dengan level limit diarahkan ke FVG / Order Block / SNR bila ada. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
+          Fibonacci Retest (rp8, 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di H1. Idenya: ikuti tren H1 yang kuat, masuk SEBELUM struktur berbalik (swing terbaru masih LL untuk SELL / HH untuk BUY, belum HL/LH), lalu pasang LIMIT order di zona retracement Fibonacci 0,5–0,618 dari leg H1, dengan level limit diarahkan ke FVG / Order Block / SNR bila ada. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
           Status: strategi ini BELUM di-backtest, sengaja dibuktikan lewat Jurnal (forward test). Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0). Sinyal yang tidak terisi sampai 24 jam dicatat EXPIRED dan tidak dihitung menang/kalah.
         </Text>
       </View>
@@ -775,8 +775,8 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
           4. Zona entry = retrace Fibonacci 0,5–0,618 dari leg H1{'\n'}
           5. Konfluensi di zona: FVG yang belum tertutup, Order Block yang belum dimitigasi, atau SNR (cluster swing fractal 3, toleransi 0,5 ATR, ≥ 2 sentuhan). Bukan filter wajib, hanya menentukan level limit{'\n'}
           6. LIMIT di tepi konfluensi terdekat ke harga (tetap di dalam zona); tanpa konfluensi → limit di tengah zona (retrace 0,559). Batal bila limit sudah tersentuh sejak swing terbentuk atau harga sudah di limit{'\n'}
-          7. SL = entry ∓ 1x ATR H1. TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618. Tanpa batas minimal range leg{'\n'}
-          8. Kedaluwarsa 24 jam. Satu sinyal per leg. Label Jurnal "Fibonacci Retest", versi rp7. Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
+          7. SL = entry ∓ 1x ATR H1. TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618. Syarat leg: range leg H1 minimal 2x ATR H1, kalau lebih kecil sinyal ditolak (rp8, dari studi Futures Replay 4 tahun){'\n'}
+          8. Kedaluwarsa 24 jam. Satu sinyal per leg. Label Jurnal "Fibonacci Retest", versi rp8 (rp7 = sebelum syarat leg minimal 2x ATR). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />

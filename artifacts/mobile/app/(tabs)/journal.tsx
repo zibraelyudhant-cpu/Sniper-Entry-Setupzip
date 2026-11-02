@@ -238,17 +238,28 @@ function JournalEntryCard({
                 {entry.validUntil !== undefined && <IndicatorRow label="Sinyal berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
               </>
             )}
+            {entry.mmCrtVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+                  MONEY MAGNET CRT (H1→M5) {entry.mmCrtVersion}
+                </Text>
+                <IndicatorRow label="Struktur H1 (filter Fib 0,705)" value={entry.mmH1Struct === 'ok' ? 'aman, belum ada close H1 melewati 0,705' : 'belum bisa dinilai (leg H1 belum terbentuk)'} colors={colors} />
+                {entry.mmH1Fib705 !== undefined && <IndicatorRow label="Fib 0,705 leg H1" value={String(entry.mmH1Fib705)} colors={colors} />}
+                {entry.mmSlMode !== undefined && <IndicatorRow label="SL (mm3)" value={entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
+                {entry.mmFib0 !== undefined && entry.mmFib1 !== undefined && <IndicatorRow label="Leg Fib (Fib 1 – Fib 0)" value={`${entry.mmFib1} – ${entry.mmFib0}`} colors={colors} />}
+              </>
+            )}
             {entry.rpVersion && (
               <>
                 <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
-                  {entry.rpVersion === 'rp7' ? 'FIBONACCI RETEST (H1)' : entry.rpVersion === 'rp1' ? 'SCALPING RETEST FIB D1→H1' : 'SCALPING RETEST FIB H1→M5'}
+                  {(entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? 'FIBONACCI RETEST (H1)' : entry.rpVersion === 'rp1' ? 'SCALPING RETEST FIB D1→H1' : 'SCALPING RETEST FIB H1→M5'}
                 </Text>
-                {entry.rpAdxD1 !== undefined && <IndicatorRow label={entry.rpVersion === 'rp1' ? 'ADX D1' : 'ADX H1'} value={`${entry.rpAdxD1.toFixed(1)} (aturan > ${(entry.rpVersion === 'rp5' || entry.rpVersion === 'rp6' || entry.rpVersion === 'rp7') ? '29,4' : '25'})`} colors={colors} />}
+                {entry.rpAdxD1 !== undefined && <IndicatorRow label={entry.rpVersion === 'rp1' ? 'ADX D1' : 'ADX H1'} value={`${entry.rpAdxD1.toFixed(1)} (aturan > ${(entry.rpVersion === 'rp5' || entry.rpVersion === 'rp6' || entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? '29,4' : '25'})`} colors={colors} />}
                 {entry.rpFiH1 !== undefined && <IndicatorRow label="Force Index EMA2 H1" value={`${entry.rpFiH1.toPrecision(4)} (BUY > 0, SELL < 0)`} colors={colors} />}
                 {entry.rpRsiD1 !== undefined && <IndicatorRow label={entry.rpVersion === 'rp2' ? 'RSI H1' : 'RSI D1'} value={`${entry.rpRsiD1.toFixed(1)} (BUY 50–60, SELL 40–50)`} colors={colors} />}
-                {entry.rpSwingLow !== undefined && entry.rpSwingHigh !== undefined && <IndicatorRow label={`Leg Fib ${(entry.rpVersion === 'rp1' || entry.rpVersion === 'rp7') ? 'H1' : 'M5'} (low – high)`} value={`${entry.rpSwingLow} – ${entry.rpSwingHigh}`} colors={colors} />}
-                {entry.rpRangeAtr !== undefined && <IndicatorRow label={`Range leg / ATR ${(entry.rpVersion === 'rp1' || entry.rpVersion === 'rp7') ? 'H1' : 'M5'}`} value={`${entry.rpRangeAtr.toFixed(2)}x`} colors={colors} />}
-                {entry.rpLegAgeBars !== undefined && <IndicatorRow label="Umur swing akhir leg" value={`${entry.rpLegAgeBars} candle ${(entry.rpVersion === 'rp1' || entry.rpVersion === 'rp7') ? 'H1' : 'M5'}`} colors={colors} />}
+                {entry.rpSwingLow !== undefined && entry.rpSwingHigh !== undefined && <IndicatorRow label={`Leg Fib ${(entry.rpVersion === 'rp1' || entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? 'H1' : 'M5'} (low – high)`} value={`${entry.rpSwingLow} – ${entry.rpSwingHigh}`} colors={colors} />}
+                {entry.rpRangeAtr !== undefined && <IndicatorRow label={`Range leg / ATR ${(entry.rpVersion === 'rp1' || entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? 'H1' : 'M5'}`} value={`${entry.rpRangeAtr.toFixed(2)}x`} colors={colors} />}
+                {entry.rpLegAgeBars !== undefined && <IndicatorRow label="Umur swing akhir leg" value={`${entry.rpLegAgeBars} candle ${(entry.rpVersion === 'rp1' || entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? 'H1' : 'M5'}`} colors={colors} />}
                 {entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && <IndicatorRow label="Zona retrace 0,5–0,618" value={`${entry.rpZoneLo} – ${entry.rpZoneHi}`} colors={colors} />}
                 {entry.rpBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.rpBasis === 'mid' ? 'Tengah zona (tanpa konfluensi)' : `Tepi ${entry.rpBasis.toUpperCase()}`} colors={colors} />}
                 {entry.rpConfluence !== undefined && <IndicatorRow label="Konfluensi di zona" value={entry.rpConfluence ? entry.rpConfluence.replace(/\+/g, ' + ') : 'tidak ada'} colors={colors} />}
@@ -269,7 +280,7 @@ function JournalEntryCard({
                 {entry.bkSwingLow !== undefined && entry.bkSwingHigh !== undefined && <IndicatorRow label="Leg Fib M5 (low – high)" value={`${entry.bkSwingLow} – ${entry.bkSwingHigh}`} colors={colors} />}
                 {entry.bkRangeAtr !== undefined && <IndicatorRow label="Range leg / ATR M5" value={`${entry.bkRangeAtr.toFixed(2)}x`} colors={colors} />}
                 {entry.bkLegAgeBars !== undefined && <IndicatorRow label="Umur swing akhir leg" value={`${entry.bkLegAgeBars} candle M5`} colors={colors} />}
-                {entry.bkZoneLo !== undefined && entry.bkZoneHi !== undefined && <IndicatorRow label="Zona retrace 0,382–0,618" value={`${entry.bkZoneLo} – ${entry.bkZoneHi}`} colors={colors} />}
+                {entry.bkZoneLo !== undefined && entry.bkZoneHi !== undefined && <IndicatorRow label="Zona retrace (bk4+: 0,5–0,618; sebelumnya 0,382–0,618)" value={`${entry.bkZoneLo} – ${entry.bkZoneHi}`} colors={colors} />}
                 {entry.bkBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.bkBasis === 'mid' ? `Fib ${entry.bkRetracePct ?? ''} (tanpa FVG/SNR)` : `Tepi ${entry.bkBasis.toUpperCase()}`} colors={colors} />}
                 {entry.bkConfluence !== undefined && <IndicatorRow label="Konfluensi di zona" value={entry.bkConfluence ? entry.bkConfluence.replace(/\+/g, ' + ') : 'tidak ada'} colors={colors} />}
                 {entry.bkRetracePct !== undefined && <IndicatorRow label="Retrace level limit" value={`${(entry.bkRetracePct * 100).toFixed(1)}%`} colors={colors} />}
@@ -538,6 +549,7 @@ export default function JournalScreen() {
         fkBreakoutTime: e.fkBreakoutTime, fkFailTime: e.fkFailTime, fkVolX: e.fkVolX, fkRiskAtr: e.fkRiskAtr,
         fkLvlEmaDistAtr: e.fkLvlEmaDistAtr, fkRsi1h: e.fkRsi1h, fkCandlesSinceFail: e.fkCandlesSinceFail,
         // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup buat evaluasi forward test di luar app
+        mmCrtVersion: e.mmCrtVersion, mmH1Struct: e.mmH1Struct, mmH1Fib705: e.mmH1Fib705, mmSlMode: e.mmSlMode, mmFib0: e.mmFib0, mmFib1: e.mmFib1,
         mmVersion: e.mmVersion, mmAdxH4: e.mmAdxH4, mmMagnetLevelUsed: e.mmMagnetLevelUsed, mmH4Cross: e.mmH4Cross,
         mmForceIndex: e.mmForceIndex, mmConfluencePct: e.mmConfluencePct, mmStochK: e.mmStochK, mmStochD: e.mmStochD,
         // Scalping CRT D1->M15 (2026-10-22): metrik setup (validUntil sudah diekspor di atas)

@@ -173,6 +173,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+      mmCrtVersion: (c as any).mmCrtVersion, mmH1Struct: (c as any).mmH1Struct, mmH1Fib705: (c as any).mmH1Fib705, mmSlMode: (c as any).mmSlMode, mmFib0: (c as any).mmFib0, mmFib1: (c as any).mmFib1,
       orderType: 'limit',
       signalStatus: c.status === 'in_zone' ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
       timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
@@ -341,6 +342,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+      mmCrtVersion: (data as any).mmCrtVersion, mmH1Struct: (data as any).mmH1Struct, mmH1Fib705: (data as any).mmH1Fib705, mmSlMode: (data as any).mmSlMode, mmFib0: (data as any).mmFib0, mmFib1: (data as any).mmFib1,
       orderType: 'limit',
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
@@ -559,7 +561,8 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
           3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
           4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
           5. Scoring 16 poin (H1 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M5 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
-          6. Entry LIMIT di 50% FVG (CE), SL = entry ∓ 2x ATR M5, TP1 RR 1:2, TP2 ke liquidity berlawanan, limit expired 36 candle M5 (~3 jam)
+          6. Entry LIMIT di 50% FVG (CE). SL (mm3) = Fib 0,71 dari leg sweep→displacement (BUY: Fib 1 = ekstrem sweep, Fib 0 = high tertinggi sejak sweep; SELL kebalikannya; setup failure-to-manipulate: Fib 1 = swing berlawanan sebelum sweep), tanpa jarak SL minimal; leg gak kebentuk = SL 2x ATR M5. TP1 RR 1:2, TP2 RR 1:3. Ditolak kalau CE sudah melewati Fib 0,71. Limit expired 36 candle M5 (~3 jam){'\n'}
+          Filter struktur H1 (mm2, 2026-11-02): satu-satunya yang bisa memblokir — sinyal ditolak kalau ada close H1 (body) yang sudah melewati Fib 0,705 dari leg H1 terakhir (swing fractal 3; BUY: swing high terbaru + swing low sebelumnya, SELL kebalikannya). Tanpa syarat HH/LL, tanpa poin skor, tidak mengubah logic di atas. Leg H1 belum terbentuk = tidak diblokir.
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Money Magnet Scalping" accentColor={ACCENT} />

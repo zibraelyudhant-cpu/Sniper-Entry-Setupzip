@@ -872,7 +872,7 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Sniper Breakout</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          H1 nentuin arah lewat EMA50 dan EMA200 (close di atas keduanya = bullish, di bawah keduanya = bearish), lalu cek struktur H1: swing terbaru harus LL (bearish) atau HH (bullish) dan close H1 belum menembus Fib 0,705 dari leg H1. Di M5, cari breakout SnR searah H1 dengan volume ≥ 1,6x rata-rata 20 candle. Setelah breakout, tunggu swing high/low baru terbentuk, lalu tarik Fibonacci dan pasang LIMIT di area retest (pakai FVG atau SNR kuat dalam zona 0,382–0,618 kalau ada; kalau tidak ada, BUY di Fib 0,705 dan SELL di Fib 0,5).
+          H1 nentuin arah lewat EMA50 dan EMA200 (close di atas keduanya = bullish, di bawah keduanya = bearish), lalu cek struktur H1: swing terbaru harus LL (bearish) atau HH (bullish) dan close H1 belum menembus Fib 0,705 dari leg H1. Di M5, cari breakout SnR searah H1 dengan volume ≥ 1,6x rata-rata 20 candle. Setelah breakout, tunggu swing high/low baru terbentuk, lalu tarik Fibonacci dan pasang LIMIT di area retest (pakai FVG atau SNR kuat dalam zona 0,5–0,618 kalau ada; kalau tidak ada, BUY dan SELL di Fib 0,559).
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
@@ -881,8 +881,8 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
           1. H1 (fetch 300 candle): close di atas EMA50 dan EMA200 = BULLISH, di bawah keduanya = BEARISH, selain itu dilewati{'\n'}
           1b. Struktur H1 (swing fractal 3): BEARISH = swing low terbaru harus LL (lebih rendah dari swing low sebelumnya), BULLISH = swing high terbaru harus HH. Leg H1 = swing high terakhir sebelum swing low itu (BULLISH: kebalikannya). Tolak bila ada close H1 melewati Fib 0,705 leg itu (struktur patah, ekor candle tidak dihitung), atau close H1 terakhir sudah melewati swing itu (low/high baru masih terbentuk, tunggu swing){'\n'}
           2. M5 (fetch 300 candle): cari breakout SnR searah H1. SnR = cluster swing fractal 3 (toleransi 0,5 ATR, minimal 2 sentuhan). Breakout valid = close M5 pertama di luar cluster dengan volume ≥ 1,6x MA20{'\n'}
-          3. Biarkan breakout membentuk swing high/low terbaru dulu (swing fractal 3; leg: swing low → swing high untuk BUY, kebalikannya untuk SELL){'\n'}
-          4. Area retest Fibonacci 0,382–0,618 dari leg. Ada FVG atau SNR kuat di zona → limit di tepi terdekat ke harga. Tidak ada → BUY limit di Fib 0,705, SELL limit di Fib 0,5{'\n'}
+          3. Biarkan breakout membentuk swing high/low terbaru dulu (swing fractal 3; leg: swing low → swing high untuk BUY, kebalikannya untuk SELL). Range leg M5 minimal 2x ATR M5, kalau lebih kecil sinyal ditolak (bk5){'\n'}
+          4. Area retest Fibonacci 0,5–0,618 dari leg. Ada FVG atau SNR kuat di zona → limit di tepi terdekat ke harga. Tidak ada → BUY dan SELL limit di Fib 0,559 (tengah zona){'\n'}
           5. SL = entry ∓ 2x ATR M5{'\n'}
           6. TP1 = RR 1:2. TP2 = level Fib terkecil di 1,13 / 1,272 / 1,414 / 1,618 (SELL: -0,13 / -0,272 / -0,414 / -0,618) yang melewati TP1; kalau tidak ada yang melewati TP1 sinyal dilewati{'\n'}
           7. Batal bila: high/low baru melewati ujung leg, close menembus awal leg, limit sudah tersentuh, atau close kembali ke dalam level SnR (breakout gagal). Limit berlaku 24 jam.{'\n'}

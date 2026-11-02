@@ -121,6 +121,12 @@ export interface JournalEntry {
   fkCandlesSinceFail?: number;
   // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup saat sinyal, buat forward test & riset.
   mmVersion?: string;
+  mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1 (2026-11-02)
+  mmH1Struct?: 'ok' | 'unknown';     // struktur H1 saat sinyal (ok = belum ada close H1 melewati 0,705; unknown = leg belum terbentuk)
+  mmH1Fib705?: number;               // level Fib 0,705 leg H1 (harga asli)
+  mmSlMode?: 'fib' | 'atr';          // mm3: 'fib' = SL di Fib 0,71 leg sweep→displacement; 'atr' = fallback 2 x ATR M5
+  mmFib0?: number;                   // harga Fib 0 leg (mode fib)
+  mmFib1?: number;                   // harga Fib 1 leg (mode fib)
   mmAdxH4?: number;                  // ADX(14) H4 closed (aturan > 25)
   mmMagnetLevelUsed?: 'broken_level' | 'ema26'; // entry di level breakout atau EMA26 M30
   mmH4Cross?: number;                // crossing close vs EMA26 H4 per 20 candle (info, > 3 = agak exhausted)
@@ -167,11 +173,11 @@ export interface JournalEntry {
   bkVolRatio?: number;       // volume candle breakout / rata-rata 20 candle sebelumnya (aturan >= 1,6)
   bkSwingHigh?: number;      // ujung leg Fibonacci M5 (SHORT: awal leg)
   bkSwingLow?: number;
-  bkZoneLo?: number;         // zona retrace 0,382-0,618
+  bkZoneLo?: number;         // zona retrace (bk4: 0,5-0,618; bk1-bk3: 0,382-0,618)
   bkZoneHi?: number;
   bkBasis?: 'fvg' | 'snr' | 'mid'; // dasar level limit (mid = Fib 0,5 tanpa konfluensi)
   bkConfluence?: string;     // mis. 'FVG+SNR' ('' = tidak ada)
-  bkRetracePct?: number;     // posisi limit dalam retrace (0,382-0,618)
+  bkRetracePct?: number;     // posisi limit dalam retrace (bk4: 0,5-0,618; bk1-bk3: 0,382-0,618)
   bkTp2Fib?: number;         // level Fib yang dipakai TP2 (BUY 1,13-1,618; SELL -0,13 s/d -0,618)
   bkRangeAtr?: number;       // range leg / ATR M5
   bkLegAgeBars?: number;     // umur swing akhir leg (candle M5)
