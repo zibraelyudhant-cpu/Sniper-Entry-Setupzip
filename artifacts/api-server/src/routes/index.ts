@@ -6,6 +6,7 @@ import patternsRouter from "./patterns";
 import technicalAnalysisProRouter from "./technical-analysis-pro";
 import journalFollowupRouter from "./journal-followup";
 import moneyMagnetScalpingRouter from "./money-magnet-scalping";
+import setupFinderRouter from "./setup-finder";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(patternsRouter);
 router.use(technicalAnalysisProRouter);
 router.use(journalFollowupRouter);
 router.use(moneyMagnetScalpingRouter);
+router.use(setupFinderRouter);
 
 export default router;

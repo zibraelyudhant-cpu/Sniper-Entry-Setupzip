@@ -25,6 +25,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'bolt.circle', selected: 'bolt.circle.fill' }} />
         <Label>MM Scalping</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="setup-finder">
+        <Icon sf={{ default: 'scope', selected: 'scope' }} />
+        <Label>Setup Finder</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="technical-analysis-pro">
         <Icon sf={{ default: 'chart.bar.doc.horizontal', selected: 'chart.bar.doc.horizontal.fill' }} />
         <Label>TA PRO</Label>
@@ -87,7 +91,7 @@ function ClassicTabLayout() {
           // biar tab ini ke-MOUNT langsung pas app kebuka (bukan nunggu
           // di-tap), jadi ScanTab di dalemnya (default activeTab='scan')
           // langsung mulai fetch tanpa perlu user pindah tab dulu.
-          lazy: false,
+          // lazy default (request user 2026-11-05): scan menu ini TIDAK otomatis — mulai manual lewat tombol.
           tabBarActiveTintColor: MENU_COLORS.breakout,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
@@ -108,7 +112,7 @@ function ClassicTabLayout() {
           // Scalping (Structural+Skill15M), TANPA lazy=false dia baru
           // ke-mount pas user pertama kali tap tab 'Scalping', jadi scan-nya
           // ketunda sampe segitu. Sekarang langsung jalan bareng app dibuka.
-          lazy: false,
+          // lazy default (request user 2026-11-05): scan menu ini TIDAK otomatis — mulai manual lewat tombol.
           tabBarActiveTintColor: MENU_COLORS.scalping,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
@@ -127,7 +131,7 @@ function ClassicTabLayout() {
           title: 'MM Scalping',
           // Menu BARU (request user): "otomatis scan pas buka app" -- sama
           // pola lazy=false kayak Sniper Breakout & Scalping.
-          lazy: false,
+          // lazy default (request user 2026-11-05): scan menu ini TIDAK otomatis — mulai manual lewat tombol.
           tabBarActiveTintColor: MENU_COLORS.moneyMagnetScalping,
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused} color={color}>
@@ -135,6 +139,23 @@ function ClassicTabLayout() {
                 <SymbolView name="bolt.circle.fill" tintColor={color} size={22} />
               ) : (
                 <Feather name="target" size={22} color={color} />
+              )}
+            </AnimatedTabIcon>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="setup-finder"
+        options={{
+          title: 'Setup Finder',
+          // lazy default (request user 2026-11-05): scan Setup Finder juga manual lewat tombol, biar gak kena rate limit Binance.
+          tabBarActiveTintColor: MENU_COLORS.setupFinder,
+          tabBarIcon: ({ color, focused }) => (
+            <AnimatedTabIcon focused={focused} color={color}>
+              {isIOS ? (
+                <SymbolView name="scope" tintColor={color} size={22} />
+              ) : (
+                <Feather name="crosshair" size={22} color={color} />
               )}
             </AnimatedTabIcon>
           ),

@@ -111,7 +111,8 @@ async function runSniperScan(): Promise<void> {
 router.get('/breakout-entry/scan', async (req, res) => {
   try {
     const forceFresh = req.query['fresh'] === 'true';
-    if (sniperScanState.status === 'idle' || (forceFresh && !sniperScanRunning)) {
+    // REVISI (request user 2026-11-05): scan TIDAK otomatis jalan (biar gak kena rate limit Binance). Mulai hanya lewat tombol (?fresh=true). Cuma Setup Finder yang otomatis.
+    if (forceFresh && !sniperScanRunning) {
       runSniperScan(); // fire-and-forget, SENGAJA gak di-await
     }
     res.json({

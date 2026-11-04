@@ -45,6 +45,8 @@ export const SOURCE_MENUS = [
   'Sniper Breakout', 'Scalping', 'Counter Scalping',
   // BARU (request user, menu Money Magnet Scalping — M30 trend + M1 eksekusi)
   'Money Magnet Scalping',
+  // BARU (request user 2026-11-05, spesifikasi Setup Finder: whale order book + backtest WR)
+  'Setup Finder',
 ] as const;
 export type SourceMenu = typeof SOURCE_MENUS[number];
 
@@ -66,6 +68,8 @@ export const SCALPING_SKILL_RP_M5 = 'Scalping Retest Fib H1→M5';
 export const SCALPING_SKILL_RP = 'Fibonacci Retest';
 // Menu Money Magnet Scalping (H1→M5 CRT). Label WAJIB sama dengan yang dipakai money-magnet-scalping.tsx saat menyimpan sinyal.
 export const SCALPING_SKILL_MMS = 'Money Magnet Scalping (H1→M5 CRT)';
+// Setup Finder (sf1). Label WAJIB sama dengan SF.SKILL_LABEL di api-server/src/lib/setup-finder.ts.
+export const SCALPING_SKILL_SF = 'Setup Finder (Whale + Backtest)';
 
 /**
  * 1 record Journal — REQUEST USER: lengkap & detail, biar bisa dianalisa
@@ -121,6 +125,11 @@ export interface JournalEntry {
   fkCandlesSinceFail?: number;
   // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup saat sinyal, buat forward test & riset.
   mmVersion?: string;
+  // Setup Finder (sf1, 2026-11-05): metrik setup saat sinyal (WR/avgR dari backtest candle, bukan hasil trade).
+  sfVersion?: string;
+  sfWr?: number; sfN?: number; sfAvgR?: number; sfFill?: number; sfScore?: number; sfSlPct?: number;
+  sfTf?: '15M' | '1H'; sfEntryKind?: 'market' | 'wall' | 'swing'; sfSlSource?: 'swing' | 'wall' | 'fallback';
+  sfRegime?: string; sfAlign?: string; sfWhalePressure?: number; sfAlarm?: string; sfWallReal?: boolean | null;
   mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 & TP2 RR 1:3 (2026-11-02)
   mmH1Struct?: 'ok' | 'unknown';     // struktur H1 saat sinyal (ok = belum ada close H1 melewati 0,705; unknown = leg belum terbentuk)
   mmH1Fib705?: number;               // level Fib 0,705 leg H1 (harga asli)
@@ -302,7 +311,7 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
  * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
  * (dianggap kejadian baru, bukan re-save yang gak sengaja).
  */
-function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow' | 'bkVersion' | 'bkSwingHigh' | 'bkSwingLow'> & { entryPrice?: number }): string {
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow' | 'bkVersion' | 'bkSwingHigh' | 'bkSwingLow'> & { entryPrice?: number; rr1?: number }): string {
   const orderType = e.orderType ?? 'limit';
   // Fakeout: satu koin bisa punya beberapa setup berbeda dalam 24 jam (level beda) -> entryPrice ikut kunci. Setup yang SAMA tetap ke-dedupe.
   const lv = (e.sourceSkill === SCALPING_SKILL_FAKEOUT || e.sourceSkill === SCALPING_SKILL_CRT) ? `|${e.entryPrice}` : '';
@@ -310,7 +319,9 @@ function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' 
   const leg = (e.sourceSkill === SCALPING_SKILL_RP || e.sourceSkill === SCALPING_SKILL_RP_M5 || e.sourceSkill === SCALPING_SKILL_RP_D1) ? `|${e.rpSwingHigh}|${e.rpSwingLow}` : '';
   // Sniper Breakout+Fib: satu sinyal per LEG (swing high+low yang sama).
   const bkLeg = e.bkVersion ? `|${e.bkSwingHigh}|${e.bkSwingLow}` : '';
-  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}${leg}${bkLeg}`;
+  // Setup Finder: satu koin bisa punya beberapa setup (entry & RR beda) -> entry + RR ikut kunci.
+  const sfKey = e.sourceSkill === SCALPING_SKILL_SF ? `|${e.entryPrice}|${e.rr1}` : '';
+  return `${e.symbol}|${e.bias}|${e.sourceSkill}|${orderType}${lv}${leg}${bkLeg}${sfKey}`;
 }
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -922,6 +933,11 @@ export function buildRpM5ForwardTest(entries: JournalEntry[]): ScalpForwardTest 
 /** Forward test menu Money Magnet Scalping (H1->M5 CRT): WIN = jarak ke target yang kena (TP1 RR 1:2 atau TP2) / risk, LOSE = -1R. */
 export function buildMmsForwardTest(entries: JournalEntry[]): ScalpForwardTest {
   return buildScalpForwardTest(entries, SCALPING_SKILL_MMS, 'Money Magnet Scalping', 'Money Magnet Scalping');
+}
+
+/** Forward test menu Setup Finder. WIN = TP kena (RR sesuai setup), LOSE = -1R. Bandingkan WR forward dengan WR backtest (sfWr) di tiap sinyal. */
+export function buildSfForwardTest(entries: JournalEntry[]): ScalpForwardTest {
+  return buildScalpForwardTest(entries, SCALPING_SKILL_SF, 'Setup Finder', 'Setup Finder');
 }
 
 /** LEGACY: forward test Retest Fib D1->H1 (rp1; menu sudah dipindah ke H1->M5, sinyal lama tetap bisa dihitung). */

@@ -106,7 +106,8 @@ async function runMoneyMagnetScalpingScan(): Promise<void> {
 router.get('/money-magnet-scalping/scan', async (req, res) => {
   try {
     const forceFresh = req.query['fresh'] === 'true';
-    if (mmScalpingScanState.status === 'idle' || (forceFresh && !mmScalpingScanRunning)) {
+    // REVISI (request user 2026-11-05): scan TIDAK otomatis jalan (biar gak kena rate limit Binance). Mulai hanya lewat tombol (?fresh=true). Cuma Setup Finder yang otomatis.
+    if (forceFresh && !mmScalpingScanRunning) {
       runMoneyMagnetScalpingScan(); // fire-and-forget, SENGAJA gak di-await
     }
     res.json({

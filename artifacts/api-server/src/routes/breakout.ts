@@ -118,7 +118,8 @@ async function runScalpingScan(): Promise<void> {
 router.get('/breakout/scan', async (req, res) => {
   try {
     const forceFresh = req.query['fresh'] === 'true';
-    if (scalpingScanState.status === 'idle' || (forceFresh && !scalpingScanRunning)) {
+    // REVISI (request user 2026-11-05): scan TIDAK otomatis jalan (biar gak kena rate limit Binance). Mulai hanya lewat tombol (?fresh=true). Cuma Setup Finder yang otomatis.
+    if (forceFresh && !scalpingScanRunning) {
       runScalpingScan(); // fire-and-forget, SENGAJA gak di-await
     }
     res.json({

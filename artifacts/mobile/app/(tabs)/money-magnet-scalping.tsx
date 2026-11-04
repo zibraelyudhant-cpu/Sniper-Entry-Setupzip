@@ -127,11 +127,13 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     queryFn: fetchScan,
     refetchInterval: (query) => {
       const s = query.state.data?.status;
-      return s === 'running' || s === 'idle' || s === undefined ? 1500 : false;
+      return s === 'running' || s === undefined ? 1500 : false;
     },
   });
 
   const scanStatus = data?.status;
+  // Scan manual (request user 2026-11-05): mulai scan baru lewat ?fresh=true, lalu polling jalan sendiri.
+  const startScan = useCallback(async () => { try { await customFetch('/api/money-magnet-scalping/scan?fresh=true'); } catch { /* polling tetap jalan */ } refetch(); }, [refetch]);
   const scannedCount = data?.scanned ?? 0;
   const totalCount = data?.total ?? 0;
   const [showCompleteNotif, setShowCompleteNotif] = useState(false);
@@ -202,7 +204,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       <View style={scanStyles.center}>
         <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
+        <Pressable onPress={startScan} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
           <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
         </Pressable>
       </View>
@@ -210,7 +212,19 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   }
 
   if (coins.length === 0) {
-    if (scanStatus === 'running' || scanStatus === 'idle') {
+    if (scanStatus === 'idle') {
+      return (
+        <View style={scanStyles.center}>
+          <Feather name="play-circle" size={36} color={ACCENT} />
+          <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Scan belum dijalankan</Text>
+          <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Scan manual supaya tidak kena rate limit Binance (cuma Setup Finder yang otomatis)</Text>
+          <Pressable onPress={startScan} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
+            <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Mulai Scan</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (scanStatus === 'running') {
       return (
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING MONEY MAGNET" accentColor={ACCENT} />
@@ -225,7 +239,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <Feather name="target" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Tidak ada setup Money Magnet Scalping</Text>
         <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Tidak ada koin yang lolos semua filter saat ini</Text>
-        <Pressable onPress={() => refetch()} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
+        <Pressable onPress={startScan} disabled={isFetching} style={[scanStyles.retryBtn, { backgroundColor: ACCENT, opacity: isFetching ? 0.6 : 1 }]}>
           {isFetching ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>}
         </Pressable>
       </View>
@@ -248,7 +262,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       )}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
-        <Pressable onPress={() => refetch()} disabled={isFetching} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: `${ACCENT}18` }}>
+        <Pressable onPress={startScan} disabled={isFetching} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: `${ACCENT}18` }}>
           {isFetching ? <ActivityIndicator size="small" color={ACCENT} /> : <Feather name="refresh-cw" size={13} color={ACCENT} />}
           <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>Scan Ulang</Text>
         </Pressable>

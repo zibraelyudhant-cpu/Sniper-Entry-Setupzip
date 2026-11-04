@@ -23,7 +23,7 @@ import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
-import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan, getGetBreakoutEntryScanQueryKey, type TechnicalSnapshot as ApiTechnicalSnapshot } from '@workspace/api-client-react';
+import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan, getGetBreakoutEntryScanQueryKey, customFetch, type TechnicalSnapshot as ApiTechnicalSnapshot } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
 
@@ -240,11 +240,13 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       queryKey: getGetBreakoutEntryScanQueryKey(),
       refetchInterval: (query) => {
         const s = (query.state.data as any)?.status;
-        return s === 'running' || s === 'idle' || s === undefined ? 1500 : false;
+        return s === 'running' || s === undefined ? 1500 : false;
       },
     },
   });
   const scanStatus = (data as any)?.status as 'idle' | 'running' | 'complete' | 'error' | undefined;
+  // Scan manual (request user 2026-11-05): mulai scan baru lewat ?fresh=true, lalu polling jalan sendiri.
+  const startScan = useCallback(async () => { try { await customFetch('/api/breakout-entry/scan?fresh=true'); } catch { /* polling tetap jalan */ } refetch(); }, [refetch]);
   const scannedCount = (data as any)?.scanned ?? 0;
   const totalCount = (data as any)?.total ?? 0;
   const [showCompleteNotif, setShowCompleteNotif] = useState(false);
@@ -322,7 +324,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       <View style={scanStyles.center}>
         <Feather name="wifi-off" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Gagal memuat data</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
+        <Pressable onPress={startScan} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
           <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Coba Lagi</Text>
         </Pressable>
       </View>
@@ -336,7 +338,19 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const pantau      = applySorting(coins.filter(c => c.status === 'waiting'), sortKey, c => c.marketMeta);
 
   if (coins.length === 0) {
-    if (scanStatus === 'running' || scanStatus === 'idle') {
+    if (scanStatus === 'idle') {
+      return (
+        <View style={scanStyles.center}>
+          <Feather name="play-circle" size={36} color={ACCENT} />
+          <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Scan belum dijalankan</Text>
+          <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Scan manual supaya tidak kena rate limit Binance (cuma Setup Finder yang otomatis)</Text>
+          <Pressable onPress={startScan} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
+            <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Mulai Scan</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (scanStatus === 'running') {
       return (
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING BREAKOUT" accentColor={ACCENT} />
@@ -351,7 +365,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <Feather name="trending-up" size={36} color={colors.mutedForeground} />
         <Text style={[scanStyles.emptyTitle, { color: colors.foreground }]}>Tidak ada setup breakout</Text>
         <Text style={[scanStyles.emptySub, { color: colors.mutedForeground }]}>Tidak ada koin yang lolos semua filter saat ini</Text>
-        <Pressable onPress={() => refetch()} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
+        <Pressable onPress={startScan} style={[scanStyles.retryBtn, { backgroundColor: ACCENT }]}>
           <Text style={[scanStyles.retryText, { color: colors.primaryForeground }]}>Scan Ulang</Text>
         </Pressable>
       </View>
@@ -380,7 +394,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         {fetchedAt && <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>Update: {fetchedAt} WIB</Text>}
-        <ScanNowButton onPress={() => refetch()} isLoading={isFetching} colors={colors} />
+        <ScanNowButton onPress={startScan} isLoading={isFetching} colors={colors} />
       </View>
 
       <SortSelector value={sortKey} onChange={setSortKey} />

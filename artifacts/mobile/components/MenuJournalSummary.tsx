@@ -10,7 +10,7 @@ import {
   journalLoadAll, breakdownBySkill,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, buildDevelopmentRecommendations,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
-  buildRpForwardTest, buildMmsForwardTest, SCALP_FORWARD,
+  buildRpForwardTest, buildMmsForwardTest, buildSfForwardTest, SCALP_FORWARD,
 } from '../app/(tabs)/journal-helpers';
 
 /**
@@ -47,10 +47,13 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
   const mmForward = React.useMemo(() => (
     sourceMenu === 'Scalping' ? buildRpForwardTest(allEntries)
     : sourceMenu === 'Money Magnet Scalping' ? buildMmsForwardTest(allEntries)
+    : sourceMenu === 'Setup Finder' ? buildSfForwardTest(allEntries)
     : null
   ), [allEntries, sourceMenu]);
   // Teks kartu Forward Test per menu (Scalping = Retest Fib H1→M5, belum di-backtest; Money Magnet Scalping = CRT H1→M5).
-  const fwMeta = sourceMenu === 'Money Magnet Scalping'
+  const fwMeta = sourceMenu === 'Setup Finder'
+    ? { title: 'SETUP FINDER (WHALE + BACKTEST)', label: 'Setup Finder', note: 'WR backtest bukan bukti setup: entry di tiap candle dengan jarak SL/TP sama. Forward test ini yang menentukan, bandingkan WR forward dengan WR backtest di tiap sinyal.' }
+    : sourceMenu === 'Money Magnet Scalping'
     ? { title: 'MONEY MAGNET SCALPING H1→M5', label: 'Money Magnet Scalping H1→M5 CRT', note: 'Money Magnet Scalping belum punya bukti statistik, jadi forward test ini bukti yang menentukan.' }
     : { title: 'FIBONACCI RETEST (H1)', label: 'Fibonacci Retest H1', note: 'Strategi ini BELUM di-backtest, jadi forward test ini satu-satunya bukti.' };
 

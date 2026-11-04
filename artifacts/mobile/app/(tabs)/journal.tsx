@@ -41,6 +41,7 @@ const MENU_FILTER_COLORS: Record<SourceMenu, string> = {
   'Counter Scalping': MENU_COLORS.breakout, // nama lama — kompat data Journal lama
   'Scalping': MENU_COLORS.scalping,
   'Money Magnet Scalping': MENU_COLORS.moneyMagnetScalping,
+  'Setup Finder': MENU_COLORS.setupFinder,
 };
 
 // ─── Breakdown mini bar ───────────────────────────────────────────────────────
@@ -236,6 +237,18 @@ function JournalEntryCard({
                 {entry.pbZoneLo !== undefined && entry.pbZoneHi !== undefined && <IndicatorRow label="Zona SNR H1" value={`${entry.pbZoneLo} – ${entry.pbZoneHi}`} colors={colors} />}
                 {entry.pbPullbackBars !== undefined && <IndicatorRow label="Pullback (candle H1 lalu)" value={`${entry.pbPullbackBars} (aturan ≤ 24)`} colors={colors} />}
                 {entry.validUntil !== undefined && <IndicatorRow label="Sinyal berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
+              </>
+            )}
+            {entry.sfVersion && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: MENU_COLORS.setupFinder, letterSpacing: 0.5, marginTop: 4 }}>SETUP FINDER {entry.sfVersion} (angka = backtest candle, bukan hasil trade)</Text>
+                {entry.sfWr !== undefined && <IndicatorRow label="WR backtest" value={`${entry.sfWr.toFixed(1)}% (n=${entry.sfN ?? '?'}, TF ${entry.sfTf ?? '?'})`} colors={colors} />}
+                {entry.sfAvgR !== undefined && <IndicatorRow label="Rata-rata R / skor" value={`${entry.sfAvgR.toFixed(2)} R / ${(entry.sfScore ?? 0).toFixed(3)}`} colors={colors} />}
+                {entry.sfFill !== undefined && <IndicatorRow label="Peluang entry tersentuh" value={`${entry.sfFill.toFixed(0)}%`} colors={colors} />}
+                {entry.sfEntryKind !== undefined && <IndicatorRow label="Jenis entry / sumber SL" value={`${entry.sfEntryKind === 'market' ? 'market' : entry.sfEntryKind === 'wall' ? 'depan tembok' : 'depan swing'} / SL ${entry.sfSlSource ?? '?'}${entry.sfSlPct !== undefined ? ` (${entry.sfSlPct.toFixed(2)}%)` : ''}`} colors={colors} />}
+                {entry.sfRegime !== undefined && <IndicatorRow label="Regime H1 / arah" value={`${entry.sfRegime ?? '-'} / ${entry.sfAlign ?? '-'}`} colors={colors} />}
+                {entry.sfWhalePressure !== undefined && <IndicatorRow label="Tekanan whale / alarm" value={`${entry.sfWhalePressure.toFixed(0)} / ${entry.sfAlarm ?? '-'}`} colors={colors} />}
+                {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
               </>
             )}
             {entry.mmCrtVersion && (
@@ -549,6 +562,7 @@ export default function JournalScreen() {
         fkBreakoutTime: e.fkBreakoutTime, fkFailTime: e.fkFailTime, fkVolX: e.fkVolX, fkRiskAtr: e.fkRiskAtr,
         fkLvlEmaDistAtr: e.fkLvlEmaDistAtr, fkRsi1h: e.fkRsi1h, fkCandlesSinceFail: e.fkCandlesSinceFail,
         // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup buat evaluasi forward test di luar app
+        sfVersion: e.sfVersion, sfWr: e.sfWr, sfN: e.sfN, sfAvgR: e.sfAvgR, sfFill: e.sfFill, sfScore: e.sfScore, sfSlPct: e.sfSlPct, sfTf: e.sfTf, sfEntryKind: e.sfEntryKind, sfSlSource: e.sfSlSource, sfRegime: e.sfRegime, sfAlign: e.sfAlign, sfWhalePressure: e.sfWhalePressure, sfAlarm: e.sfAlarm,
         mmCrtVersion: e.mmCrtVersion, mmH1Struct: e.mmH1Struct, mmH1Fib705: e.mmH1Fib705, mmSlMode: e.mmSlMode, mmFib0: e.mmFib0, mmFib1: e.mmFib1,
         mmVersion: e.mmVersion, mmAdxH4: e.mmAdxH4, mmMagnetLevelUsed: e.mmMagnetLevelUsed, mmH4Cross: e.mmH4Cross,
         mmForceIndex: e.mmForceIndex, mmConfluencePct: e.mmConfluencePct, mmStochK: e.mmStochK, mmStochD: e.mmStochD,
