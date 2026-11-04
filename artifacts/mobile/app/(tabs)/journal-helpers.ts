@@ -121,7 +121,7 @@ export interface JournalEntry {
   fkCandlesSinceFail?: number;
   // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup saat sinyal, buat forward test & riset.
   mmVersion?: string;
-  mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1 (2026-11-02)
+  mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 & TP2 RR 1:3 (2026-11-02)
   mmH1Struct?: 'ok' | 'unknown';     // struktur H1 saat sinyal (ok = belum ada close H1 melewati 0,705; unknown = leg belum terbentuk)
   mmH1Fib705?: number;               // level Fib 0,705 leg H1 (harga asli)
   mmSlMode?: 'fib' | 'atr';          // mm3: 'fib' = SL di Fib 0,71 leg sweep→displacement; 'atr' = fallback 2 x ATR M5
@@ -768,14 +768,19 @@ function buildBreakdown(entries: JournalEntry[], keyFn: (e: JournalEntry) => str
   return result.sort((a, b) => b.total - a.total);
 }
 
+/** Label tampilan menu. Key tersimpan 'Scalping' tetap (kompat data Journal lama); menunya sekarang bernama Fibonacci Retest. */
+export function menuLabel(m: string): string {
+  return m === 'Scalping' ? 'Fibonacci Retest' : m;
+}
+
 /** Breakdown win-rate per menu asal — "sinyal dari menu mana yang paling sering menang" */
 export function breakdownByMenu(entries: JournalEntry[]): JournalBreakdown[] {
-  return buildBreakdown(entries, e => e.sourceMenu);
+  return buildBreakdown(entries, e => menuLabel(e.sourceMenu));
 }
 
 /** Breakdown win-rate per skill asal */
 export function breakdownBySkill(entries: JournalEntry[]): JournalBreakdown[] {
-  return buildBreakdown(entries, e => `${e.sourceMenu} — ${e.sourceSkill}`);
+  return buildBreakdown(entries, e => `${menuLabel(e.sourceMenu)} — ${e.sourceSkill}`);
 }
 
 /** Breakdown win-rate per TF struktur */
@@ -1239,7 +1244,7 @@ export function buildLoseConditionProfiles(entries: JournalEntry[], groupBy: 'me
   const losers = entries.filter(e => e.status === 'lose');
   const groups = new Map<string, JournalEntry[]>();
   for (const e of losers) {
-    const key = groupBy === 'menu' ? e.sourceMenu : `${e.sourceMenu} — ${e.sourceSkill}`;
+    const key = groupBy === 'menu' ? menuLabel(e.sourceMenu) : `${menuLabel(e.sourceMenu)} — ${e.sourceSkill}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(e);
   }
@@ -1441,7 +1446,7 @@ export function computeTimingStats(entries: JournalEntry[], groupBy?: 'menu' | '
     groups.set('Semua', entries);
   } else {
     for (const e of entries) {
-      const key = groupBy === 'menu' ? e.sourceMenu : `${e.sourceMenu} — ${e.sourceSkill}`;
+      const key = groupBy === 'menu' ? menuLabel(e.sourceMenu) : `${menuLabel(e.sourceMenu)} — ${e.sourceSkill}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(e);
     }

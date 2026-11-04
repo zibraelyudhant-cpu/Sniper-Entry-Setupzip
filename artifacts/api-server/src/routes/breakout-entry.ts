@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeCounterStructural, getRecentPerformance, checkTaProBonus, getTaProScoreSnapshot } from '../lib/smc';
+import { analyzeCounterStructural, checkTaProBonus, getTaProScoreSnapshot } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -19,7 +19,6 @@ router.get('/breakout-entry', async (req, res) => {
   const mode = 'structural' as const;
   try {
     const result = await analyzeCounterStructural(normalized);
-    const recentPerformance = await getRecentPerformance(normalized, 'counter_scalping');
     // FIX (audit): TA PRO Bonus sebelumnya gak pernah dipanggil -- banner
     // di UI gak pernah muncul. Di-wire di endpoint DETAIL doang (bukan di
     // /breakout-entry/scan), biar gak 2x-in beban fetch pas scan ratusan koin.
@@ -30,7 +29,7 @@ router.get('/breakout-entry', async (req, res) => {
     const taPro = (result as any).bias === 'bullish' || (result as any).bias === 'bearish' ? await getTaProScoreSnapshot(normalized) : null;
     res.json({
       taPro,
-      ...result, mode, recentPerformance,
+      ...result, mode,
       taProBonusConfirmed: taProBonus?.confirmed ?? false,
       taProBonusClassification: taProBonus?.classification ?? null,
       taProBonusScore: taProBonus?.score ?? 0,

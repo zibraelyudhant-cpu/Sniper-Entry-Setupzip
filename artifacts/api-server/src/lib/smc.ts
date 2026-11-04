@@ -4397,6 +4397,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       btcAligned, btcBias,
       mmCrtVersion: 'mm3', mmH1Struct: h1Fib.state === 'ok' ? 'ok' : 'unknown', mmH1Fib705,
       mmSlMode, mmFib0: fibLeg?.f0, mmFib1: fibLeg?.f1,
+      validUntilMs: Date.now() + 36 * 5 * 60_000, // limit batal 36 candle M5 (~3 jam), sama dgn teks di message/Alur Logic
       message: `SIAP PASANG ${bias === 'bullish' ? 'BUY' : 'SELL'} LIMIT di ${entryPrice.toFixed(6)} (CE/50% FVG) -- H1 ${h1Location}, M5 ${found.type === 'reversal' ? 'sweep+reversal (CISD)' : 'sweep+failure to manipulate (continuation)'}, skor ${totalScore}/16 (${grade}). SL ${stopLoss.toFixed(6)} (${mmSlMode === 'fib' ? 'Fib 0,71 leg sweep' : '2 ATR M5, leg Fib belum terbentuk'}), TP1 RR1:2, TP2 RR1:3. Limit expired 36 candle M5 (~3 jam) kalau belum fill.${btcWarnMsgMM}`,
     };
   } catch (err) {

@@ -174,6 +174,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
       technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
       mmCrtVersion: (c as any).mmCrtVersion, mmH1Struct: (c as any).mmH1Struct, mmH1Fib705: (c as any).mmH1Fib705, mmSlMode: (c as any).mmSlMode, mmFib0: (c as any).mmFib0, mmFib1: (c as any).mmFib1,
+      validUntil: (c as any).validUntilMs,
       orderType: 'limit',
       signalStatus: c.status === 'in_zone' ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
       timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
@@ -343,6 +344,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
       mmCrtVersion: (data as any).mmCrtVersion, mmH1Struct: (data as any).mmH1Struct, mmH1Fib705: (data as any).mmH1Fib705, mmSlMode: (data as any).mmSlMode, mmFib0: (data as any).mmFib0, mmFib1: (data as any).mmFib1,
+      validUntil: (data as any).validUntilMs,
       orderType: 'limit',
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };

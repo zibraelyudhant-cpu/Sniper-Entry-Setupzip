@@ -18,7 +18,7 @@ import {
   type JournalEntry, type SourceMenu,
   journalLoadAll, journalDelete, journalDeleteAll, journalEvaluate, journalUpdate, journalUpdateMany,
   journalGetLastWriteStatus,
-  breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias, breakdownByTaGrade, breakdownByTaScore, compareTaScoreWinLose,
+  menuLabel, breakdownByMenu, breakdownBySkill, breakdownByTF, breakdownByAdxRange, breakdownByRsiRange, breakdownByBias, breakdownByTaGrade, breakdownByTaScore, compareTaScoreWinLose,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, computeTimingStats,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
   registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
@@ -125,7 +125,7 @@ function JournalEntryCard({
               <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground, marginTop: 2 }}>{entry.timestamp}</Text>
               <View style={{ flexDirection: 'row', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
                 <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${menuColor}18`, borderWidth: 1, borderColor: menuColor }}>
-                  <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: menuColor }}>{entry.sourceMenu}</Text>
+                  <Text style={{ fontSize: 9, fontFamily: 'Inter_700Bold', color: menuColor }}>{menuLabel(entry.sourceMenu)}</Text>
                 </View>
                 <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${colors.mutedForeground}12` }}>
                   <Text style={{ fontSize: 9, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground }}>{entry.sourceSkill}</Text>
@@ -708,7 +708,7 @@ export default function JournalScreen() {
             </Pressable>
             {(Object.keys(menuCounts) as SourceMenu[]).map(m => (
               <Pressable key={m} onPress={() => setMenuFilter(m)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: menuFilter === m ? MENU_FILTER_COLORS[m] : colors.card, borderWidth: 1, borderColor: menuFilter === m ? MENU_FILTER_COLORS[m] : colors.border }}>
-                <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: menuFilter === m ? '#0A0E1A' : colors.mutedForeground }}>{m} ({menuCounts[m]})</Text>
+                <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: menuFilter === m ? '#0A0E1A' : colors.mutedForeground }}>{menuLabel(m)} ({menuCounts[m]})</Text>
               </Pressable>
             ))}
           </ScrollView>

@@ -19,7 +19,6 @@ import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { ScanLoading } from '@/components/animated/ScanLoading';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { MENU_COLORS } from '@/constants/theme';
-import { RecentPerformanceCard } from '@/components/RecentPerformanceCard';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import type { MarketStructureV2Result } from '@/components/MarketStructureV2Card';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
@@ -30,14 +29,6 @@ import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEn
 
 const ACCENT = MENU_COLORS.breakout;
 // ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
-
-interface RecentPerformance {
-  totalTrades: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-  periodLabel: string;
-}
 
 interface TFBreakdownItem {
   timeframe: string;
@@ -53,7 +44,6 @@ interface BreakoutTradingResult {
   status: 'siap_breakout' | 'siap_retest' | 'approaching' | 'waiting' | 'expired' | 'no_setup' | 'error' | 'in_zone' | 'no_structure' | 'skip';
   symbol: string;
   bias?: 'bullish' | 'bearish';
-  recentPerformance?: RecentPerformance;
   tfBreakdown?: TFBreakdownItem[];
   currentPrice: number;
   timestamp: string;
@@ -770,8 +760,6 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
           )}
 
           <TFBreakdownTable items={data?.tfBreakdown} accentColor={ACCENT} />
-
-          <RecentPerformanceCard data={data?.recentPerformance} accentColor={ACCENT} />
 
           {/* Kalkulator PnL button */}
           {data.entryPrice !== undefined && (

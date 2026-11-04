@@ -21,7 +21,7 @@ async function getCryptoPerpetualSymbols(): Promise<Set<string>> {
       quoteAsset: string;
       underlyingType: string;
     }>;
-  } = await res.json();
+  } = (await res.json()) as any;
   const symbols = new Set(
     data.symbols
       .filter(
@@ -88,7 +88,7 @@ export async function getUniverse(limit = 150): Promise<string[]> {
         if (attempt < 1) { await new Promise(r => setTimeout(r, 1000)); continue; }
         throw new Error(`Failed to fetch tickers (${tickersRes.status})`);
       }
-      const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = await tickersRes.json();
+      const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = (await tickersRes.json()) as any;
       const filtered = allTickers.filter(t => cryptoSymbols.has(t.symbol));
       // REVISI (request user, Sniper Breakout & Scalping & Money Magnet
       // Scalping naik ke 500 koin): cache internal dinaikkan ke 550
@@ -132,7 +132,7 @@ async function ensureMarketMetadataFresh(): Promise<void> {
   try {
     const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/ticker/24hr`);
     if (!res.ok) return; // fail-safe — biarin cache lama (kalau ada) atau tetep kosong, JANGAN throw
-    const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = await res.json();
+    const allTickers: Array<{ symbol: string; quoteVolume: string; priceChangePercent: string }> = (await res.json()) as any;
     const metaMap = new Map<string, { priceChangePercent: number; quoteVolume: number }>();
     for (const t of allTickers) {
       metaMap.set(t.symbol, { priceChangePercent: parseFloat(t.priceChangePercent), quoteVolume: parseFloat(t.quoteVolume) });
@@ -150,7 +150,7 @@ async function getFundingRateMap(): Promise<Map<string, number>> {
   try {
     const res = await fetch(`${BINANCE_FUTURES_BASE}/fapi/v1/premiumIndex`); // TANPA symbol = semua koin sekaligus, 1x call doang
     if (!res.ok) return fundingRateCache?.data ?? new Map();
-    const data: Array<{ symbol: string; lastFundingRate: string }> = await res.json();
+    const data: Array<{ symbol: string; lastFundingRate: string }> = (await res.json()) as any;
     const map = new Map<string, number>();
     for (const d of data) map.set(d.symbol, parseFloat(d.lastFundingRate));
     fundingRateCache = { data: map, ts: Date.now() };
