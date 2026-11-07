@@ -19,6 +19,7 @@ import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
+import { SetupCheckButton } from '@/components/SetupCheckPanel';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
@@ -416,6 +417,9 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       ) : data ? (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 80 }} showsVerticalScrollIndicator={false}>
           <TaProScoreCard snapshot={(data as any)?.taPro} symbol={(data as any)?.symbol ?? querySymbol} bias={(data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish' ? (data as any).bias : null} />
+          {(data as any)?.entryPrice && (data as any)?.stopLoss && ((data as any)?.takeProfit2 ?? (data as any)?.takeProfit1) && ((data as any)?.bias === 'bullish' || (data as any)?.bias === 'bearish') && (
+            <SetupCheckButton colors={colors} accent={ACCENT} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} />
+          )}
           {!liveMode && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${colors.gold}18`, borderWidth: 1, borderColor: colors.gold, borderRadius: 10, padding: 10, marginBottom: 8 }}>
               <Feather name="lock" size={12} color={colors.gold} />

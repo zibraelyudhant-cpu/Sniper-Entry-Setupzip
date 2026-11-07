@@ -7,11 +7,11 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 export const SF = {
-  VERSION: 'sf1',
+  VERSION: 'sf2',
   SKILL_LABEL: 'Setup Finder (Whale + Backtest)',
   threads: 3,
   rate: { brakeWeight: 2000, retries: 4 },
-  walls: { minUsdt: 50_000, depthScan: 500, depthSingle: 1000, strengthPct: 2, top: 10, maxDistPct: 3, realSeen: 2, tolPct: 0.05, valueKeep: 0.5, spoofRemain: 0.3 },
+  walls: { minUsdt: 100_000, depthScan: 500, depthSingle: 1000, strengthPct: 2, top: 10, /* top = 10 TOTAL (beli + jual digabung) */ maxDistPct: 3, realSeen: 2, tolPct: 0.05, valueKeep: 0.5, spoofRemain: 0.3 },
   trades: { scan: 1, single: 2, perReq: 1000 },
   swing: { candles: 1000, fractal: 3, lookback: 200, atr: 14, maxPerSide: 3 },
   gocek: { lookahead: 96, reclaimBars: 4, depthPct: 90, defaultDepthAtr: 1.0 },
@@ -20,7 +20,7 @@ export const SF = {
   sl: { swingBufAtr: 0.1, wallBufAtr1h: 0.25, fallbackAtr1h: 1.5, roundBuf: 0.1, maxPct: 4 },
   entry: { wallBufAtr: 0.1, swingBufAtr: 0.15 },
   rr: [1, 1.5, 2, 3] as number[],
-  bt: { slTfSwitchPct: 1.5, candles: 1500, maxBars15: 192, maxBars1h: 120, minTrades: 30, suspiciousWr: 85, warmup: 50 },
+  bt: { slTfSwitchPct: 1.5, candles: 1500, maxBars15: 192, maxBars1h: 120, minTrades: 30, suspiciousWr: 85, warmup: 0 },
   fill: { window: 96, marketTolPct: 0.02 },
   regime: { wTrend: 0.45, wTrades: 0.30, wBook: 0.25, adxFull: 40, sideMin: 10, sideMax: 85, minH1: 60 },
   alarm: { warnVol: 3, warnMoveAtr: 2, dangerPeak: 5, dangerMoveAtr: 3 },
@@ -31,7 +31,8 @@ const BASE = 'https://fapi.binance.com';
 // ─── Tipe ───────────────────────────────────────────────────────────────
 type Candle = { t: number; o: number; h: number; l: number; c: number; v: number; qv: number };
 export type Side = 'BUY' | 'SELL';
-export type SFOptions = { rr: number[]; side: 'BUY' | 'SELL' | 'BOTH'; minWall: number };
+export type SlCapMode = 'potong' | 'tolak';
+export type SFOptions = { rr: number[]; side: 'BUY' | 'SELL' | 'BOTH'; minWall: number; slCap?: SlCapMode };
 
 export interface SFWall { side: 'bid' | 'ask'; price: number; value: number; distPct: number; strengthPct: number; impactPct: number; seen: number; real: boolean }
 
@@ -39,7 +40,7 @@ export interface SFSetup {
   symbol: string; side: Side; rr: number;
   entryKind: 'market' | 'wall' | 'swing'; orderType: 'market' | 'limit';
   entry: number; sl: number; tp: number; slPct: number; price: number;
-  slSource: 'swing' | 'wall' | 'fallback'; slRounded: boolean;
+  slSource: 'swing' | 'wall' | 'fallback'; slRounded: boolean; slClipped: boolean;
   tf: '15M' | '1H'; n: number; nWin: number; usedAllCandles: boolean;
   wr: number; breakevenWr: number; avgR: number; fillProb: number; score: number;
   wrSuspicious: boolean; medianHoursToTp: number | null;
@@ -75,9 +76,21 @@ function emaSeries(vals: number[], n: number): number[] {
   return out;
 }
 
+// ATR Wilder per candle (NaN sebelum candle ke-n)
+function atrSeries(c: Candle[], n = 14): number[] {
+  const out: number[] = new Array(c.length).fill(NaN);
+  if (c.length < n) return out;
+  const tr: number[] = [c[0]!.h - c[0]!.l];
+  for (let i = 1; i < c.length; i++) tr.push(Math.max(c[i]!.h - c[i]!.l, Math.abs(c[i]!.h - c[i - 1]!.c), Math.abs(c[i]!.l - c[i - 1]!.c)));
+  let a = tr.slice(0, n).reduce((s, x) => s + x, 0) / n; out[n - 1] = a;
+  for (let i = n; i < tr.length; i++) { a = (a * (n - 1) + tr[i]!) / n; out[i] = a; }
+  return out;
+}
+
 function atrLast(c: Candle[], n = 14): number {
-  if (c.length < n + 1) return NaN;
-  const tr: number[] = [];
+  // Wilder: TR candle pertama = high - low; nilai pertama = rata-rata n TR pertama; lalu (sebelumnya x (n-1) + TR) / n
+  if (c.length < n) return NaN;
+  const tr: number[] = [c[0]!.h - c[0]!.l];
   for (let i = 1; i < c.length; i++) tr.push(Math.max(c[i]!.h - c[i]!.l, Math.abs(c[i]!.h - c[i - 1]!.c), Math.abs(c[i]!.l - c[i - 1]!.c)));
   let a = tr.slice(0, n).reduce((s, x) => s + x, 0) / n;
   for (let i = n; i < tr.length; i++) a = (a * (n - 1) + tr[i]!) / n;
@@ -164,7 +177,7 @@ function simulateSweep(levels: [number, number][], startPrice: number, usd: numb
   return Math.abs(last - startPrice) / startPrice * 100;
 }
 
-function detectWalls(symbol: string, bids: [number, number][], asks: [number, number][], price: number, minValue: number): { walls: SFWall[]; spoofCount: number } {
+function detectWalls(symbol: string, bids: [number, number][], asks: [number, number][], price: number, minValue: number): { walls: SFWall[]; allWalls: SFWall[]; spoofCount: number } {
   const lo = price * (1 - SF.walls.strengthPct / 100), hi = price * (1 + SF.walls.strengthPct / 100);
   const bidTotal = bids.filter(b => b[0] >= lo).reduce((s, b) => s + b[0] * b[1], 0);
   const askTotal = asks.filter(a => a[0] <= hi).reduce((s, a) => s + a[0] * a[1], 0);
@@ -180,30 +193,33 @@ function detectWalls(symbol: string, bids: [number, number][], asks: [number, nu
         seen: 1, real: false,
       });
     }
-    return out.sort((a, b) => b.impactPct - a.impactPct).slice(0, SF.walls.top);
+    return out;
   };
-  const walls = [...mk('bid'), ...mk('ask')];
+  // SEMUA tembok >= Min. nilai (beli + jual): dipakai SL anti-gocekan & deteksi asli/palsu.
+  // 10 tembok TOTAL (urut dampak % terbesar, sama -> nilai USDT terbesar): hanya untuk kandidat entry "depan tembok", tabel tembok, dan Cek entry.
+  const allWalls = [...mk('bid'), ...mk('ask')].sort((a, b) => (b.impactPct - a.impactPct) || (b.value - a.value));
+  const walls = allWalls.slice(0, SF.walls.top);
 
   // asli / palsu — bandingkan dengan scan sebelumnya
   let spoofCount = 0;
   const prev = wallHistory.get(symbol);
   if (prev) {
     const tol = price * SF.walls.tolPct / 100;
-    for (const w of walls) {
+    for (const w of allWalls) {
       const m = prev.walls.find(p => p.side === w.side && Math.abs(p.price - w.price) <= tol);
       if (m && w.value >= m.value * SF.walls.valueKeep) w.seen = m.seen + 1;
     }
     for (const p of prev.walls) {
-      if (walls.some(w => w.side === p.side && Math.abs(w.price - p.price) <= tol)) continue;
+      if (allWalls.some(w => w.side === p.side && Math.abs(w.price - p.price) <= tol)) continue;
       const lv = p.side === 'bid' ? bids : asks;
       const remain = lv.filter(l => Math.abs(l[0] - p.price) <= tol).reduce((s, l) => s + l[0] * l[1], 0);
       const approached = Math.abs(price - p.price) < Math.abs(prev.price - p.price);
       if (remain < p.value * SF.walls.spoofRemain && approached) spoofCount++;
     }
   }
-  for (const w of walls) w.real = w.seen >= SF.walls.realSeen;
-  wallHistory.set(symbol, { price, walls: walls.map(w => ({ side: w.side, price: w.price, value: w.value, seen: w.seen })) });
-  return { walls, spoofCount };
+  for (const w of allWalls) w.real = w.seen >= SF.walls.realSeen;
+  wallHistory.set(symbol, { price, walls: allWalls.map(w => ({ side: w.side, price: w.price, value: w.value, seen: w.seen })) });
+  return { walls, allWalls, spoofCount };
 }
 
 // ─── Zona tipis (spek #6): bucket antrean < 25% median, hanya di area yang tercakup order book ───
@@ -228,8 +244,8 @@ function findSwings(c: Candle[], n: number): { highs: Array<{ i: number; p: numb
   for (let i = n; i < c.length - n; i++) { // hanya yang sudah terkonfirmasi (n candle kanan)
     let isH = true, isL = true;
     for (let k = 1; k <= n; k++) {
-      if (!(c[i]!.h > c[i - k]!.h && c[i]!.h > c[i + k]!.h)) isH = false;
-      if (!(c[i]!.l < c[i - k]!.l && c[i]!.l < c[i + k]!.l)) isL = false;
+      if (!(c[i]!.h >= c[i - k]!.h && c[i]!.h >= c[i + k]!.h)) isH = false; // tertinggi di 2n+1 candle; nilai kembar tetap swing
+      if (!(c[i]!.l <= c[i - k]!.l && c[i]!.l <= c[i + k]!.l)) isL = false;
       if (!isH && !isL) break;
     }
     if (isH) highs.push({ i, p: c[i]!.h });
@@ -238,32 +254,28 @@ function findSwings(c: Candle[], n: number): { highs: Array<{ i: number; p: numb
   return { highs, lows };
 }
 
-function gocekDepthsAtr(c: Candle[], sw: ReturnType<typeof findSwings>, atr: number): number[] {
+function gocekDepthsAtr(c: Candle[], sw: ReturnType<typeof findSwings>, atrArr: number[]): number[] {
+  // Per swing (SEMUA swing di 1000 candle 15M, bukan hanya 200 terakhir): dicek mulai candle i+n+1, jendela 96 candle, SAPUAN PERTAMA saja. Tembus = ketat (low < level / high > level).
+  // Jendela "close balik <= 4 candle" dimulai dari candle penembus (ikut dihitung): j .. j+3.
+  // Kedalaman = jarak level swing ke low terendah (swing low) / high tertinggi (swing high) di jendela itu, dibagi ATR15 di candle penembus.
   const out: number[] = []; const n = SF.swing.fractal; const look = SF.gocek.lookahead, rec = SF.gocek.reclaimBars;
-  for (const s of sw.lows) {
-    for (let j = s.i + n + 1; j <= Math.min(c.length - 1, s.i + n + look); j++) {
-      if (c[j]!.l < s.p) {
-        let minL = c[j]!.l;
-        for (let k = j; k <= Math.min(j + rec, c.length - 1); k++) {
-          minL = Math.min(minL, c[k]!.l);
-          if (c[k]!.c >= s.p) { out.push((s.p - minL) / atr); break; }
-        }
-        break; // sapuan pertama saja
+  const scan = (s: { i: number; p: number }, isLow: boolean) => {
+    for (let j = s.i + n + 1; j <= Math.min(c.length - 1, s.i + n + look); j++) { // swing terkonfirmasi di i+n; cek tembusan mulai i+n+1, jendela 96 candle dari situ
+      const broke = isLow ? c[j]!.l < s.p : c[j]!.h > s.p;
+      if (!broke) continue;
+      const end = Math.min(j + rec - 1, c.length - 1);
+      let ext = isLow ? c[j]!.l : c[j]!.h; let reclaimed = false;
+      for (let k = j; k <= end; k++) {
+        ext = isLow ? Math.min(ext, c[k]!.l) : Math.max(ext, c[k]!.h);
+        if (isLow ? c[k]!.c > s.p : c[k]!.c < s.p) reclaimed = true; // close balik: di atas level (swing low) / di bawah level (swing high)
       }
+      const a = atrArr[j];
+      if (reclaimed && a !== undefined && isFinite(a) && a > 0) out.push((isLow ? s.p - ext : ext - s.p) / a);
+      return; // sapuan pertama saja
     }
-  }
-  for (const s of sw.highs) {
-    for (let j = s.i + n + 1; j <= Math.min(c.length - 1, s.i + n + look); j++) {
-      if (c[j]!.h > s.p) {
-        let maxH = c[j]!.h;
-        for (let k = j; k <= Math.min(j + rec, c.length - 1); k++) {
-          maxH = Math.max(maxH, c[k]!.h);
-          if (c[k]!.c <= s.p) { out.push((maxH - s.p) / atr); break; }
-        }
-        break;
-      }
-    }
-  }
+  };
+  for (const s of sw.lows) scan(s, true);
+  for (const s of sw.highs) scan(s, false);
   return out;
 }
 
@@ -280,7 +292,8 @@ function roundLevels(price: number): number[] {
 interface BtRes { wr: number; n: number; nWin: number; medianBars: number | null; usedAll: boolean }
 function backtest(c: Candle[], side: Side, slPct: number, rrs: number[], maxBars: number, nowUp: boolean): Map<number, BtRes> {
   const ema20 = emaSeries(c.map(x => x.c), 20), ema50 = emaSeries(c.map(x => x.c), 50);
-  const first = SF.bt.warmup, last = c.length - 1 - maxBars; // candle tanpa masa depan penuh tidak dipakai
+  // mulai dari candle pertama (index 0); entry di close candle i selama i < jumlah candle - 1 - maxBars
+  const first = SF.bt.warmup, last = c.length - 2 - maxBars;
   const all: number[] = [], filt: number[] = [];
   for (let i = first; i <= last; i++) { all.push(i); if ((ema20[i]! > ema50[i]!) === nowUp) filt.push(i); }
   const useFilt = filt.length >= SF.bt.minTrades; const idxs = useFilt ? filt : all;
@@ -336,11 +349,11 @@ function touchStats(c: Candle[], side: Side, kind: OrderKind, distFrac: number, 
 interface Ctx {
   symbol: string; opt: SFOptions; price: number;
   k15all: Candle[]; k15: Candle[]; h1: Candle[];
-  atr15: number; atrH1: number; move1dPct: number; move4hPct: number;
+  atr15: number; atrH1: number; atrH1Real: number; move1dPct: number; move4hPct: number;
   bids: [number, number][]; asks: [number, number][];
-  walls: SFWall[]; spoofCount: number; whalePressure: number;
+  walls: SFWall[]; allWalls: SFWall[]; spoofCount: number; whalePressure: number;
   lows: Array<{ i: number; p: number }>; highs: Array<{ i: number; p: number }>;
-  p90: number; rounds: number[]; thin: Array<{ lo: number; hi: number }>;
+  p90: number; rounds: number[]; zones8: Array<{ kind: 'swingLow' | 'swingHigh' | 'round'; p: number }>; thin: Array<{ lo: number; hi: number }>;
   regime: SFSetup['regime']; alarm: SFSetup['alarm'];
   h1Long: () => Promise<Candle[]>;
 }
@@ -374,17 +387,20 @@ async function loadCtx(symbol: string, opt: SFOptions, single: boolean): Promise
   const d1 = await getKlines(symbol, '1d', 31); // 30 candle selesai — buat perkiraan gerak (bukan regime)
   const k1m = await getKlines(symbol, '1m', 62); // 61 candle selesai
   if (k15.length < 300) throw new Error('data candle 15M kurang');
-  const atr15 = atrLast(k15, SF.swing.atr);
-  const atrH1 = h1.length > 20 ? atrLast(h1, 14) : atr15 * 2;
-  if (!isFinite(atr15) || atr15 <= 0) throw new Error('ATR tidak valid');
+  // ATR15 kosong / NaN -> harga x 0.003. "ATR H1" di Setup Finder = 2 x ATR15 (BUKAN ATR dari candle 1H).
+  const atr15Raw = atrLast(k15, SF.swing.atr);
+  const atr15 = isFinite(atr15Raw) && atr15Raw > 0 ? atr15Raw : price * 0.003;
+  const atrH1 = 2 * atr15; // HANYA untuk SL anti-gocekan (SL tembok & SL cadangan)
+  const atrH1RealRaw = atrLast(h1, 14); // ATR H1 ASLI (Wilder 14, 300 candle 1H) — regime & perkiraan gerak
+  const atrH1Real = isFinite(atrH1RealRaw) && atrH1RealRaw > 0 ? atrH1RealRaw : atrH1;
 
   // perkiraan gerak: ATR D1% (kalau candle D1 < 15 pakai ATR H1% x 5); 1 hari = x0.8; 4 jam = ATR H1% x2 x0.8
-  const atrH1Pct = atrH1 / price * 100;
+  const atrH1Pct = atrH1Real / price * 100;
   const atrD1Pct = d1.length >= 15 ? atrLast(d1, 14) / price * 100 : atrH1Pct * 5;
   const move1dPct = atrD1Pct * 0.8; const move4hPct = atrH1Pct * 2 * 0.8;
 
   // 2.2 tembok
-  const { walls, spoofCount } = detectWalls(symbol, bids, asks, price, opt.minWall);
+  const { walls, allWalls, spoofCount } = detectWalls(symbol, bids, asks, price, opt.minWall);
 
   // transaksi besar (spek #5)
   let buyV = 0, sellV = 0;
@@ -396,22 +412,29 @@ async function loadCtx(symbol: string, opt: SFOptions, single: boolean): Promise
   const fromIdx = k15.length - SF.swing.lookback;
   const lows = sw.lows.filter(s => s.i >= fromIdx && s.p < price).sort((a, b) => b.p - a.p).slice(0, SF.swing.maxPerSide);
   const highs = sw.highs.filter(s => s.i >= fromIdx && s.p > price).sort((a, b) => a.p - b.p).slice(0, SF.swing.maxPerSide);
-  const depths = gocekDepthsAtr(k15, sw, atr15);
+  const depths = gocekDepthsAtr(k15, sw, atrSeries(k15, SF.swing.atr));
   const p90 = depths.length ? percentile(depths, SF.gocek.depthPct) : SF.gocek.defaultDepthAtr;
   const rounds = roundLevels(price);
+  // 8 zona terdekat ke harga (zona swing + angka bulat, urut jarak) — kandidat entry "depan swing" diambil dari sini
+  const zones8 = [
+    ...sw.lows.filter(s => s.i >= fromIdx && s.p < price).map(s => ({ kind: 'swingLow' as const, p: s.p })),
+    ...sw.highs.filter(s => s.i >= fromIdx && s.p > price).map(s => ({ kind: 'swingHigh' as const, p: s.p })),
+    ...rounds.map(p => ({ kind: 'round' as const, p })),
+  ].sort((a, b) => Math.abs(a.p - price) - Math.abs(b.p - price)).slice(0, 8);
   const thin = thinBuckets(bids, asks, price);
 
   // 2.4 regime
   let regime: SFSetup['regime'] = null;
   if (h1.length >= SF.regime.minH1) {
     const cl = h1.map(x => x.c); const e20 = emaSeries(cl, 20), e50 = emaSeries(cl, 50), e200 = emaSeries(cl, 200); const L = cl.length - 1;
-    const trend = (Math.sign(cl[L]! - e20[L]!) + Math.sign(e20[L]! - e50[L]!) + Math.sign(e50[L]! - e200[L]!)) / 3 * 100;
+    const s1 = Math.sign(cl[L]! - e20[L]!), s2 = Math.sign(e20[L]! - e50[L]!), s3 = Math.sign(e50[L]! - e200[L]!);
+    const trend = (cl.length < 200 ? (s1 + s2) / 2 : (s1 + s2 + s3) / 3) * 100; // < 200 candle: hanya 2 tanda pertama, dibagi 2
     const bidSum = bids.filter(b => b[0] >= price * 0.98).reduce((s, b) => s + b[0] * b[1], 0);
     const askSum = asks.filter(a => a[0] <= price * 1.02).reduce((s, a) => s + a[0] * a[1], 0);
     const book = bidSum + askSum > 0 ? (bidSum - askSum) / (bidSum + askSum) * 100 : 0;
     const skor = SF.regime.wTrend * trend + SF.regime.wTrades * whalePressure + SF.regime.wBook * book;
     const adx = adxLast(h1, 14);
-    const side = Math.min(SF.regime.sideMax, Math.max(SF.regime.sideMin, 100 * (1 - (isFinite(adx) ? adx : 0) / SF.regime.adxFull)));
+    const side = Math.min(SF.regime.sideMax, Math.max(SF.regime.sideMin, 100 * (1 - (isFinite(adx) ? adx : SF.regime.adxFull) / SF.regime.adxFull)));
     const bull = (100 - side) * (0.5 + skor / 200); const bear = 100 - side - bull;
     regime = bull >= bear && bull >= side ? 'Bullish' : bear >= bull && bear >= side ? 'Bearish' : 'Sideways';
   }
@@ -432,8 +455,8 @@ async function loadCtx(symbol: string, opt: SFOptions, single: boolean): Promise
 
   let h1LongCache: Candle[] | null = null;
   return {
-    symbol, opt, price, k15all, k15, h1, atr15, atrH1, move1dPct, move4hPct, bids, asks, walls, spoofCount, whalePressure,
-    lows, highs, p90, rounds, thin, regime, alarm,
+    symbol, opt, price, k15all, k15, h1, atr15, atrH1, atrH1Real, move1dPct, move4hPct, bids, asks, walls, allWalls, spoofCount, whalePressure,
+    lows, highs, p90, rounds, zones8, thin, regime, alarm,
     h1Long: async () => (h1LongCache ??= await getKlines(symbol, '1h', SF.bt.candles)),
   };
 }
@@ -450,9 +473,9 @@ async function runBt(ctx: Ctx, side: Side, slPct: number, rrs: number[]) {
 }
 
 // SL anti-gocekan (spek #9). capped=false -> tanpa batas 4% (dipakai Cek entry / saran)
-function antiGocekSl(ctx: Ctx, side: Side, capped: boolean) {
+function antiGocekSl(ctx: Ctx, side: Side, capMode: SlCapMode | 'none') {
   const buy = side === 'BUY'; const sgn = buy ? 1 : -1; const { price, atr15, atrH1, p90 } = ctx;
-  const wallsSide = ctx.walls.filter(w => w.side === (buy ? 'bid' : 'ask') && w.distPct <= SF.walls.maxDistPct);
+  const wallsSide = ctx.allWalls.filter(w => w.side === (buy ? 'bid' : 'ask') && w.distPct <= SF.walls.maxDistPct); // SEMUA tembok >= Min. nilai, jarak <= 3%
   const bigWall = [...wallsSide].sort((a, b) => b.value - a.value);
   const slWall = bigWall.find(w => w.real) ?? bigWall[0] ?? null; // SL: utamakan tembok asli
   const swing = buy ? ctx.lows[0] : ctx.highs[0];
@@ -466,14 +489,22 @@ function antiGocekSl(ctx: Ctx, side: Side, capped: boolean) {
     if (Math.abs(sl - r) <= SF.round.zoneAtr * p90 * atr15) { sl = r - sgn * (SF.round.zoneAtr * p90 + SF.sl.roundBuf) * atr15; rounded = true; break; }
   }
   const tooFar = Math.abs(price - sl) / price * 100 > SF.sl.maxPct;
-  return { sl, src: far.src, rounded, rejected: capped && tooFar };
+  // potong: SL dipindah tepat ke 4% dari harga (BUY x0.96, SELL x1.04), setup tetap dipakai. tolak: setup dibuang. none: tanpa batas (Cek entry / saran).
+  let clipped = false;
+  if (capMode === 'potong' && tooFar) { sl = price * (1 - sgn * SF.sl.maxPct / 100); clipped = true; }
+  return { sl, src: far.src, rounded, clipped, rejected: capMode === 'tolak' && tooFar };
 }
 
 // kandidat entry (spek #10) — validitas dicek pemanggil
 function entryCandidates(ctx: Ctx, side: Side) {
   const buy = side === 'BUY'; const sgn = buy ? 1 : -1;
-  const wallsSide = ctx.walls.filter(w => w.side === (buy ? 'bid' : 'ask') && w.distPct <= SF.walls.maxDistPct).sort((a, b) => b.value - a.value);
-  const entWall = wallsSide[0] ?? null; const swing = buy ? ctx.lows[0] : ctx.highs[0];
+  // dari 10 tembok total: sisi sama (BUY: tembok beli di bawah harga; SELL: tembok jual di atas), jarak <= 3%,
+  // utamakan yang asli (kalau tidak ada yang asli pakai semua), lalu nilai USDT TERBESAR
+  const wallsSide = ctx.walls.filter(w => w.side === (buy ? 'bid' : 'ask') && w.distPct <= SF.walls.maxDistPct);
+  const realSide = wallsSide.filter(w => w.real);
+  const entWall = [...(realSide.length ? realSide : wallsSide)].sort((a, b) => b.value - a.value)[0] ?? null;
+  const swZ = ctx.zones8.filter(z => z.kind === (buy ? 'swingLow' : 'swingHigh')); // swing terdekat di antara 8 zona terdekat
+  const swing = swZ.length ? { p: swZ[0]!.p } : null;
   const ents: Array<{ kind: 'market' | 'wall' | 'swing'; v: number; wallReal: boolean | null }> = [{ kind: 'market', v: ctx.price, wallReal: null }];
   if (entWall) ents.push({ kind: 'wall', v: entWall.price + sgn * SF.entry.wallBufAtr * ctx.atr15, wallReal: entWall.real });
   if (swing) ents.push({ kind: 'swing', v: swing.p + sgn * SF.entry.swingBufAtr * ctx.atr15, wallReal: null });
@@ -489,7 +520,7 @@ export async function analyzeSetupFinderCoin(symbol: string, opt: SFOptions, sin
 
   for (const side of sides) {
     const buy = side === 'BUY'; const sgn = buy ? 1 : -1;
-    const ag = antiGocekSl(ctx, side, true);
+    const ag = antiGocekSl(ctx, side, opt.slCap ?? 'potong');
     if (ag.rejected) { skipped.push(`${side}: SL > ${SF.sl.maxPct}% — setup ditolak`); continue; }
     const sl = ag.sl;
     const valid = entryCandidates(ctx, side).filter(e => (buy ? sl < e.v && e.v <= price : price <= e.v && e.v < sl) && Math.abs(e.v - sl) > 0);
@@ -508,7 +539,7 @@ export async function analyzeSetupFinderCoin(symbol: string, opt: SFOptions, sin
         const opp = ctx.walls.filter(w => w.side === (buy ? 'ask' : 'bid') && w.price >= lo && w.price <= hi).sort((a, b) => b.value - a.value)[0] ?? null;
         const setup: SFSetup = {
           symbol, side, rr, entryKind: e.kind, orderType: e.kind === 'market' ? 'market' : 'limit',
-          entry: e.v, sl, tp, slPct, price, slSource: ag.src, slRounded: ag.rounded,
+          entry: e.v, sl, tp, slPct, price, slSource: ag.src, slRounded: ag.rounded, slClipped: ag.clipped,
           tf: run.tf, n: b.n, nWin: b.nWin, usedAllCandles: b.usedAll,
           wr, breakevenWr: 100 / (1 + rr), avgR, fillProb: fill, score,
           wrSuspicious: wr > SF.bt.suspiciousWr,
@@ -565,10 +596,11 @@ export async function checkSetupEntry(symbol: string, inp: CheckInput): Promise<
   if (!(buy ? sl < ref && ref < tp : tp < ref && ref < sl)) {
     if (inp.status === 'belum') throw new Error(buy ? 'BUY: harus SL < entry < TP' : 'SELL: harus TP < entry < SL');
   }
-  const ag = antiGocekSl(ctx, side, false);
+  const ag = antiGocekSl(ctx, side, 'none');          // tanpa batas 4% — dipakai SARAN
+  const agCap = antiGocekSl(ctx, side, 'potong');     // sudah dipotong 4% — pembanding SL user
   const base = {
     symbol, side, status: inp.status, price, ref, regime: ctx.regime, alarm: ctx.alarm, whalePressure: ctx.whalePressure,
-    move1dPct: ctx.move1dPct, move4hPct: ctx.move4hPct, antiGocekSl: ag.sl, version: SF.VERSION,
+    move1dPct: ctx.move1dPct, move4hPct: ctx.move4hPct, antiGocekSl: agCap.sl, version: SF.VERSION,
   };
   // sudah berjalan & harga sudah lewat TP/SL -> selesai
   if (inp.status === 'berjalan') {
@@ -604,10 +636,12 @@ export async function checkSetupEntry(symbol: string, inp: CheckInput): Promise<
     else add('Regime', -10, `melawan (${ctx.regime})`);
   } else add('Regime', 0, 'tidak ada data');
   const swingLv = (buy ? ctx.lows : ctx.highs).map(s => s.p);
-  const inGocek = swingLv.some(l => Math.abs(sl - l) <= ctx.p90 * ctx.atr15) || ctx.rounds.some(r => Math.abs(sl - r) <= SF.round.zoneAtr * ctx.p90 * ctx.atr15);
+  // zona swing: swing low = (swing - p90 x ATR15) .. swing; swing high = swing .. (swing + p90 x ATR15). Zona angka bulat +-0.5 x p90 x ATR15.
+  const zw = ctx.p90 * ctx.atr15;
+  const inGocek = swingLv.some(l => (buy ? sl >= l - zw && sl <= l : sl >= l && sl <= l + zw)) || ctx.rounds.some(r => Math.abs(sl - r) <= SF.round.zoneAtr * zw);
   add('SL di zona gocekan', inGocek ? -15 : 0, inGocek ? 'SL jatuh di zona swing / angka bulat' : 'tidak');
-  const eps = 1e-9 * price; const closer = buy ? sl > ag.sl + eps : sl < ag.sl - eps;
-  add('SL vs SL anti-gocekan', closer ? -6 : 6, `${closer ? 'lebih dekat' : 'sama / lebih jauh'} dari ${ag.sl.toFixed(6)}`);
+  const eps = 1e-9 * price; const closer = buy ? sl > agCap.sl + eps : sl < agCap.sl - eps;
+  add('SL vs SL anti-gocekan', closer ? -6 : 6, `${closer ? 'lebih dekat' : 'sama / lebih jauh'} dari ${agCap.sl.toFixed(6)}${agCap.clipped ? ' (sudah dipotong 4%)' : ''}`);
   const inThin = (v: number) => ctx.thin.some(t => v >= t.lo && v < t.hi);
   add('SL di zona tipis', inThin(sl) ? -4 : 0, inThin(sl) ? 'ya' : 'tidak');
   add('TP di zona tipis', inThin(tp) ? 3 : 0, inThin(tp) ? 'ya' : 'tidak');
@@ -657,28 +691,38 @@ export async function checkSetupEntry(symbol: string, inp: CheckInput): Promise<
   };
 }
 
-// ─── Peringkat (spek #14, revisi user): 1 baris per (koin, arah), RR skor terbaik ───
-export function rankSetups(results: SFCoinResult[], minWr: number, show: number, onlyPositive: boolean) {
-  type Row = SFSetup & { rrTable: Array<{ rr: number; wr: number; avgR: number; fillProb: number; score: number; best: boolean }>; move1dPct: number; move4hPct: number };
-  const rows: Row[] = [];
+// ─── Peringkat (revisi user 2026-11-07): 1 baris per (koin, arah, RR) ───
+// Tiap (koin, arah, RR) sudah berisi 1 kandidat entry dengan skor tertinggi (dari analisa koin).
+// Semua baris diurutkan skor tertinggi; satu koin boleh muncul beberapa kali kalau RR beda.
+// Perbandingan RR (WR & rata-rata R tiap RR, RR terbaik 🏆) dikeluarkan di tabel terpisah.
+export type SFRow = SFSetup & { move1dPct: number; move4hPct: number };
+export interface SFRrComparison { symbol: string; side: Side; rows: Array<{ rr: number; wr: number; avgR: number; fillProb: number; score: number; best: boolean }> }
+export function rankSetups(results: SFCoinResult[], minWr: number, show: number, onlyPositive: boolean): { rows: SFRow[]; comparison: SFRrComparison[] } {
+  const all: SFRow[] = [];
   for (const r of results) {
-    for (const side of ['BUY', 'SELL'] as const) {
-      const all = r.setups.filter(x => x.side === side);
-      if (!all.length) continue;
-      const cand = all.filter(x => x.wr >= minWr && (!onlyPositive || x.avgR > 0));
-      if (!cand.length) continue;
-      const pick = cand.reduce((a, b) => (b.score > a.score ? b : a)); // RR dengan skor terbaik
-      const table = [...all].sort((a, b) => a.rr - b.rr).map(x => ({ rr: x.rr, wr: x.wr, avgR: x.avgR, fillProb: x.fillProb, score: x.score, best: !!x.best }));
-      rows.push({ ...pick, rrTable: table, move1dPct: r.move1dPct, move4hPct: r.move4hPct });
+    for (const x of r.setups) {
+      if (x.wr < minWr) continue;
+      if (onlyPositive && !(x.avgR > 0)) continue;
+      all.push({ ...x, move1dPct: r.move1dPct, move4hPct: r.move4hPct });
     }
   }
-  rows.sort((a, b) => b.score - a.score);
-  return show > 0 ? rows.slice(0, show) : rows;
+  all.sort((a, b) => b.score - a.score);
+  const rows = show > 0 ? all.slice(0, show) : all;
+  const seen = new Set<string>(); const comparison: SFRrComparison[] = [];
+  for (const row of rows) {
+    const k = `${row.symbol}|${row.side}`; if (seen.has(k)) continue; seen.add(k);
+    const coin = results.find(r => r.symbol === row.symbol); if (!coin) continue;
+    comparison.push({
+      symbol: row.symbol, side: row.side,
+      rows: coin.setups.filter(x => x.side === row.side).sort((a, b) => a.rr - b.rr)
+        .map(x => ({ rr: x.rr, wr: x.wr, avgR: x.avgR, fillProb: x.fillProb, score: x.score, best: !!x.best })),
+    });
+  }
+  return { rows, comparison };
 }
 
-
 // ─── Scan progresif banyak koin (3 thread, koin gagal diganti) ──────────
-export type SFScanParams = { rr: number[]; side: 'BUY' | 'SELL' | 'BOTH'; minWall: number; coins: number };
+export type SFScanParams = { rr: number[]; side: 'BUY' | 'SELL' | 'BOTH'; minWall: number; coins: number; slCap: SlCapMode; symbols?: string[] };
 export interface SFScanState {
   status: 'idle' | 'running' | 'complete' | 'error'; errorMessage?: string;
   params: SFScanParams | null; target: number; scanned: number; failed: number; skippedSetups: number;
@@ -687,6 +731,16 @@ export interface SFScanState {
 export const sfState: SFScanState = { status: 'idle', params: null, target: 0, scanned: 0, failed: 0, skippedSetups: 0, startedAt: 0, fetchedAt: 0, usedWeight: 0, results: [] };
 let sfRunning = false;
 export const sfIsRunning = () => sfRunning;
+
+// "Semua koin" = semua USDT perpetual status TRADING, urut volume 24 jam, tanpa batas 550
+export async function getAllUsdtPerps(): Promise<string[]> {
+  const [info, tk] = await Promise.all([
+    bget<{ symbols: Array<{ symbol: string; status: string; contractType: string; quoteAsset: string }> }>('/fapi/v1/exchangeInfo'),
+    bget<Array<{ symbol: string; quoteVolume: string }>>('/fapi/v1/ticker/24hr'),
+  ]);
+  const ok = new Set(info.symbols.filter(x => x.status === 'TRADING' && x.contractType === 'PERPETUAL' && x.quoteAsset === 'USDT').map(x => x.symbol));
+  return tk.filter(t => ok.has(t.symbol)).sort((a, b) => num(b.quoteVolume) - num(a.quoteVolume)).map(t => t.symbol);
+}
 
 export function normalizeRr(list: number[]): number[] {
   const u = [...new Set(list.filter(x => isFinite(x) && x >= 0.5 && x <= 10))].sort((a, b) => a - b);
@@ -699,7 +753,7 @@ export async function runSetupFinderScan(pool: string[], p: SFScanParams): Promi
   Object.assign(sfState, { status: 'running', errorMessage: undefined, params: p, target: Math.min(p.coins, pool.length), scanned: 0, failed: 0, skippedSetups: 0, startedAt: Date.now(), results: [] as SFCoinResult[] });
   try {
     let next = 0;
-    const opt: SFOptions = { rr: p.rr, side: p.side, minWall: p.minWall };
+    const opt: SFOptions = { rr: p.rr, side: p.side, minWall: p.minWall, slCap: p.slCap };
     const worker = async () => {
       for (;;) {
         if (sfState.scanned >= sfState.target || next >= pool.length) return;

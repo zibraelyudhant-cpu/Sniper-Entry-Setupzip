@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getUniverse } from './screener';
 import {
-  SF, sfState, sfIsRunning, runSetupFinderScan, analyzeSetupFinderCoin, checkSetupEntry, rankSetups, normalizeRr, sfUsedWeight,
+  SF, sfState, sfIsRunning, runSetupFinderScan, getAllUsdtPerps, analyzeSetupFinderCoin, checkSetupEntry, rankSetups, normalizeRr, sfUsedWeight,
   type SFScanParams,
 } from '../lib/setup-finder';
 
@@ -17,17 +17,22 @@ function parseParams(q: Record<string, unknown>): SFScanParams {
   const sideQ = String(q['side'] ?? 'BOTH').toUpperCase();
   const side = sideQ === 'BUY' || sideQ === 'SELL' ? sideQ : 'BOTH';
   const minWall = Math.min(5_000_000, Math.max(10_000, parseFloat(String(q['minWall'] ?? SF.walls.minUsdt)) || SF.walls.minUsdt));
-  const coins = Math.min(550, Math.max(1, parseInt(String(q['coins'] ?? '500'), 10) || 500));
-  return { rr, side, minWall, coins };
+  const slCap = String(q['slCap'] ?? 'potong') === 'tolak' ? 'tolak' : 'potong';
+  // daftar manual: "btc,eth,sol" -> BTCUSDT,ETHUSDT,SOLUSDT (tidak ada koin pengganti). Kalau kosong: N koin volume 24 jam terbesar (default 20; "semua" = semua USDT perpetual TRADING).
+  const symbols = String(q['symbols'] ?? '').split(/[\s,;]+/).map(x => x.trim().toUpperCase()).filter(Boolean).map(x => (x.endsWith('USDT') ? x : `${x}USDT`));
+  const coinsQ = String(q['coins'] ?? '20').toLowerCase();
+  const allCoins = coinsQ === 'semua' || coinsQ === 'all';
+  const coins = allCoins ? 100000 : Math.min(100000, Math.max(1, parseInt(coinsQ, 10) || 20)); // "semua" = semua USDT perpetual TRADING, tanpa batas 550
+  return { rr, side, minWall, coins: symbols.length ? symbols.length : coins, slCap, symbols: symbols.length ? [...new Set(symbols)] : undefined };
 }
 
-// GET /api/setup-finder/scan?start=true&rr=1,1.5,2,3&side=BOTH&minWall=50000&coins=500&minWr=0&show=10
+// GET /api/setup-finder/scan?start=true&rr=1,1.5,2,3&side=BOTH&minWall=100000&coins=20&symbols=btc,eth,sol&slCap=potong&minWr=0&show=10
 router.get('/setup-finder/scan', async (req, res) => {
   try {
     const q = req.query as Record<string, unknown>;
     if (q['start'] === 'true' && !sfIsRunning()) {
       const p = parseParams(q);
-      const pool = await getUniverse(550);
+      const pool = p.symbols ?? (p.coins > 550 ? await getAllUsdtPerps() : await getUniverse(550));
       void runSetupFinderScan(pool, p); // fire-and-forget
       await new Promise(r => setTimeout(r, 50));
     }
@@ -39,7 +44,8 @@ router.get('/setup-finder/scan', async (req, res) => {
       target: sfState.target, scanned: sfState.scanned, failed: sfState.failed, skippedSetups: sfState.skippedSetups,
       usedWeight: sfUsedWeight(), startedAt: sfState.startedAt, fetchedAt: sfState.fetchedAt,
       totalSetups: sfState.results.reduce((s, r) => s + r.setups.length, 0),
-      setups: rankSetups(sfState.results, minWr, show, onlyPositive),
+      ...(() => { const r = rankSetups(sfState.results, minWr, show, onlyPositive); return { setups: r.rows, rrComparison: r.comparison }; })(),
+      clippedSetups: sfState.results.reduce((n, r) => n + r.setups.filter(x => x.slClipped).length, 0),
       version: SF.VERSION,
     });
   } catch (err) {
@@ -47,14 +53,14 @@ router.get('/setup-finder/scan', async (req, res) => {
   }
 });
 
-// GET /api/setup-finder?symbol=BTCUSDT&rr=1,2,3&side=BOTH&minWall=50000  (1 koin, depth 1000)
+// GET /api/setup-finder?symbol=BTCUSDT&rr=1,2,3&side=BOTH&minWall=100000&slCap=potong  (1 koin, depth 1000)
 router.get('/setup-finder', async (req, res) => {
   try {
     const symbol = String(req.query['symbol'] ?? '').toUpperCase();
     if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
     const sym = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
     const p = parseParams(req.query as Record<string, unknown>);
-    const r = await analyzeSetupFinderCoin(sym, { rr: p.rr, side: p.side, minWall: p.minWall }, true);
+    const r = await analyzeSetupFinderCoin(sym, { rr: p.rr, side: p.side, minWall: p.minWall, slCap: p.slCap }, true);
     res.json({ ...r, version: SF.VERSION });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
