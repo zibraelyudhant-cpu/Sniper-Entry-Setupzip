@@ -41,7 +41,8 @@ type ScanResponse = {
   startedAt: number; fetchedAt: number; totalSetups: number; setups: Setup[];
 };
 
-const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6));
+// Harga tampil dengan KOMA desimal (tanpa pemisah ribuan) supaya bisa disalin ke Binance versi koma (permintaan user 2026-11-08)
+const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6)).replace('.', ',');
 const fmtUsd = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(2)}jt` : `${Math.round(v / 1e3)}rb`);
 
 function Chip({ label, active, onPress, colors }: { label: string; active: boolean; onPress: () => void; colors: ReturnType<typeof useColors> }) {

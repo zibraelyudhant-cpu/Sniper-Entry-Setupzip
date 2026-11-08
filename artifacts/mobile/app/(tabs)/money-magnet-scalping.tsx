@@ -19,7 +19,7 @@ import { AnimatedTabSwitcher } from '@/components/animated/AnimatedTabSwitcher';
 import { CyberBackground } from '@/components/animated/CyberBackground';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
-import { SetupCheckButton } from '@/components/SetupCheckPanel';
+import { SetupCheckButton, SetupFinderTpRow, WrBadge } from '@/components/SetupCheckPanel';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
@@ -116,6 +116,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
             </View>
           </View>
         )}
+        {isInZone && <WrBadge colors={colors} symbol={coin.symbol} side={coin.bias === 'bullish' ? 'BUY' : 'SELL'} entry={coin.entryPrice} sl={coin.stopLoss} tp={(coin as any).takeProfit2 ?? coin.takeProfit1} />}
       </DirectionalCard>
     </AnimatedCard>
   );
@@ -489,6 +490,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                   <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2?.toFixed(6) ?? '—'}</Text>
                 </View>
               )}
+              <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
             </>
           )}
 

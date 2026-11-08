@@ -13,7 +13,8 @@ import { MENU_COLORS } from '@/constants/theme';
 // ═══════════════════════════════════════════════════════════════════════
 
 const ACCENT = MENU_COLORS.setupFinder;
-const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6));
+// Harga tampil dengan KOMA desimal (tanpa pemisah ribuan) supaya bisa disalin ke Binance versi koma (permintaan user 2026-11-08)
+const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6)).replace('.', ',');
 
 function Chip({ label, active, onPress, colors, accent }: { label: string; active: boolean; onPress: () => void; colors: ReturnType<typeof useColors>; accent: string }) {
   return (
@@ -36,7 +37,7 @@ type CheckResp = {
 };
 
 export interface CheckInitial { symbol: string; side: 'BUY' | 'SELL'; entry?: number; sl?: number; tp?: number }
-const initNum = (v?: number) => (v !== undefined && isFinite(v) && v > 0 ? String(v) : '');
+const initNum = (v?: number) => (v !== undefined && isFinite(v) && v > 0 ? String(v).replace('.', ',') : '');
 
 export function SetupCheckPanel({ colors, initial, accent = ACCENT }: { colors: ReturnType<typeof useColors>; initial?: CheckInitial; accent?: string }) {
   const [symbol, setSymbol] = useState(initial?.symbol ?? '');
@@ -146,30 +147,118 @@ export function SetupCheckPanel({ colors, initial, accent = ACCENT }: { colors: 
 }
 
 
-// Cache hasil otomatis (5 menit) supaya buka-tutup layar tidak narik Binance lagi
-const autoCache = new Map<string, { at: number; res: CheckResp }>();
+// ─── WR di kartu hasil Scan ────────────────────────────────────────────────
+// WR dasar backtest (SAMA dengan "WR dasar" di Cek entry / layar Analisa), ±10 weight per koin.
+// Antrean maks 3 request bersamaan, hasil di-cache 5 menit. TP = TP2 kalau ada, kalau tidak TP1 (sama dengan layar Analisa).
+type WrResp = { wr: number; n: number; tf: '15M' | '1H'; usedAllCandles: boolean; rr: number; breakevenWr: number; avgR: number };
+const wrCache = new Map<string, { at: number; res: WrResp }>();
+let wrActive = 0; const wrQueue: Array<() => void> = [];
+function wrAcquire(): Promise<void> { return new Promise(r => { const go = () => { wrActive++; r(); }; if (wrActive < 3) go(); else wrQueue.push(go); }); }
+function wrRelease() { wrActive--; const n = wrQueue.shift(); if (n) n(); }
 
-// Badge otomatis (Peluang akhir + WR dasar, status "belum kena entry") + tombol detail.
-// TP = TP2 kalau ada, kalau tidak TP1. Satu koin ≈ 70-80 weight, jalan sekali saat layar dibuka.
-export function SetupCheckButton({ colors, accent, symbol, side, entry, sl, tp }: { colors: ReturnType<typeof useColors>; accent: string; symbol: string; side: 'BUY' | 'SELL'; entry?: number; sl?: number; tp?: number }) {
-  const [open, setOpen] = useState(false);
+export function WrBadge({ colors, symbol, side, entry, sl, tp }: { colors: ReturnType<typeof useColors>; symbol: string; side: 'BUY' | 'SELL'; entry?: number; sl?: number; tp?: number }) {
+  const [res, setRes] = useState<WrResp | null>(null);
+  const [err, setErr] = useState(false);
+  const ok = !!(entry && sl && tp);
+  const key = `${symbol}|${side}|${entry}|${sl}|${tp}`;
+  useEffect(() => {
+    if (!ok) return;
+    let dead = false;
+    const hit = wrCache.get(key);
+    if (hit && Date.now() - hit.at < 300_000) { setRes(hit.res); return; }
+    setRes(null); setErr(false);
+    (async () => {
+      await wrAcquire();
+      try {
+        const r = await customFetch<WrResp>(`/api/setup-finder/wr?symbol=${encodeURIComponent(symbol)}&side=${side}&entry=${entry}&sl=${sl}&tp=${tp}`);
+        wrCache.set(key, { at: Date.now(), res: r }); if (!dead) setRes(r);
+      } catch { if (!dead) setErr(true); } finally { wrRelease(); }
+    })();
+    return () => { dead = true; };
+  }, [key]);
+  if (!ok) return null;
+  const diff = res ? res.wr - res.breakevenWr : 0; // selisih WR dengan impas (poin). >= +5 bagus, 0..+5 tipis, < 0 di bawah impas
+  const diffColor = !res ? colors.mutedForeground : diff >= 5 ? colors.bullish : diff >= 0 ? colors.gold : colors.bearish;
+  const diffLabel = !res ? '' : diff >= 5 ? 'BAGUS' : diff >= 0 ? 'TIPIS' : 'DI BAWAH IMPAS';
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+      <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.4 }}>WR BACKTEST</Text>
+      {!res && !err && <Text style={{ fontSize: 11, color: colors.mutedForeground }}>menghitung…</Text>}
+      {err && <Text style={{ fontSize: 11, color: colors.mutedForeground }}>—</Text>}
+      {res && (
+        <Text style={{ fontSize: 12, fontFamily: 'Inter_700Bold', color: diffColor }}>
+          {res.wr.toFixed(1)}% <Text style={{ fontSize: 10, fontFamily: 'Inter_400Regular', color: colors.mutedForeground }}>· n={res.n} · {res.tf} · impas {res.breakevenWr.toFixed(0)}% · RR 1:{res.rr.toFixed(1)} · </Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: diffColor }}>selisih {diff >= 0 ? '+' : ''}{diff.toFixed(1)} {diffLabel}</Text>
+        </Text>
+      )}
+    </View>
+  );
+}
+
+// Cache hasil otomatis (5 menit) + dedupe request supaya badge Peluang Entry dan baris "TP Setup Finder" memakai 1 request yang sama
+const autoCache = new Map<string, { at: number; res: CheckResp }>();
+const autoInflight = new Map<string, Promise<CheckResp>>();
+
+function useAutoCheck(symbol: string, side: 'BUY' | 'SELL', entry?: number, sl?: number, tp?: number) {
   const [res, setRes] = useState<CheckResp | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const key = `${symbol}|${side}|${entry}|${sl}|${tp}`;
-
   useEffect(() => {
     let dead = false;
     const hit = autoCache.get(key);
-    if (hit && Date.now() - hit.at < 300_000 && tick === 0) { setRes(hit.res); setErr(null); return; }
+    if (hit && Date.now() - hit.at < 300_000 && tick === 0) { setRes(hit.res); setErr(null); setLoading(false); return; }
     setLoading(true); setErr(null); setRes(null);
-    customFetch<CheckResp>(`/api/setup-finder/check?symbol=${encodeURIComponent(symbol)}&side=${side}&status=belum&entry=${entry}&sl=${sl}&tp=${tp}&minRr=2`)
-      .then(r => { if (!dead) { autoCache.set(key, { at: Date.now(), res: r }); setRes(r); } })
-      .catch(e => { if (!dead) setErr(e?.message ?? 'Gagal'); })
-      .finally(() => { if (!dead) setLoading(false); });
+    let pr = autoInflight.get(key);
+    if (!pr) {
+      pr = customFetch<CheckResp>(`/api/setup-finder/check?symbol=${encodeURIComponent(symbol)}&side=${side}&status=belum&entry=${entry}&sl=${sl}&tp=${tp}&minRr=2`);
+      autoInflight.set(key, pr);
+      pr.then(r => { autoCache.set(key, { at: Date.now(), res: r }); }).catch(() => {}).finally(() => { autoInflight.delete(key); });
+    }
+    pr.then(r => { if (!dead) setRes(r); }).catch(e => { if (!dead) setErr(e?.message ?? 'Gagal'); }).finally(() => { if (!dead) setLoading(false); });
     return () => { dead = true; };
   }, [key, tick]);
+  return { res, loading, err, retry: () => setTick(t => t + 1) };
+}
+
+// Baris "TP Setup Finder" untuk blok "Pasang limit order" di layar Analisa (di bawah TP1 / TP2).
+// TP = TP dari SARAN Cek entry (kombinasi entry/SL/TP dengan WR dan rata-rata R terbaik). Kalau tidak ada saran yang lebih baik: TP kamu sudah yang terbaik.
+export function SetupFinderTpRow({ colors, symbol, side, entry, sl, tp, rowStyle, labelStyle, valueStyle }: {
+  colors: ReturnType<typeof useColors>; symbol: string; side: 'BUY' | 'SELL'; entry?: number; sl?: number; tp?: number; rowStyle?: any; labelStyle?: any; valueStyle?: any;
+}) {
+  const { res, loading, err, retry } = useAutoCheck(symbol, side, entry, sl, tp);
+  if (!(entry && sl && tp)) return null;
+  const sg = res && !res.finished ? res.suggestion : null;
+  const rr = sg ? sg.rr : res?.rr ?? 0; const wr = sg ? sg.wr : res?.baseWr ?? null;
+  const diff = wr !== null && rr > 0 ? wr - 100 / (1 + rr) : null;
+  const diffColor = diff === null ? colors.mutedForeground : diff >= 5 ? colors.bullish : diff >= 0 ? colors.gold : colors.bearish;
+  const diffLabel = diff === null ? '' : diff >= 5 ? 'BAGUS' : diff >= 0 ? 'TIPIS' : 'DI BAWAH IMPAS';
+  const differs = !!sg && (Math.abs(sg.entry - entry) / entry > 0.0002 || Math.abs(sg.sl - sl) / sl > 0.0002);
+  return (
+    <View style={{ gap: 2 }}>
+      <View style={rowStyle ?? { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+        <Text style={[labelStyle, { color: ACCENT }]}>TP Setup Finder</Text>
+        <Text style={[valueStyle, { color: ACCENT }]}>{sg ? fmt(sg.tp) : loading ? 'menghitung…' : err ? '—' : res?.finished ? '—' : 'TP kamu'}</Text>
+      </View>
+      {err && <Pressable onPress={retry}><Text style={{ fontSize: 10, color: colors.bearish }}>Gagal: {err}. Ketuk untuk ulang.</Text></Pressable>}
+      {res && !res.finished && (
+        <Text style={{ fontSize: 10, color: colors.mutedForeground }}>
+          {sg ? '' : 'Tidak ada TP yang lebih baik dari TP kamu · '}R:R 1:{rr.toFixed(2)} · WR {wr !== null ? wr.toFixed(1) : '—'}% · impas {(100 / (1 + rr)).toFixed(0)}%
+          {diff !== null ? <Text style={{ fontFamily: 'Inter_700Bold', color: diffColor }}> · selisih {diff >= 0 ? '+' : ''}{diff.toFixed(1)} {diffLabel}</Text> : null}
+        </Text>
+      )}
+      {res && res.finished && <Text style={{ fontSize: 10, color: colors.mutedForeground }}>{res.message}</Text>}
+      {differs && sg && <Text style={{ fontSize: 10, color: colors.mutedForeground }}>Saran ini memakai entry {fmt(sg.entry)} · SL {fmt(sg.sl)} (beda dari sinyal). Rincian di "Detail cek entry & saran".</Text>}
+    </View>
+  );
+}
+
+// Badge otomatis (Peluang akhir + WR dasar, status "belum kena entry") + tombol detail.
+// TP = TP2 kalau ada, kalau tidak TP1. Satu koin ≈ 70-80 weight, jalan sekali saat layar dibuka.
+export function SetupCheckButton({ colors, accent, symbol, side, entry, sl, tp }: { colors: ReturnType<typeof useColors>; accent: string; symbol: string; side: 'BUY' | 'SELL'; entry?: number; sl?: number; tp?: number }) {
+  const [open, setOpen] = useState(false);
+  const { res, loading, err, retry } = useAutoCheck(symbol, side, entry, sl, tp);
 
   const p = res?.finalProb ?? null;
   const pColor = p === null ? colors.mutedForeground : p >= 50 ? colors.bullish : colors.bearish;
@@ -179,7 +268,7 @@ export function SetupCheckButton({ colors, accent, symbol, side, entry, sl, tp }
         <Text style={{ fontSize: 11, fontFamily: 'Inter_700Bold', color: ACCENT, letterSpacing: 0.5 }}>SETUP FINDER • PELUANG ENTRY (info)</Text>
         {loading && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator size="small" color={ACCENT} /><Text style={{ fontSize: 11, color: colors.mutedForeground }}>Menghitung WR backtest + whale…</Text></View>}
         {err && (
-          <Pressable onPress={() => setTick(t => t + 1)}>
+          <Pressable onPress={retry}>
             <Text style={{ fontSize: 11, color: colors.bearish }}>Gagal: {err}. Ketuk untuk ulang.</Text>
           </Pressable>
         )}
@@ -188,7 +277,7 @@ export function SetupCheckButton({ colors, accent, symbol, side, entry, sl, tp }
           <>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
               <Text style={{ fontSize: 26, fontFamily: 'Inter_700Bold', color: pColor }}>{p !== null ? `${p.toFixed(1)}%` : '—'}</Text>
-              <Text style={{ fontSize: 11, color: colors.mutedForeground, flex: 1 }}>peluang akhir · WR dasar {res.baseWr?.toFixed(1) ?? '—'}% ({res.tf}, n={res.n}) · RR 1:{res.rr.toFixed(2)}</Text>
+              <Text style={{ fontSize: 11, color: colors.mutedForeground, flex: 1 }}>peluang akhir · WR dasar {res.baseWr?.toFixed(1) ?? '—'}% ({res.tf}, n={res.n}) · RR 1:{res.rr.toFixed(2)} · impas {(100 / (1 + res.rr)).toFixed(0)}% · selisih {res.baseWr !== null ? `${res.baseWr - 100 / (1 + res.rr) >= 0 ? '+' : ''}${(res.baseWr - 100 / (1 + res.rr)).toFixed(1)}` : '—'}</Text>
             </View>
             <Text style={{ fontSize: 10, color: colors.mutedForeground }}>
               Asumsi belum kena entry · regime {res.regime ?? '-'} · {res.suggestion ? 'ada saran entry/SL/TP lain (buka detail)' : 'tidak ada saran yang lebih baik'}. Backtest bukan bukti setup; hanya info, sinyal tidak diblokir.

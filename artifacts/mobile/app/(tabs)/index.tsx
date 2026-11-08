@@ -11,7 +11,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
-import { SetupCheckButton } from '@/components/SetupCheckPanel';
+import { SetupCheckButton, SetupFinderTpRow, WrBadge } from '@/components/SetupCheckPanel';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
@@ -195,6 +195,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: BreakoutTrad
           <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.rr1 ? `1:${coin.rr1.toFixed(1)}` : '—'}</Text>
         </View>
       </View>
+      <WrBadge colors={colors} symbol={coin.symbol} side={coin.bias === 'bullish' ? 'BUY' : 'SELL'} entry={coin.entryPrice} sl={coin.stopLoss} tp={(coin as any).takeProfit2 ?? coin.takeProfit1} />
     </DirectionalCard>
     </AnimatedCard>
   );
@@ -736,6 +737,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
                   <Text style={[styles.infoValue, { color: colors.bullish }]}>{formatPrice(data.takeProfit2)}</Text>
                 </View>
               )}
+              <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
               {data.candlesNearEdge !== undefined && (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />

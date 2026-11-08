@@ -462,14 +462,36 @@ async function loadCtx(symbol: string, opt: SFOptions, single: boolean): Promise
 }
 
 // backtest memakai TF sesuai jarak SL: < 1.5% -> 15M, selain itu 1H
-async function runBt(ctx: Ctx, side: Side, slPct: number, rrs: number[]) {
-  const use1h = slPct >= SF.bt.slTfSwitchPct;
-  const series = use1h ? await ctx.h1Long() : ctx.k15all;
+function btOnSeries(series: Candle[], use1h: boolean, side: Side, slPct: number, rrs: number[]) {
   const maxBars = use1h ? SF.bt.maxBars1h : SF.bt.maxBars15;
   if (series.length < SF.bt.warmup + maxBars + 30) return null;
   const em20 = emaSeries(series.map(x => x.c), 20), em50 = emaSeries(series.map(x => x.c), 50);
   const nowUp = em20[em20.length - 1]! > em50[em50.length - 1]!;
   return { tf: (use1h ? '1H' : '15M') as '15M' | '1H', bt: backtest(series, side, slPct, rrs, maxBars, nowUp) };
+}
+async function runBt(ctx: Ctx, side: Side, slPct: number, rrs: number[]) {
+  const use1h = slPct >= SF.bt.slTfSwitchPct;
+  const series = use1h ? await ctx.h1Long() : ctx.k15all;
+  return btOnSeries(series, use1h, side, slPct, rrs);
+}
+
+// WR dasar SAJA (tanpa order book / transaksi / regime) untuk kartu hasil Scan menu lain.
+// Memakai backtest yang SAMA persis dengan "WR dasar" di Cek entry (status 'belum'): ±10 weight per koin (1 request candle).
+const quickWrCache = new Map<string, { at: number; res: { wr: number; n: number; tf: '15M' | '1H'; usedAllCandles: boolean; rr: number; breakevenWr: number; avgR: number } }>();
+export async function quickWr(symbol: string, side: Side, entry: number, sl: number, tp: number) {
+  const buy = side === 'BUY';
+  if (!(buy ? sl < entry && entry < tp : tp < entry && entry < sl)) throw new Error(buy ? 'BUY: harus SL < entry < TP' : 'SELL: harus TP < entry < SL');
+  const key = `${symbol}|${side}|${entry}|${sl}|${tp}`;
+  const hit = quickWrCache.get(key); if (hit && Date.now() - hit.at < 300_000) return hit.res;
+  const slPct = Math.abs(entry - sl) / entry * 100; const tpPct = Math.abs(tp - entry) / entry * 100; const rr = tpPct / slPct;
+  const use1h = slPct >= SF.bt.slTfSwitchPct;
+  const series = await getKlines(symbol, use1h ? '1h' : '15m', SF.bt.candles);
+  const run = btOnSeries(series, use1h, side, slPct, [rr]);
+  if (!run) throw new Error('Data backtest kurang');
+  const b = run.bt.get(rr)!;
+  const res = { wr: b.wr, n: b.n, tf: run.tf, usedAllCandles: b.usedAll, rr, breakevenWr: 100 / (1 + rr), avgR: b.wr / 100 * rr - (1 - b.wr / 100) };
+  quickWrCache.set(key, { at: Date.now(), res });
+  return res;
 }
 
 // SL anti-gocekan (spek #9). capped=false -> tanpa batas 4% (dipakai Cek entry / saran)

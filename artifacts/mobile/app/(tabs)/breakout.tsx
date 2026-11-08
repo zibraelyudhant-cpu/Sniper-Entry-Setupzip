@@ -13,7 +13,7 @@ import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL
 import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
-import { SetupCheckButton } from '@/components/SetupCheckPanel';
+import { SetupCheckButton, SetupFinderTpRow, WrBadge } from '@/components/SetupCheckPanel';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
@@ -75,7 +75,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
               <Text style={[scanStyles.biasBadgeText, { color: biasColor }]}>{isBuy ? '▲ LONG' : '▼ SHORT'}</Text>
             </View>
             <View style={[scanStyles.biasBadge, { backgroundColor: `${modeColor}18`, borderColor: modeColor }]}>
-              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ RETEST FIB H1→M5</Text>
+              <Text style={[scanStyles.biasBadgeText, { color: modeColor }]}>⚡ RETEST FIB M15</Text>
             </View>
             {coin.bbSqueezing && (
               <View style={[scanStyles.biasBadge, { backgroundColor: `${ACCENT}18`, borderColor: ACCENT }]}>
@@ -133,6 +133,7 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
           <Text style={[scanStyles.condValue, { color: colors.foreground }]}>{coin.atr15MPct ? `${coin.atr15MPct.toFixed(2)}%` : '—'}</Text>
         </View>
       </View>
+      <WrBadge colors={colors} symbol={coin.symbol} side={coin.bias === 'bullish' ? 'BUY' : 'SELL'} entry={coin.entryPrice} sl={coin.stopLoss} tp={(coin as any).takeProfit2 ?? coin.takeProfit1} />
     </DirectionalCard>
     </AnimatedCard>
   );
@@ -232,7 +233,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
         entryPrice: c.entryPrice!, stopLoss: c.stopLoss!, takeProfit1: c.takeProfit1!, takeProfit2: c.takeProfit2,
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
-        tfStruktur: 'H1', tfEksekusi: '5M',
+        tfStruktur: 'M15', tfEksekusi: '5M',
         ...rpJournalFields(c),
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
         ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
@@ -258,7 +259,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Retest Fib H1→M5 (EMA50/200 + ADX + Force Index, Fib 0,5–0,618 M5, limit)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Fibonacci Retest M15 (EMA640 + ADX + Force Index, Fib 0,5–0,618, limit)</Text>
       </View>
     );
   }
@@ -304,7 +305,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Retest Fib H1→M5 (EMA50/200 + ADX + Force Index, Fib 0,5–0,618 M5, limit)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Fibonacci Retest M15 (EMA640 + ADX + Force Index, Fib 0,5–0,618, limit)'}
           </Text>
         </View>
       );
@@ -470,7 +471,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
-      tfStruktur: 'H1', tfEksekusi: '5M',
+      tfStruktur: 'M15', tfEksekusi: '5M',
       ...rpJournalFields(data),
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
       ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
@@ -523,7 +524,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Fibonacci Retest Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Fibonacci Retest H1 (EMA50/200 + ADX + Force Index + struktur LL/HH, Fib 0,5–0,618, limit)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Fibonacci Retest M15 (EMA640 + ADX + Force Index + struktur LL/HH, Fib 0,5–0,618, limit)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -636,6 +637,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                     <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 Fib 1,618 (RR 1:{data.rr2?.toFixed(1)})</Text>
                     <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
                   </View>
+                  <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
                 </>
               ) : null}
               {(data as any).validUntilMs ? (
@@ -738,7 +740,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Fibonacci Retest</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>H1 only (EMA50/200 + ADX + Force Index + struktur LL/HH, Fib 0,5–0,618, limit)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 only (EMA640 + ADX + Force Index + struktur LL/HH, Fib 0,5–0,618, limit)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -778,23 +780,23 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Fibonacci Retest</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Fibonacci Retest (rp8, 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di H1. Idenya: ikuti tren H1 yang kuat, masuk SEBELUM struktur berbalik (swing terbaru masih LL untuk SELL / HH untuk BUY, belum HL/LH), lalu pasang LIMIT order di zona retracement Fibonacci 0,5–0,618 dari leg H1, dengan level limit diarahkan ke FVG / Order Block / SNR bila ada. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
+          Fibonacci Retest (rp9, 2026-11-08: TF M15 + EMA640; rp8 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di M15. Idenya: ikuti tren M15 yang kuat, masuk SEBELUM struktur berbalik (swing terbaru masih LL untuk SELL / HH untuk BUY, belum HL/LH), lalu pasang LIMIT order di zona retracement Fibonacci 0,5–0,618 dari leg M15, dengan level limit diarahkan ke FVG / Order Block / SNR bila ada. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
           Status: strategi ini BELUM di-backtest, sengaja dibuktikan lewat Jurnal (forward test). Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0). Sinyal yang tidak terisi sampai 24 jam dicatat EXPIRED dan tidak dihitung menang/kalah.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. H1 (fetch 300 candle): close di atas EMA50 dan EMA200 → BUY; di bawah keduanya → SELL; selain itu dilewati{'\n'}
-          1b. Struktur H1 (swing fractal 3): SELL = swing low terbaru harus LL, BUY = swing high terbaru harus HH. Kalau swing terbaru sudah HL (SELL) / LH (BUY) = telat masuk, ditolak. Leg Fib = swing high terakhir sebelum swing low itu (BUY kebalikannya){'\n'}
-          1c. Tolak bila ada close H1 (body, bukan wick) melewati Fib 0,705 leg itu (struktur patah), atau high/low (termasuk candle berjalan) sudah melewati ujung leg (leg belum final){'\n'}
-          2. H1: ADX(14) &gt; 29,4 (tanpa syarat arah DI){'\n'}
-          3. H1: Force Index (EMA 2) wajib positif untuk BUY, negatif untuk SELL{'\n'}
-          4. Zona entry = retrace Fibonacci 0,5–0,618 dari leg H1{'\n'}
+          1. M15 (fetch 1500 candle, minimal 700 tertutup): close di atas EMA640 → BUY; di bawah EMA640 → SELL{'\n'}
+          1b. Struktur M15 (swing fractal 3): SELL = swing low terbaru harus LL, BUY = swing high terbaru harus HH. Kalau swing terbaru sudah HL (SELL) / LH (BUY) = telat masuk, ditolak. Leg Fib = swing high terakhir sebelum swing low itu (BUY kebalikannya){'\n'}
+          1c. Tolak bila ada close M15 (body, bukan wick) melewati Fib 0,705 leg itu (struktur patah), atau high/low (termasuk candle berjalan) sudah melewati ujung leg (leg belum final){'\n'}
+          2. M15: ADX(14) &gt; 29,4 (tanpa syarat arah DI){'\n'}
+          3. M15: Force Index (EMA 2) wajib positif untuk BUY, negatif untuk SELL{'\n'}
+          4. Zona entry = retrace Fibonacci 0,5–0,618 dari leg M15{'\n'}
           5. Konfluensi di zona: FVG yang belum tertutup, Order Block yang belum dimitigasi, atau SNR (cluster swing fractal 3, toleransi 0,5 ATR, ≥ 2 sentuhan). Bukan filter wajib, hanya menentukan level limit{'\n'}
           6. LIMIT di tepi konfluensi terdekat ke harga (tetap di dalam zona); tanpa konfluensi → limit di tengah zona (retrace 0,559). Batal bila limit sudah tersentuh sejak swing terbentuk atau harga sudah di limit{'\n'}
-          7. SL = entry ∓ 1x ATR H1. TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618. Syarat leg: range leg H1 minimal 2x ATR H1, kalau lebih kecil sinyal ditolak (rp8, dari studi Futures Replay 4 tahun){'\n'}
-          8. Kedaluwarsa 24 jam. Satu sinyal per leg. Label Jurnal "Fibonacci Retest", versi rp8 (rp7 = sebelum syarat leg minimal 2x ATR). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
+          7. SL = entry ∓ 1x ATR M15. TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618. Syarat leg: range leg M15 minimal 2x ATR M15, kalau lebih kecil sinyal ditolak (rp8, dari studi Futures Replay 4 tahun){'\n'}
+          8. Kedaluwarsa 24 jam. Satu sinyal per leg. Label Jurnal "Fibonacci Retest", versi rp9 (rp8 = H1 + EMA50/200; entri rp8 ke bawah tetap di label yang sama, bedakan lewat versi). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />

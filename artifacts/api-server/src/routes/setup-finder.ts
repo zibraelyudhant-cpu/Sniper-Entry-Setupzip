@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getUniverse } from './screener';
 import {
-  SF, sfState, sfIsRunning, runSetupFinderScan, getAllUsdtPerps, analyzeSetupFinderCoin, checkSetupEntry, rankSetups, normalizeRr, sfUsedWeight,
+  SF, sfState, sfIsRunning, runSetupFinderScan, getAllUsdtPerps, analyzeSetupFinderCoin, checkSetupEntry, quickWr, rankSetups, normalizeRr, sfUsedWeight,
   type SFScanParams,
 } from '../lib/setup-finder';
 
@@ -82,6 +82,23 @@ router.get('/setup-finder/check', async (req, res) => {
     const minRr = Math.max(0.5, parseFloat(String(q['minRr'] ?? '2')) || 2);
     const minWall = Math.min(5_000_000, Math.max(10_000, parseFloat(String(q['minWall'] ?? SF.walls.minUsdt)) || SF.walls.minUsdt));
     res.json(await checkSetupEntry(sym, { side, entry: isFinite(entry) ? entry : 0, sl, tp, status, minRr, minWall }));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+// GET /api/setup-finder/wr?symbol=BTCUSDT&side=BUY&entry=..&sl=..&tp=.. — WR dasar saja (sama dengan WR dasar di Cek entry), ±10 weight
+router.get('/setup-finder/wr', async (req, res) => {
+  try {
+    const q = req.query as Record<string, unknown>;
+    const symbol = String(q['symbol'] ?? '').toUpperCase();
+    if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }
+    const sym = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
+    const side = String(q['side'] ?? '').toUpperCase();
+    if (side !== 'BUY' && side !== 'SELL') { res.status(400).json({ error: 'side harus BUY / SELL' }); return; }
+    const entry = parseFloat(String(q['entry'] ?? '')), sl = parseFloat(String(q['sl'] ?? '')), tp = parseFloat(String(q['tp'] ?? ''));
+    if (![entry, sl, tp].every(x => isFinite(x) && x > 0)) { res.status(400).json({ error: 'entry / sl / tp harus angka > 0' }); return; }
+    res.json({ symbol: sym, side, ...(await quickWr(sym, side, entry, sl, tp)) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
   }

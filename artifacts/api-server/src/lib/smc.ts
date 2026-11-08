@@ -1335,38 +1335,38 @@ async function checkBtcCorrelationFilter(
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FIBONACCI RETEST (rp7, 2026-11-01; sebelumnya "Scalping Retest Fib H1→M5"). SINGLE TF: semua analisis di H1 (M5 tidak dipakai lagi).
+// FIBONACCI RETEST (rp9, 2026-11-08: TF M15 + EMA640; rp7 2026-11-01 H1; sebelumnya "Scalping Retest Fib H1→M5"). SINGLE TF: semua analisis di M15 (nama variabel/komentar 'H1' di bawah = TF analisis, kini M15).
 // Dari file "Logic baru menu scalping" + keputusan user. TIDAK di-backtest (jurnal = pembuktian).
-//   1. Arah: close H1 tertutup di atas EMA50 dan EMA200 = BULLISH, di bawah keduanya = BEARISH, selain itu STOP.
-//      Struktur (swing fractal 3 H1): BEARISH swing low terbaru harus LL; BULLISH swing high terbaru harus HH. Kalau swing terbaru sudah HL/LH = telat masuk, ditolak.
-//      Leg Fib = swing high terakhir sebelum swing low itu (BULLISH kebalikan). Tolak kalau ada close H1 (body, bukan wick) melewati Fib 0,705 leg.
+//   1. Arah: close M15 tertutup di atas EMA640 = BULLISH, di bawah = BEARISH (rp9; sebelumnya EMA50 dan EMA200 harus sekaligus).
+//      Struktur (swing fractal 3 M15): BEARISH swing low terbaru harus LL; BULLISH swing high terbaru harus HH. Kalau swing terbaru sudah HL/LH = telat masuk, ditolak.
+//      Leg Fib = swing high terakhir sebelum swing low itu (BULLISH kebalikan). Tolak kalau ada close M15 (body, bukan wick) melewati Fib 0,705 leg.
 //      Tolak juga kalau high/low (termasuk candle berjalan) sudah melewati ujung leg (leg belum final).
-//   2. ADX(14) H1 > 29,4 (tanpa cek arah DI).   3. Force Index EMA2 H1: LONG > 0, SHORT < 0.
-//   4. Zona entry = retrace Fib 0,5-0,618 dari leg H1. Konfluensi (bukan filter wajib, hanya menentukan level LIMIT): FVG belum tertutup, OB belum dimitigasi,
+//   2. ADX(14) M15 > 29,4 (tanpa cek arah DI).   3. Force Index EMA2 M15: LONG > 0, SHORT < 0.
+//   4. Zona entry = retrace Fib 0,5-0,618 dari leg M15. Konfluensi (bukan filter wajib, hanya menentukan level LIMIT): FVG belum tertutup, OB belum dimitigasi,
 //      SNR (cluster swing fractal 3, toleransi 0,5 ATR, >= 2 sentuhan). Ada -> limit di tepi terdekat ke harga (di dalam zona); tidak ada -> tengah zona (0,559).
-//      STOP kalau limit sudah tersentuh sejak swing terbentuk atau harga sudah di limit. Harga sekarang = close candle H1 berjalan.
-//   5. SL = entry -/+ 1 x ATR(H1). TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618 (RR tidak tetap, tanpa batas minimal range leg). Berlaku 24 jam.
+//      STOP kalau limit sudah tersentuh sejak swing terbentuk atau harga sudah di limit. Harga sekarang = close candle M15 berjalan.
+//   5. SL = entry -/+ 1 x ATR(M15). TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618 (RR tidak tetap, tanpa batas minimal range leg). Berlaku 24 jam.
 // ═══════════════════════════════════════════════════════════════════════════
 export const SCALPING_CRT = CRT_PARAMS; // LEGACY: konstanta CRT lama (tidak dipakai lagi)
 export const SCALPING_RP = {
-  VERSION: 'rp8', // rp8 (2026-11-02) = + leg H1 minimal 2 x ATR(H1) (studi Futures Replay 4 tahun); rp7 (2026-11-01) = Fibonacci Retest, H1 only (struktur LL/HH + Fib 0,705, SL 1 ATR H1); rp6 (2026-10-30) = SL entry -/+ 2 x ATR(M5); rp5 = EMA 50/200, ADX > 29,4; rp3 = Force Index EMA2 H1
+  VERSION: 'rp9', // rp9 (2026-11-08) = TF H1 -> M15 dan EMA50/200 -> satu EMA640 (permintaan user, belum di-backtest); rp8 (2026-11-02) = + leg H1 minimal 2 x ATR(H1) (studi Futures Replay 4 tahun); rp7 (2026-11-01) = Fibonacci Retest, H1 only (struktur LL/HH + Fib 0,705, SL 1 ATR H1); rp6 (2026-10-30) = SL entry -/+ 2 x ATR(M5); rp5 = EMA 50/200, ADX > 29,4; rp3 = Force Index EMA2 H1
   SKILL_LABEL: 'Fibonacci Retest',
-  HTF_FETCH: 300,
-  HTF_MIN_BARS: 250,
-  EMA_FAST: 50, EMA_SLOW: 200,
+  TF: '15m', TF_LABEL: 'M15', TF_MS: 900_000,
+  HTF_FETCH: 1500, // EMA640 butuh >= 640 candle + warmup (batas Binance 1500)
+  HTF_MIN_BARS: 700,
+  EMA: 640,
   ADX_MIN: 29.4,
   FI_EMA: 2, // Force Index = (close - close[-1]) x volume, di-smooth EMA 2 (calcForceIndexSeries); LONG wajib > 0, SHORT wajib < 0
-  SWING: 3, // fractal 3 kiri-kanan (swing struktur H1, leg Fib, SNR)
-  SCAN_BARS: 100, // jendela candle H1 untuk cluster SNR
-  FIB_BREAK: 0.705, // close H1 melewati level ini = struktur patah, sinyal ditolak
+  SWING: 3, // fractal 3 kiri-kanan (swing struktur M15, leg Fib, SNR)
+  SCAN_BARS: 100, // jendela candle M15 untuk cluster SNR
+  FIB_BREAK: 0.705, // close M15 melewati level ini = struktur patah, sinyal ditolak
   FIB_NEAR: 0.5, FIB_FAR: 0.618,
   TP1_EXT: 0.272, TP2_EXT: 0.618, // ekstensi 1,272 dan 1,618 dari leg
-  SL_ATR: 1.0, // SL = entry -/+ 1 x ATR(H1) (rp7, 2026-11-01)
-  MIN_LEG_ATR: 2, // rp8: range leg H1 harus >= 2 x ATR(H1), kalau kecil ditolak
+  SL_ATR: 1.0, // SL = entry -/+ 1 x ATR(M15) (rp9; sebelumnya ATR H1)
+  MIN_LEG_ATR: 2, // rp8: range leg M15 harus >= 2 x ATR(M15), kalau kecil ditolak
   SNR_TOL_ATR: 0.5, SNR_MIN_TOUCH: 2,
   VALID_MS: 24 * 3_600_000,
 } as const;
-const LTF_MS = 300_000, HTF_MS = 3_600_000; // M5 dan H1 dalam ms
 
 function pbSwingPrices(h: number[], l: number[], from: number, to: number): number[] {
   const out: number[] = [];
@@ -1397,15 +1397,15 @@ export interface RpSetup {
   basis: 'fvg' | 'ob' | 'snr' | 'mid';     // dasar level limit
   confluence: string[];                    // semua konfluensi yang overlap zona, mis. ['FVG','SNR']
   retracePct: number;                      // posisi limit dalam retrace (0,5-0,618)
-  rangeAtr: number;                        // range leg / ATR H1 (informasional)
-  legAgeBars: number;                      // umur swing akhir leg dalam candle H1
-  fib705: number;                          // level Fib 0,705 leg H1 (batas struktur, harga asli)
+  rangeAtr: number;                        // range leg / ATR M15 (informasional)
+  legAgeBars: number;                      // umur swing akhir leg dalam candle M15
+  fib705: number;                          // level Fib 0,705 leg M15 (batas struktur, harga asli)
 }
 
 /**
  * Fibonacci Retest rp7 (H1 only) dalam "ruang LONG". SHORT dipanggil dengan data dinegasikan (o'=-o, h'=-l, l'=-h, c'=-c)
  * lalu level hasilnya dinegasikan balik oleh pemanggil (rpFindSetup). names = istilah struktur untuk pesan (LONG: HH/LH, SHORT: LL/HL).
- * o/h/l/c = candle H1 TERTUTUP. formL/formH = low/high candle H1 yang sedang berjalan (null kalau tidak ada) di ruang yang sama.
+ * o/h/l/c = candle M15 TERTUTUP. formL/formH = low/high candle M15 yang sedang berjalan (null kalau tidak ada) di ruang yang sama.
  */
 function rpFindLong(
   o: number[], h: number[], l: number[], c: number[], a: number, price: number, formL: number | null, formH: number | null,
@@ -1413,7 +1413,7 @@ function rpFindLong(
 ): { ok: true; s: { H: number; L: number; zHi: number; zLo: number; entry: number; sl: number; tp1: number; tp2: number; basis: 'fvg' | 'ob' | 'snr' | 'mid'; conf: string[]; ih: number; R: number; fib705: number } } | { ok: false; why: string } {
   const K = SCALPING_RP;
   const n = h.length;
-  // 1. struktur H1: swing fractal 3 (butuh 3 candle H1 konfirmasi di kanan)
+  // 1. struktur M15: swing fractal 3 (butuh 3 candle M15 konfirmasi di kanan)
   const sh: number[] = [], sl: number[] = [];
   for (let i = K.SWING; i <= n - 1 - K.SWING; i++) {
     let isH = true, isL = true;
@@ -1424,24 +1424,24 @@ function rpFindLong(
     if (isH) sh.push(i);
     if (isL) sl.push(i);
   }
-  if (sh.length < 2) return { ok: false, why: 'swing H1 (fractal 3) kurang dari 2' };
+  if (sh.length < 2) return { ok: false, why: 'swing M15 (fractal 3) kurang dari 2' };
   const ih = sh[sh.length - 1]!, ip = sh[sh.length - 2]!;
   const H = h[ih]!;
-  if (!(H > h[ip]!)) return { ok: false, why: H < h[ip]! ? `sudah terbentuk ${names.lh} setelah ${names.hh} (struktur sudah berbalik), telat masuk` : `belum ada ${names.hh} baru di H1` };
+  if (!(H > h[ip]!)) return { ok: false, why: H < h[ip]! ? `sudah terbentuk ${names.lh} setelah ${names.hh} (struktur sudah berbalik), telat masuk` : `belum ada ${names.hh} baru di M15` };
   let il = -1;
   for (const k of sl) if (k < ih) il = k;
-  if (il < 0) return { ok: false, why: 'tidak ada swing H1 berlawanan sebelum swing terbaru' };
+  if (il < 0) return { ok: false, why: 'tidak ada swing M15 berlawanan sebelum swing terbaru' };
   const L = l[il]!, R = H - L;
   if (!(R > 0)) return { ok: false, why: 'range leg tidak valid' };
-  if (R < K.MIN_LEG_ATR * a) return { ok: false, why: `leg H1 terlalu kecil: ${(R / a).toFixed(2)} x ATR H1 (minimal ${K.MIN_LEG_ATR})` };
+  if (R < K.MIN_LEG_ATR * a) return { ok: false, why: `leg M15 terlalu kecil: ${(R / a).toFixed(2)} x ATR M15 (minimal ${K.MIN_LEG_ATR})` };
   // impuls masih berlanjut? (ada high lebih tinggi dari swing, termasuk candle berjalan, belum terkonfirmasi sebagai swing)
   let maxAfter = formH ?? -Infinity;
   for (let k = ih + 1; k < n; k++) maxAfter = Math.max(maxAfter, h[k]!);
-  if (maxAfter > H) return { ok: false, why: 'H1 masih membuat high/low baru (leg belum final), tunggu swing' };
-  // batas struktur: close H1 (body, bukan wick) melewati Fib 0,705 leg
+  if (maxAfter > H) return { ok: false, why: 'M15 masih membuat high/low baru (leg belum final), tunggu swing' };
+  // batas struktur: close M15 (body, bukan wick) melewati Fib 0,705 leg
   const fib705 = H - K.FIB_BREAK * R;
-  for (let k = ih + 1; k < n; k++) if (c[k]! < fib705) return { ok: false, why: `struktur H1 patah: close H1 melewati Fib ${String(K.FIB_BREAK).replace('.', ',')}` };
-  if (price < fib705) return { ok: false, why: 'harga sekarang sudah melewati Fib 0,705 leg H1, struktur patah' };
+  for (let k = ih + 1; k < n; k++) if (c[k]! < fib705) return { ok: false, why: `struktur M15 patah: close M15 melewati Fib ${String(K.FIB_BREAK).replace('.', ',')}` };
+  if (price < fib705) return { ok: false, why: 'harga sekarang sudah melewati Fib 0,705 leg M15, struktur patah' };
 
   // 2. zona Fib 0,5-0,618 + konfluensi
   const zHi = H - K.FIB_NEAR * R, zLo = H - K.FIB_FAR * R;
@@ -1533,41 +1533,41 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     ({ status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message, maxScore });
 
   try {
-    const h1Raw = await fetchKlines(symbol, '1h', K.HTF_FETCH, true);
+    const h1Raw = await fetchKlines(symbol, K.TF, K.HTF_FETCH, true);
     const nowMs = Date.now();
     const lastH = h1Raw.times.length - 1;
-    const forming = lastH >= 0 && h1Raw.times[lastH]! + HTF_MS > nowMs;
-    const cH = forming ? lastH : lastH + 1; // jumlah candle H1 yang sudah close
+    const forming = lastH >= 0 && h1Raw.times[lastH]! + K.TF_MS > nowMs;
+    const cH = forming ? lastH : lastH + 1; // jumlah candle M15 yang sudah close
     const currentPrice = lastH >= 0 ? h1Raw.closes[lastH]! : 0;
     if (cH < K.HTF_MIN_BARS) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: `Data candle gak cukup (butuh H1 ${K.HTF_MIN_BARS}+ candle tertutup)`, maxScore };
+      return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: `Data candle gak cukup (butuh M15 ${K.HTF_MIN_BARS}+ candle tertutup)`, maxScore };
     }
     const o = h1Raw.opens.slice(0, cH), h = h1Raw.highs.slice(0, cH), l = h1Raw.lows.slice(0, cH), c = h1Raw.closes.slice(0, cH), v = h1Raw.volumes.slice(0, cH);
 
-    // 1. H1: arah lewat EMA50 / EMA200
+    // 1. M15: arah lewat EMA640 (rp9)
     const hClose = c[cH - 1]!;
-    const e50 = calcEMASeries(c, K.EMA_FAST)[cH - 1]!, e200 = calcEMASeries(c, K.EMA_SLOW)[cH - 1]!;
+    const emaV = calcEMASeries(c, K.EMA)[cH - 1]!;
     const fmt = (x: number) => x.toFixed(6);
     let d: 1 | -1;
-    if (hClose > e50 && hClose > e200) d = 1;
-    else if (hClose < e50 && hClose < e200) d = -1;
-    else return noSetup(currentPrice, `H1: close ${fmt(hClose)} berada di antara/campur EMA${K.EMA_FAST} (${fmt(e50)}) dan EMA${K.EMA_SLOW} (${fmt(e200)}) — tidak ada bias`);
+    if (hClose > emaV) d = 1;
+    else if (hClose < emaV) d = -1;
+    else return noSetup(currentPrice, `M15: close ${fmt(hClose)} tepat di EMA${K.EMA} (${fmt(emaV)}) — tidak ada bias`);
     const bias: 'bullish' | 'bearish' = d === 1 ? 'bullish' : 'bearish';
-    // 2. ADX H1
+    // 2. ADX M15
     const adx = calcADXWithDI(h, l, c, 14);
-    if (!(adx.adx > K.ADX_MIN)) return noSetup(currentPrice, `ADX H1 ${adx.adx.toFixed(1)} ≤ ${K.ADX_MIN} — pasar tidak trending (H1 ${bias})`);
-    // 3. Force Index (EMA 2) H1 searah bias: LONG wajib positif, SHORT wajib negatif (candle H1 tertutup)
+    if (!(adx.adx > K.ADX_MIN)) return noSetup(currentPrice, `ADX M15 ${adx.adx.toFixed(1)} ≤ ${K.ADX_MIN} — pasar tidak trending (M15 ${bias})`);
+    // 3. Force Index (EMA 2) M15 searah bias: LONG wajib positif, SHORT wajib negatif (candle M15 tertutup)
     const fiSeries = calcForceIndexSeries(c, v);
     const fi = fiSeries.length ? fiSeries[fiSeries.length - 1]! : 0;
     const fiTxt = fi.toPrecision(4);
-    if (d === 1 ? !(fi > 0) : !(fi < 0)) return noSetup(currentPrice, `Force Index (EMA${K.FI_EMA}) H1 ${fiTxt} tidak searah ${bias} (${d === 1 ? 'wajib > 0' : 'wajib < 0'})`);
+    if (d === 1 ? !(fi > 0) : !(fi < 0)) return noSetup(currentPrice, `Force Index (EMA${K.FI_EMA}) M15 ${fiTxt} tidak searah ${bias} (${d === 1 ? 'wajib > 0' : 'wajib < 0'})`);
 
-    // 4. Struktur H1 (LL/HH, belum HL/LH, Fib 0,705), Fibonacci 0,5-0,618, konfluensi, level limit
+    // 4. Struktur M15 (LL/HH, belum HL/LH, Fib 0,705), Fibonacci 0,5-0,618, konfluensi, level limit
     const a = calcATR(h, l, c);
-    if (!(a > 0)) return noSetup(currentPrice, 'ATR H1 tidak valid');
+    if (!(a > 0)) return noSetup(currentPrice, 'ATR M15 tidak valid');
     const formL = forming ? h1Raw.lows[lastH]! : null, formH = forming ? h1Raw.highs[lastH]! : null;
     const res = rpFindSetup(o, h, l, c, d, a, currentPrice, formL, formH);
-    if (!res.ok) return noSetup(currentPrice, `Belum ada setup Fib H1 (${res.why})`);
+    if (!res.ok) return noSetup(currentPrice, `Belum ada setup Fib M15 (${res.why})`);
     const s = res.s;
 
     const risk = Math.abs(s.entry - s.sl);
@@ -1575,13 +1575,13 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
     const rr1 = Math.abs(s.tp1 - s.entry) / risk, rr2 = Math.abs(s.tp2 - s.entry) / risk;
     const basisTxt = s.basis === 'mid' ? 'tengah zona (tanpa konfluensi)' : `tepi ${s.basis.toUpperCase()} dalam zona`;
     const filterResults: string[] = [
-      `✅ H1 ${bias === 'bullish' ? 'BULLISH' : 'BEARISH'}: close ${fmt(hClose)} ${d === 1 ? 'di atas' : 'di bawah'} EMA${K.EMA_FAST} ${fmt(e50)} & EMA${K.EMA_SLOW} ${fmt(e200)}`,
-      `✅ ADX H1 ${adx.adx.toFixed(1)} (> ${K.ADX_MIN}); Force Index EMA${K.FI_EMA} H1 ${fiTxt} (${d === 1 ? '> 0' : '< 0'})`,
-      `✅ Struktur H1 ${d === 1 ? 'HH (belum LH)' : 'LL (belum HL)'}: Fib 0,705 di ${fmt(s.fib705)} belum ditembus close H1`,
-      `✅ Leg Fibonacci H1: swing ${d === 1 ? 'low' : 'high'} ${fmt(d === 1 ? s.swingLow : s.swingHigh)} → swing ${d === 1 ? 'high' : 'low'} ${fmt(d === 1 ? s.swingHigh : s.swingLow)} (range ${s.rangeAtr}x ATR H1, swing ${s.legAgeBars} candle H1 lalu)`,
+      `✅ M15 ${bias === 'bullish' ? 'BULLISH' : 'BEARISH'}: close ${fmt(hClose)} ${d === 1 ? 'di atas' : 'di bawah'} EMA${K.EMA} ${fmt(emaV)}`,
+      `✅ ADX M15 ${adx.adx.toFixed(1)} (> ${K.ADX_MIN}); Force Index EMA${K.FI_EMA} M15 ${fiTxt} (${d === 1 ? '> 0' : '< 0'})`,
+      `✅ Struktur M15 ${d === 1 ? 'HH (belum LH)' : 'LL (belum HL)'}: Fib 0,705 di ${fmt(s.fib705)} belum ditembus close M15`,
+      `✅ Leg Fibonacci M15: swing ${d === 1 ? 'low' : 'high'} ${fmt(d === 1 ? s.swingLow : s.swingHigh)} → swing ${d === 1 ? 'high' : 'low'} ${fmt(d === 1 ? s.swingHigh : s.swingLow)} (range ${s.rangeAtr}x ATR M15, swing ${s.legAgeBars} candle M15 lalu)`,
       `✅ Zona retrace 0,5–0,618: ${fmt(s.zoneLo)} – ${fmt(s.zoneHi)}; konfluensi: ${s.confluence.length ? s.confluence.join(' + ') : 'tidak ada'}`,
       `✅ LIMIT ${d === 1 ? 'BUY' : 'SELL'} ${fmt(s.entry)} = ${basisTxt} (retrace ${(s.retracePct * 100).toFixed(1)}%)`,
-      `✅ SL ${fmt(s.sl)} (entry ${d === 1 ? '−' : '+'} ${K.SL_ATR} × ATR H1); TP1 ${fmt(s.tp1)} (Fib 1,272, RR ${rr1.toFixed(2)}); TP2 ${fmt(s.tp2)} (Fib 1,618, RR ${rr2.toFixed(2)})`,
+      `✅ SL ${fmt(s.sl)} (entry ${d === 1 ? '−' : '+'} ${K.SL_ATR} × ATR M15); TP1 ${fmt(s.tp1)} (Fib 1,272, RR ${rr1.toFixed(2)}); TP2 ${fmt(s.tp2)} (Fib 1,618, RR ${rr2.toFixed(2)})`,
     ];
     return {
       status: 'in_zone', symbol, bias, currentPrice, timestamp, mode: 'structural',
@@ -1593,7 +1593,7 @@ export async function analyzeScalpingEntry(symbol: string): Promise<ScalpingResu
       rpZoneLo: s.zoneLo, rpZoneHi: s.zoneHi, rpBasis: s.basis, rpConfluence: s.confluence.join('+'),
       rpRetracePct: s.retracePct,
       validUntilMs: nowMs + K.VALID_MS, atr15MPct: undefined,
-      message: `SIAP ${d === 1 ? 'BUY LIMIT' : 'SELL LIMIT'} di ${fmt(s.entry)} — Fibonacci Retest H1 (${bias}, ADX ${adx.adx.toFixed(0)}, Force Index ${d === 1 ? 'positif' : 'negatif'}, struktur ${d === 1 ? 'HH' : 'LL'}), limit di ${basisTxt}, SL ${fmt(s.sl)} (1 ATR H1), TP1 ${fmt(s.tp1)} (RR 1:${rr1.toFixed(1)}), TP2 ${fmt(s.tp2)} (RR 1:${rr2.toFixed(1)}). Pasang limit order; batal bila close H1 menembus Fib 0,705 (${fmt(s.fib705)}) sebelum terisi, kedaluwarsa 24 jam.`,
+      message: `SIAP ${d === 1 ? 'BUY LIMIT' : 'SELL LIMIT'} di ${fmt(s.entry)} — Fibonacci Retest M15 (${bias}, ADX ${adx.adx.toFixed(0)}, Force Index ${d === 1 ? 'positif' : 'negatif'}, struktur ${d === 1 ? 'HH' : 'LL'}), limit di ${basisTxt}, SL ${fmt(s.sl)} (1 ATR M15), TP1 ${fmt(s.tp1)} (RR 1:${rr1.toFixed(1)}), TP2 ${fmt(s.tp2)} (RR 1:${rr2.toFixed(1)}). Pasang limit order; batal bila close M15 menembus Fib 0,705 (${fmt(s.fib705)}) sebelum terisi, kedaluwarsa 24 jam.`,
     };
   } catch (err) {
     return {
