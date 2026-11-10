@@ -14,6 +14,8 @@ import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
 import { SetupCheckButton, SetupFinderTpRow, WrBadge } from '@/components/SetupCheckPanel';
+import { Tp3Row, tp3JournalFields } from '@/components/Tp3Row';
+import { FiboSettingsPanel, useFiboSettings, fiboQuery } from '@/components/FiboSettings';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
@@ -51,6 +53,9 @@ function rpJournalFields(c: any): Partial<JournalEntry> {
     rpVersion: c?.rpVersion, rpAdxD1: c?.rpAdxD1, rpRsiD1: c?.rpRsiD1, rpFiH1: c?.rpFiH1,
     rpSwingHigh: c?.rpSwingHigh, rpSwingLow: c?.rpSwingLow, rpRangeAtr: c?.rpRangeAtr, rpLegAgeBars: c?.rpLegAgeBars,
     rpZoneLo: c?.rpZoneLo, rpZoneHi: c?.rpZoneHi, rpBasis: c?.rpBasis, rpConfluence: c?.rpConfluence, rpRetracePct: c?.rpRetracePct,
+    // rp11: data evaluasi per sinyal
+    rpTrend: c?.rpTrend, rpClusterWidthAtr: c?.rpClusterWidthAtr, rpLimitPct: c?.rpLimitPct, rpSlPct: c?.rpSlPct, rpSlAtr: c?.rpSlAtr, rpP90: c?.rpP90,
+    rpBreakoutTime: c?.rpBreakoutTime, rpAtr15: c?.rpAtr15,
   };
 }
 
@@ -168,6 +173,7 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 }
 
 function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: ScalpingResult) => void }) {
+  const fibo = useFiboSettings(); // rp11: pengaturan limit % & sideways ikut dikirim saat scan dimulai
   const insets = useSafeAreaInsets();
   // isFetching (bukan isLoading) — fix bug audit: isLoading React Query cuma
   // true pas fetch PERTAMA kali, jadi tombol SCAN NOW kliatan "gak ngerespon"
@@ -191,7 +197,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   });
   const scanStatus = (data as any)?.status as 'idle' | 'running' | 'complete' | 'error' | undefined;
   // Scan manual (request user 2026-11-05): mulai scan baru lewat ?fresh=true, lalu polling jalan sendiri.
-  const startScan = useCallback(async () => { try { await customFetch('/api/breakout/scan?fresh=true'); } catch { /* polling tetap jalan */ } refetch(); }, [refetch]);
+  const startScan = useCallback(async () => { try { await customFetch(`/api/breakout/scan?fresh=true&${fiboQuery(fibo)}`); } catch { /* polling tetap jalan */ } refetch(); }, [refetch, fibo]);
   const scannedCount = (data as any)?.scanned ?? 0;
   const totalCount = (data as any)?.total ?? 0;
   // Notif "Complete" -- muncul SEKALI aja pas status TRANSISI ke 'complete'
@@ -239,7 +245,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         tfStruktur: 'M15', tfEksekusi: '5M',
         ...rpJournalFields(c),
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
-        ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+        ...taProFieldsFromSnapshot((c as any).taPro, (c as any).bias), // skor TA PRO dibekukan saat sinyal dibuat
         orderType: 'limit',
         btcAligned: c.btcAligned, btcBias: c.btcBias,
         signalStatus: c.status as 'in_zone',
@@ -262,7 +268,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Fibonacci Retest M15 (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Fibonacci Retest M15 (EMA800/1120 + breakout SNR terkonfirmasi, limit di cluster)</Text>
       </View>
     );
   }
@@ -308,7 +314,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Fibonacci Retest M15 (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Fibonacci Retest M15 (EMA800/1120 + breakout SNR terkonfirmasi, limit di cluster)'}
           </Text>
         </View>
       );
@@ -350,6 +356,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <ScanNowButton onPress={startScan} isLoading={isFetching} colors={colors} />
       </View>
 
+      <FiboSettingsPanel accent={ACCENT} />
       <SortSelector value={sortKey} onChange={setSortKey} wrProgress={wrProgress} />
 
       {eligibleCount > 0 && (
@@ -443,9 +450,11 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
 
   // REVISI (request user): mode 15M/Money Magnet 2 & classifier auto-pilih
   // DIHAPUS -- Menu Scalping sekarang 1 mode doang (Structural).
+  const fibo = useFiboSettings(); // rp11: limit % & sideways ikut dikirim ke Analisa
+  const scalpParams = { symbol: querySymbol, limitPct: fibo.limitPct, sideways: fibo.sideways } as any;
   const { data: liveData, isLoading, isError, refetch } = useGetScalping(
-    { symbol: querySymbol },
-    { query: { queryKey: getGetScalpingQueryKey({ symbol: querySymbol }), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
+    scalpParams,
+    { query: { queryKey: getGetScalpingQueryKey(scalpParams), enabled: !!querySymbol && liveMode, staleTime: 60_000 } }
   );
   const data = liveMode ? liveData : pinnedData;
 
@@ -474,10 +483,11 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
       sourceMenu: 'Scalping', sourceSkill: SCALPING_SKILL,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
+      ...tp3JournalFields(data.symbol, data.bias === 'bullish' ? 'BUY' : 'SELL', data.entryPrice, data.stopLoss),
       tfStruktur: 'M15', tfEksekusi: '5M',
       ...rpJournalFields(data),
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+      ...taProFieldsFromSnapshot((data as any).taPro, (data as any).bias), // skor TA PRO dibekukan saat sinyal dibuat
       orderType: 'limit', // BUY/SELL LIMIT di zona Fib; Journal anggap terisi begitu harga menyentuh entry, EXPIRED kalau belum terisi sampai validUntil
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
@@ -527,7 +537,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Fibonacci Retest Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Fibonacci Retest M15 (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Fibonacci Retest M15 (EMA800/1120 + breakout SNR terkonfirmasi, limit di cluster)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -621,7 +631,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                   {formatPrice(data.entryPrice)}
                 </Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>
-                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — {(data as any).rpBasis === 'mid' ? 'tengah zona Fib 0,5–0,618 (tanpa konfluensi)' : `tepi ${String((data as any).rpBasis || '').toUpperCase()} di zona Fib 0,5–0,618`} {(data as any).rpZoneLo !== undefined ? `(${formatPrice((data as any).rpZoneLo)} – ${formatPrice((data as any).rpZoneHi)})` : ''}{(data as any).rpConfluence ? ` · konfluensi: ${String((data as any).rpConfluence).replace(/\+/g, ' + ')}` : ''}
+                  {data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — {(data as any).rpLimitPct !== undefined ? `${(data as any).rpLimitPct}% ke dalam cluster SNR yang baru ditembus (0% = tepi ${data.bias === 'bullish' ? 'atas' : 'bawah'})` : (data as any).rpBasis === 'mid' ? 'tengah zona Fib 0,5–0,618 (tanpa konfluensi)' : `tepi ${String((data as any).rpBasis || '').toUpperCase()} di zona Fib 0,5–0,618`} {(data as any).rpZoneLo !== undefined ? `(cluster ${formatPrice((data as any).rpZoneLo)} – ${formatPrice((data as any).rpZoneHi)})` : ''}{(data as any).rpConfluence ? ` · konfluensi: ${String((data as any).rpConfluence).replace(/\+/g, ' + ')}` : ''}
                 </Text>
               </View>
               <View style={styles.infoRow}>
@@ -630,16 +640,17 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 Fib 1,272 (RR 1:{data.rr1?.toFixed(1)})</Text>
+                <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 (RR 1:{data.rr1?.toFixed(1)})</Text>
                 <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1 ? formatPrice(data.takeProfit1) : '—'}</Text>
               </View>
               {data.takeProfit2 ? (
                 <>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.infoRow}>
-                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 Fib 1,618 (RR 1:{data.rr2?.toFixed(1)})</Text>
+                    <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1)})</Text>
                     <Text style={[styles.infoValue, { color: colors.gold }]}>{formatPrice(data.takeProfit2)}</Text>
                   </View>
+                  <Tp3Row colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
                   <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
                 </>
               ) : null}
@@ -743,7 +754,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Fibonacci Retest</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 only (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 only (EMA800/1120 + breakout SNR terkonfirmasi, limit di cluster)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -783,20 +794,21 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Fibonacci Retest</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Fibonacci Retest (rp10, 2026-11-09: logic baru; rp9 M15 + EMA640; rp8 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di M15. Idenya: ikuti arah breakout SNR yang valid (volume kuat), masuk SEBELUM struktur berbalik (swing baru L→H / H→L sudah ada, tapi belum LH / HL), lalu pasang LIMIT order di SNR yang baru ditembus (masih fresh). Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
-          Status: strategi ini BELUM di-backtest, sengaja dibuktikan lewat Jurnal (forward test). Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0). Sinyal yang tidak terisi sampai 24 jam dicatat EXPIRED dan tidak dihitung menang/kalah.
+          Fibonacci Retest (rp11, 2026-11-10; rp10 2026-11-09; rp9 M15 + EMA640; rp8 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di M15. Idenya: ikuti breakout SNR yang valid (volume kuat) dan sudah bertahan 1 jam tanpa balik ke cluster, masuk SEBELUM struktur berbalik (swing baru sudah ada, belum LH / HL), lalu pasang LIMIT di dalam cluster yang baru ditembus (masih fresh) dengan SL di luar cluster. Nama "Fibonacci" tetap dipakai sebagai label menu; level Fibonacci tidak lagi dipakai untuk entry/SL/TP. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
+          Status: strategi ini BELUM di-backtest, sengaja dibuktikan lewat Jurnal (forward test). Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38% (impas TP1 RR 1:2 = 33,3%), avgR &gt; 0). Sinyal yang tidak terisi sampai 24 jam dicatat EXPIRED dan tidak dihitung menang/kalah.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. Tren M15 (fetch 1500 candle, minimal 1200 tertutup): close di atas EMA800 dan EMA1120 → BULLISH (hanya BUY); di bawah keduanya → BEARISH (hanya SELL); di antara keduanya → SIDEWAYS (logic sama, arah breakout valid yang menentukan BUY/SELL){'\n'}
-          2. Breakout SNR valid: close M15 pertama yang menembus cluster SNR (swing fractal 3, toleransi 0,5 ATR, minimal 2 sentuhan), candle searah, volume ≥ 1,6x MA20. Dicari dalam 200 candle terakhir. Batal bila ada close kembali di sisi lain cluster{'\n'}
-          3. Setelah breakout, harus sudah terbentuk swing baru yang valid (L→H untuk BUY, H→L untuk SELL). Kalau sudah terbentuk LH (BUY) / HL (SELL) = telat masuk, ditolak{'\n'}
-          4. Leg Fib = swing terakhir berlawanan sebelum swing baru itu (SELL: swing high terakhir sebelum swing low). Range leg minimal 2x ATR(14) M15; ujung leg belum boleh dilewati (termasuk candle berjalan){'\n'}
-          5. LIMIT di SNR yang baru ditembus: BUY di tepi atas cluster, SELL di tepi bawah cluster. Harus fresh: belum tersentuh sejak breakout dan harga belum di level limit{'\n'}
-          6. SL = SL anti-gocekan Setup Finder (v18): dihitung dari level entry — di luar swing 15M terdekat + kedalaman gocekan P90, atau di luar tembok order book (mana yang lebih jauh), digeser dari angka bulat, maksimal 4% dari entry. Kalau data Setup Finder gagal diambil, pakai SL bawaan (entry ∓ 2x ATR M15). TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618 (RR tidak tetap){'\n'}
-          7. Kedaluwarsa 24 jam. Satu sinyal per leg. Filter lama (ADX, Force Index, Fib 0,705, zona 0,5–0,618, FVG/OB) tidak dipakai lagi di rp10. Label Jurnal "Fibonacci Retest", versi rp10 (rp9 ke bawah tetap di label yang sama, bedakan lewat versi). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
+          1. Tren M15 (fetch 1500 candle, minimal 1200 tertutup): close di atas EMA800 dan EMA1120 → BULLISH (hanya BUY); di bawah keduanya → BEARISH (hanya SELL); di antara keduanya → SIDEWAYS. Default TIDAK trade saat SIDEWAYS; kalau pengaturan "Trade saat SIDEWAYS" dinyalakan, BUY dan SELL dicek dan breakout valid terbaru yang menentukan arah{'\n'}
+          2. Breakout SNR: close M15 pertama yang menembus cluster SNR (swing fractal 3, toleransi 0,5 ATR, minimal 2 sentuhan), candle searah, volume ≥ 1,6x MA20, dicari dalam 200 candle terakhir{'\n'}
+          3. Konfirmasi breakout: 4 candle M15 setelah breakout (1 jam) wajib sudah close dan TIDAK ADA yang close kembali masuk ke cluster (BUY: close ≤ tepi atas; SELL: close ≥ tepi bawah). Kalau ada = fakeout, tidak ada sinyal (tidak mundur ke breakout lebih lama). Setelah itu sinyal batal kalau ada close menembus tepi seberang cluster{'\n'}
+          4. Swing baru setelah breakout: BUY = low terendah sejak candle breakout → swing high fractal 3 (SELL kebalikannya). Range minimal 2x ATR(14) M15; ujung swing belum boleh dilewati (termasuk candle berjalan). Kalau sudah terbentuk LH (BUY) / HL (SELL) = telat, ditolak. Satu sinyal per breakout{'\n'}
+          5. LIMIT di dalam cluster sesuai pengaturan "Posisi limit" (0% = tepi luar: BUY tepi atas / SELL tepi bawah; 100% = tepi dalam; default 60%). Harus fresh: belum tersentuh sejak breakout dan harga belum di level limit{'\n'}
+          6. SL dari cluster: BUY = tepi bawah cluster − (kedalaman gocekan P90 Setup Finder + 0,1) × ATR M15; SELL = tepi atas + (P90 + 0,1) × ATR M15. P90 dihitung dari candle M15 menu ini (tanpa request tambahan). SL yang jatuh di angka bulat digeser melewatinya. SL lebih dari 4% dari entry = sinyal DITOLAK. Tanpa data gocekan: tepi seberang cluster ∓ 1x ATR M15{'\n'}
+          7. TP1 = RR 1:2, TP2 = RR 1:3 (dari jarak entry ke SL). TP3 = SNR H1 (2688 candle) di luar TP2, dihitung otomatis hanya saat layar Analisa dibuka{'\n'}
+          8. Kedaluwarsa 24 jam. Jurnal menyimpan: tren, tepi atas/bawah dan lebar cluster (ATR), posisi limit %, jarak SL (% dan ATR), RR TP1/TP2, waktu breakout; setelah selesai: limit terisi atau tidak dan kedalaman ekor retest (% lebar cluster). Label Jurnal "Fibonacci Retest", versi rp11 (rp10 ke bawah tetap di label yang sama, bedakan lewat versi). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeScalpingEntry, checkTaProBonus, getTaProScoreSnapshot } from '../lib/smc';
+import { analyzeScalpingEntry, checkTaProBonus, getTaProScoreSnapshot, normScalpingOpts, type ScalpingOpts } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -16,7 +16,7 @@ router.get('/breakout', async (req, res) => {
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   const mode = 'structural' as const;
   try {
-    const result = await analyzeScalpingEntry(normalized);
+    const result = await analyzeScalpingEntry(normalized, normScalpingOpts({ limitPct: req.query['limitPct'], sideways: req.query['sideways'] })); // rp11: pengaturan dari app
     // 2026-10-23: mini-backtest 30 hari DIHAPUS dari Scalping — dulu menjalankan backtest Python strategi lama (bukan CRT) dan bikin Analisa lambat/gagal.
     // FIX (audit): TA PRO Bonus (checkTaProBonus) sebelumnya gak pernah
     // dipanggil sama sekali, jadi banner-nya di UI gak pernah muncul
@@ -59,14 +59,15 @@ type ScalpingScanState = {
   status: 'idle' | 'running' | 'complete' | 'error';
   errorMessage?: string;
   fetchedAt: number;
+  opts?: Required<ScalpingOpts>; // rp11: pengaturan yang dipakai scan terakhir
 };
 let scalpingScanState: ScalpingScanState = { results: [], scanned: 0, total: 0, status: 'idle', fetchedAt: 0 };
 let scalpingScanRunning = false;
 
-async function runScalpingScan(): Promise<void> {
+async function runScalpingScan(opts: Required<ScalpingOpts>): Promise<void> {
   if (scalpingScanRunning) return; // udah ada yang jalan, gak usah start baru
   scalpingScanRunning = true;
-  scalpingScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now() };
+  scalpingScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now(), opts };
   try {
     const universe = await getUniverse(500);
     scalpingScanState.total = universe.length;
@@ -74,7 +75,7 @@ async function runScalpingScan(): Promise<void> {
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
-        batch.map((s) => analyzeScalpingEntry(s).then(val => ({ ...val, mode: 'structural' as const })))
+        batch.map((s) => analyzeScalpingEntry(s, opts).then(val => ({ ...val, mode: 'structural' as const })))
       );
       scalpingScanState.scanned += batch.length;
       const newValid: typeof scalpingScanState.results = [];
@@ -120,7 +121,7 @@ router.get('/breakout/scan', async (req, res) => {
     const forceFresh = req.query['fresh'] === 'true';
     // REVISI (request user 2026-11-05): scan TIDAK otomatis jalan (biar gak kena rate limit Binance). Mulai hanya lewat tombol (?fresh=true). Cuma Setup Finder yang otomatis.
     if (forceFresh && !scalpingScanRunning) {
-      runScalpingScan(); // fire-and-forget, SENGAJA gak di-await
+      runScalpingScan(normScalpingOpts({ limitPct: req.query['limitPct'], sideways: req.query['sideways'] })); // fire-and-forget, SENGAJA gak di-await
     }
     res.json({
       coins: scalpingScanState.results,
@@ -129,6 +130,7 @@ router.get('/breakout/scan', async (req, res) => {
       status: scalpingScanState.status,
       errorMessage: scalpingScanState.errorMessage,
       fetchedAt: scalpingScanState.fetchedAt,
+      opts: scalpingScanState.opts,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

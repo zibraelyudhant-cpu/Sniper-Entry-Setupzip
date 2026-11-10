@@ -517,6 +517,20 @@ function antiGocekSl(ctx: Ctx, side: Side, capMode: SlCapMode | 'none') {
   return { sl, src: far.src, rounded, clipped, rejected: capMode === 'tolak' && tooFar };
 }
 
+// Kedalaman gocekan P90 (satuan ATR14 15M) dari candle 15M milik pemanggil — dipakai Fibo Retest rp11 (tanpa request Binance).
+// Rumus sama dengan Setup Finder: swing fractal 3 di 1000 candle terakhir, sapuan pertama dalam 96 candle, close balik <= 4 candle.
+// null kalau tidak ada sampel gocekan.
+export function gocekP90FromOhlc(o: number[], h: number[], l: number[], c: number[]): number | null {
+  const all: Candle[] = o.map((_, i) => ({ t: 0, o: o[i]!, h: h[i]!, l: l[i]!, c: c[i]!, v: 0, qv: 0 }));
+  const k = all.slice(-SF.swing.candles);
+  const depths = gocekDepthsAtr(k, findSwings(k, SF.swing.fractal), atrSeries(k, SF.swing.atr));
+  return depths.length ? percentile(depths, SF.gocek.depthPct) : null;
+}
+/** Angka bulat di sekitar harga (sama dengan Setup Finder). */
+export function sfRoundLevels(price: number): number[] { return roundLevels(price); }
+export const SF_ROUND_ZONE_ATR = SF.round.zoneAtr;
+export const SF_ROUND_BUF = SF.sl.roundBuf;
+
 // SL anti-gocekan untuk LEVEL ENTRY tertentu (dipakai menu Sniper / Fibo Retest / Money Magnet, v18+).
 // Logika sama dengan antiGocekSl, tapi dijangkarkan ke ENTRY limit (bukan harga live): swing terdekat DI LUAR entry,
 // tembok order book DI LUAR entry (jarak <= 3% dari entry), angka bulat di sekitar SL, batas 4% dari entry (dipotong).

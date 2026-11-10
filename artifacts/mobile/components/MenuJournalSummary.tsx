@@ -10,7 +10,7 @@ import {
   journalLoadAll, breakdownBySkill,
   buildJournalSummary, compareIndicatorsWinLose, buildLoseConditionProfiles, buildDevelopmentRecommendations,
   getJournalBaseline, setJournalBaseline, filterByBaseline,
-  buildRpForwardTest, buildMmsForwardTest, buildSfForwardTest, SCALP_FORWARD,
+  buildRpForwardTest, buildMmsForwardTest, buildSfForwardTest, SCALP_FORWARD, RP_ACTIVE_VERSION,
 } from '../app/(tabs)/journal-helpers';
 
 /**
@@ -55,7 +55,7 @@ export function MenuJournalSummary({ sourceMenu, accentColor }: { sourceMenu: So
     ? { title: 'SETUP FINDER (WHALE + BACKTEST)', label: 'Setup Finder', note: 'WR backtest bukan bukti setup: entry di tiap candle dengan jarak SL/TP sama. Forward test ini yang menentukan, bandingkan WR forward dengan WR backtest di tiap sinyal.' }
     : sourceMenu === 'Money Magnet Scalping'
     ? { title: 'MONEY MAGNET SCALPING H1→M5', label: 'Money Magnet Scalping H1→M5 CRT', note: 'Money Magnet Scalping belum punya bukti statistik, jadi forward test ini bukti yang menentukan.' }
-    : { title: 'FIBONACCI RETEST (H1)', label: 'Fibonacci Retest H1', note: 'Strategi ini BELUM di-backtest, jadi forward test ini satu-satunya bukti.' };
+    : { title: `FIBONACCI RETEST ${RP_ACTIVE_VERSION.toUpperCase()} (M15)`, label: `Fibonacci Retest versi ${RP_ACTIVE_VERSION}`, note: `Hanya sinyal versi ${RP_ACTIVE_VERSION} yang dihitung (versi lama dengan label sama tidak ikut). Strategi ini BELUM di-backtest, jadi forward test ini satu-satunya bukti.` };
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={accentColor} /></View>;

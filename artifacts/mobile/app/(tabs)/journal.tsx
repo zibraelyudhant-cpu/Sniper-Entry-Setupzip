@@ -107,8 +107,8 @@ function JournalEntryCard({
   const statusColor = entry.status === 'win_tp1' || entry.status === 'win_tp2' ? colors.bullish
     : entry.status === 'lose' ? colors.bearish
     : entry.status === 'expired' ? colors.mutedForeground : colors.gold;
-  const statusLabel = entry.status === 'win_tp1' ? 'WIN TP1' : entry.status === 'win_tp2' ? 'WIN TP2'
-    : entry.status === 'lose' ? 'LOSE' : entry.status === 'expired' ? 'EXPIRED' : 'PENDING';
+  const statusLabel = entry.status === 'win_tp1' ? (entry.tp2Watch ? 'WIN TP1 · pantau TP2' : 'WIN TP1') : entry.status === 'win_tp2' ? 'WIN TP2'
+    : entry.status === 'lose' ? 'LOSE' : entry.status === 'expired' ? (entry.mmCancelReason === 'sweep_tertembus' ? 'BATAL (sweep tertembus)' : 'EXPIRED') : 'PENDING';
   // Status SINYAL saat disimpan (request user, "Masukin Semua ke Journal") —
   // BEDA dari status evaluasi win/lose di atas. Cuma tampil kalau ada
   // (entry manual satuan gak isi field ini, given itu SELALU in_zone).
@@ -220,8 +220,11 @@ function JournalEntryCard({
                 <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
                   SKOR TA PRO (info, saat disimpan)
                 </Text>
-                <IndicatorRow label="Skor LONG" value={`${entry.taLongScore}/${entry.taMaxScore ?? 9} — ${entry.taLongGrade ?? '-'}`} colors={colors} />
-                <IndicatorRow label="Skor SHORT" value={`${entry.taShortScore}/${entry.taMaxScore ?? 9} — ${entry.taShortGrade ?? '-'}`} colors={colors} />
+                <IndicatorRow label={`Skor LONG${entry.taSignalSide === 'LONG' ? ' (searah sinyal)' : ''}`} value={`${entry.taLongScore}/${entry.taLongMax ?? entry.taMaxScore ?? 9}${entry.taLongPct !== undefined ? ` (${entry.taLongPct}%)` : ''} — ${entry.taLongGrade ?? '-'}${entry.taScoreVer ? ` · v${entry.taScoreVer}` : ''}`} colors={colors} />
+                <IndicatorRow label={`Skor SHORT${entry.taSignalSide === 'SHORT' ? ' (searah sinyal)' : ''}`} value={`${entry.taShortScore}/${entry.taShortMax ?? entry.taMaxScore ?? 9}${entry.taShortPct !== undefined ? ` (${entry.taShortPct}%)` : ''} — ${entry.taShortGrade ?? '-'}`} colors={colors} />
+                {entry.taScoreVer === 4 && (
+                  <IndicatorRow label="Angka mentah" value={`funding ${entry.taRawFundingPct !== undefined ? `${entry.taRawFundingPct.toFixed(4)}%` : 'n/a'} · L/S ${entry.taRawLsr?.toFixed(2) ?? 'n/a'} · OI ${entry.taRawOiChgPct !== undefined ? `${entry.taRawOiChgPct.toFixed(2)}%` : 'n/a'} · harga 24j ${entry.taRawPriceChg24hPct !== undefined ? `${entry.taRawPriceChg24hPct.toFixed(2)}%` : 'n/a'} · res ${entry.taRawLongDistSrAtr?.toFixed(2) ?? 'n/a'} / sup ${entry.taRawShortDistSrAtr?.toFixed(2) ?? 'n/a'} ATR H4 · EMA20 ${entry.taRawLongDistEmaAtr?.toFixed(2) ?? 'n/a'} ATR H4`} colors={colors} />
+                )}
                 {entry.taLongPts && <IndicatorRow label="Poin LONG" value={entry.taLongPts} colors={colors} />}
                 {entry.taShortPts && <IndicatorRow label="Poin SHORT" value={entry.taShortPts} colors={colors} />}
               </>
@@ -259,11 +262,41 @@ function JournalEntryCard({
                 </Text>
                 <IndicatorRow label="Struktur H1 (filter Fib 0,705)" value={entry.mmH1Struct === 'ok' ? 'aman, belum ada close H1 melewati 0,705' : 'belum bisa dinilai (leg H1 belum terbentuk)'} colors={colors} />
                 {entry.mmH1Fib705 !== undefined && <IndicatorRow label="Fib 0,705 leg H1" value={String(entry.mmH1Fib705)} colors={colors} />}
-                {entry.mmSlMode !== undefined && <IndicatorRow label="SL (mm3)" value={entry.mmSlMode === 'sf' ? 'Anti-gocekan Setup Finder (dari entry)' : entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
+                {entry.mmSlMode !== undefined && <IndicatorRow label="SL (mm3)" value={entry.mmSlMode === 'sweep' ? 'Ekstrem sweep ∓ (P90 + 0,1) ATR M5 (mm4)' : entry.mmSlMode === 'sf' ? 'Anti-gocekan Setup Finder (dari entry)' : entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
+                {entry.mmCrtVersion === 'mm4' && (
+                  <>
+                    <IndicatorRow label="Tipe setup (mm4)" value={`${entry.mmSetupType === 'failure_to_manipulate' ? 'Failure to Manipulate' : 'Reversal'} · ${entry.bias === 'bullish' ? 'BUY' : 'SELL'}`} colors={colors} />
+                    {entry.mmH1Loc !== undefined && <IndicatorRow label="H1 premium/discount" value={`${entry.mmH1Loc}${entry.mmH1LegPosPct !== undefined ? ` (${entry.mmH1LegPosPct}% leg H1)` : ''} · Range/ATR ${entry.mmRangeAtrH1?.toFixed(2) ?? '—'}`} colors={colors} />}
+                    {entry.mmScoreParts !== undefined && <IndicatorRow label={`Skor ${entry.mmScore ?? '—'}/16`} value={entry.mmScoreParts} colors={colors} />}
+                    {entry.mmBtcCorr !== undefined && <IndicatorRow label="Korelasi BTC" value={`${entry.mmBtcCorr.toFixed(2)} · BTC ${entry.mmBtcDir === 'bullish' ? 'naik' : entry.mmBtcDir === 'bearish' ? 'turun' : 'datar'}`} colors={colors} />}
+                    {entry.mmFvgAtr !== undefined && <IndicatorRow label="FVG / tusukan sweep" value={`${entry.mmFvgAtr.toFixed(2)} ATR · ${entry.mmSweepPenAtr?.toFixed(2) ?? '—'} ATR M5`} colors={colors} />}
+                    {entry.mmSlPct !== undefined && <IndicatorRow label="Jarak SL" value={`${entry.mmSlPct.toFixed(2)}% · ${entry.mmSlAtr?.toFixed(2) ?? '—'} ATR M5${entry.mmP90 !== undefined ? ` (P90 ${entry.mmP90.toFixed(2)})` : ' (tanpa P90)'}`} colors={colors} />}
+                    {entry.mmLimitFilled !== undefined && <IndicatorRow label="Limit terisi" value={entry.mmLimitFilled ? 'Ya' : entry.mmCancelReason === 'sweep_tertembus' ? 'Tidak (batal: sweep tertembus)' : 'Tidak'} colors={colors} />}
+                    {entry.mmFvgDepthPct !== undefined && <IndicatorRow label="Kedalaman masuk FVG" value={`${entry.mmFvgDepthPct.toFixed(1)}% (0 = tepi depan, 100 = tepi belakang)`} colors={colors} />}
+                    {entry.mmBarsToResult !== undefined && <IndicatorRow label="Lama sampai hasil" value={`${entry.mmBarsToResult} candle M5${entry.mmBarsFillToResult !== undefined ? ` (${entry.mmBarsFillToResult} sejak terisi)` : ''}`} colors={colors} />}
+                  </>
+                )}
                 {entry.mmFib0 !== undefined && entry.mmFib1 !== undefined && <IndicatorRow label="Leg Fib (Fib 1 – Fib 0)" value={`${entry.mmFib1} – ${entry.mmFib0}`} colors={colors} />}
               </>
             )}
-            {entry.rpVersion && (
+            {entry.rpVersion === 'rp11' && (
+              <>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.8, marginTop: 8 }}>FIBONACCI RETEST rp11 (M15)</Text>
+                {entry.rpTrend !== undefined && <IndicatorRow label="Kondisi tren" value={entry.rpTrend} colors={colors} />}
+                {entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && <IndicatorRow label="Cluster (bawah – atas)" value={`${entry.rpZoneLo} – ${entry.rpZoneHi}`} colors={colors} />}
+                {entry.rpClusterWidthAtr !== undefined && <IndicatorRow label="Lebar cluster" value={`${entry.rpClusterWidthAtr.toFixed(2)} ATR`} colors={colors} />}
+                {entry.rpLimitPct !== undefined && <IndicatorRow label="Posisi limit" value={`${entry.rpLimitPct}% ke dalam cluster`} colors={colors} />}
+                {entry.rpSlPct !== undefined && <IndicatorRow label="Jarak SL" value={`${entry.rpSlPct.toFixed(2)}% · ${entry.rpSlAtr?.toFixed(2) ?? '—'} ATR${entry.rpP90 !== undefined ? ` (P90 ${entry.rpP90.toFixed(2)})` : ' (tanpa P90)'}`} colors={colors} />}
+                {entry.rr1 !== undefined && <IndicatorRow label="RR TP1 / TP2" value={`1:${entry.rr1} / 1:3`} colors={colors} />}
+                {entry.rpBreakoutTime !== undefined && <IndicatorRow label="Candle breakout" value={new Date(entry.rpBreakoutTime).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} colors={colors} />}
+                {entry.rpSwingLow !== undefined && entry.rpSwingHigh !== undefined && <IndicatorRow label="Swing baru (low – high)" value={`${entry.rpSwingLow} – ${entry.rpSwingHigh} (${entry.rpRangeAtr?.toFixed(2) ?? '—'} ATR)`} colors={colors} />}
+                {entry.rpLimitFilled !== undefined && <IndicatorRow label="Limit terisi" value={entry.rpLimitFilled ? 'Ya' : 'Tidak'} colors={colors} />}
+                {entry.rpRetestDepthPct !== undefined && <IndicatorRow label="Kedalaman ekor retest" value={`${entry.rpRetestDepthPct.toFixed(1)}% lebar cluster`} colors={colors} />}
+                {entry.rpRetestDepthAtr !== undefined && <IndicatorRow label="Kedalaman ekor retest" value={`${entry.rpRetestDepthAtr.toFixed(2)} ATR (cluster lebar 0)`} colors={colors} />}
+                {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} colors={colors} />}
+              </>
+            )}
+            {entry.rpVersion && entry.rpVersion !== 'rp11' && (
               <>
                 <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
                   {(entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? 'FIBONACCI RETEST (H1)' : entry.rpVersion === 'rp1' ? 'SCALPING RETEST FIB D1→H1' : 'SCALPING RETEST FIB H1→M5'}
@@ -295,10 +328,24 @@ function JournalEntryCard({
                 {entry.bkRangeAtr !== undefined && <IndicatorRow label="Range leg / ATR M5" value={`${entry.bkRangeAtr.toFixed(2)}x`} colors={colors} />}
                 {entry.bkLegAgeBars !== undefined && <IndicatorRow label="Umur swing akhir leg" value={`${entry.bkLegAgeBars} candle M5`} colors={colors} />}
                 {entry.bkZoneLo !== undefined && entry.bkZoneHi !== undefined && <IndicatorRow label="Zona retrace (bk4+: 0,5–0,618; sebelumnya 0,382–0,618)" value={`${entry.bkZoneLo} – ${entry.bkZoneHi}`} colors={colors} />}
-                {entry.bkBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.bkBasis === 'mid' ? `Fib ${entry.bkRetracePct ?? ''} (tanpa FVG/SNR)` : `Tepi ${entry.bkBasis.toUpperCase()}`} colors={colors} />}
+                {entry.bkBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.bkBasis === 'mid' ? `Fib ${entry.bkVersion === 'bk6' && entry.bkFibEntry !== undefined ? entry.bkFibEntry : entry.bkRetracePct ?? ''} (tanpa FVG/SNR)` : `${entry.bkVersion === 'bk6' ? 'Tengah' : 'Tepi'} ${entry.bkBasis.toUpperCase()}${entry.bkVersion === 'bk6' ? ' (bagian di dalam zona)' : ''}`} colors={colors} />}
                 {entry.bkConfluence !== undefined && <IndicatorRow label="Konfluensi di zona" value={entry.bkConfluence ? entry.bkConfluence.replace(/\+/g, ' + ') : 'tidak ada'} colors={colors} />}
                 {entry.bkRetracePct !== undefined && <IndicatorRow label="Retrace level limit" value={`${(entry.bkRetracePct * 100).toFixed(1)}%`} colors={colors} />}
                 {entry.bkTp2Fib !== undefined && <IndicatorRow label="TP2 = level Fib" value={String(entry.bkTp2Fib)} colors={colors} />}
+                {entry.bkVersion === 'bk6' && (
+                  <>
+                    {entry.bkEntrySource !== undefined && <IndicatorRow label="Sumber entry (bk6)" value={`${entry.bkEntrySource}${entry.bkFibEntry !== undefined ? ` · fib entry ${entry.bkFibEntry}` : ''}`} colors={colors} />}
+                    {entry.bkClusterWidthAtr !== undefined && <IndicatorRow label="Lebar cluster / range leg" value={`${entry.bkClusterWidthAtr.toFixed(2)} ATR · ${entry.bkRangeAtr?.toFixed(2) ?? '—'} ATR M5`} colors={colors} />}
+                    {entry.bkSlPct !== undefined && <IndicatorRow label="Jarak SL" value={`${entry.bkSlPct.toFixed(2)}% · ${entry.bkSlAtr?.toFixed(2) ?? '—'} ATR${entry.bkP90 !== undefined ? ` (P90 ${entry.bkP90.toFixed(2)})` : ' (tanpa P90)'}`} colors={colors} />}
+                    <IndicatorRow label="RR TP1 / TP2" value={`1:${entry.rr1 ?? 2} / 1:${entry.rr2 ?? 3}`} colors={colors} />
+                    {entry.bkLegShifts !== undefined && <IndicatorRow label="Leg digeser" value={`${entry.bkLegShifts}x`} colors={colors} />}
+                    {entry.bkH1FibSetting !== undefined && <IndicatorRow label="Batas Fib H1" value={String(entry.bkH1FibSetting)} colors={colors} />}
+                    {entry.bkLimitFilled !== undefined && <IndicatorRow label="Limit terisi" value={entry.bkLimitFilled ? 'Ya' : `Tidak${entry.bkCancelReason === 'close_lewat_L' ? ' (batal: close lewat L)' : entry.bkCancelReason === 'leg_digeser' ? ' (batal: leg digeser)' : ''}`} colors={colors} />}
+                    {entry.bkDeepestFib !== undefined && <IndicatorRow label="Fib terdalam disentuh" value={entry.bkDeepestFib.toFixed(3)} colors={colors} />}
+                    {entry.bkBarsToResult !== undefined && <IndicatorRow label="Lama sampai hasil" value={`${entry.bkBarsToResult} candle M5${entry.bkBarsFillToResult !== undefined ? ` (${entry.bkBarsFillToResult} sejak terisi)` : ''}`} colors={colors} />}
+                  </>
+                )}
+                {entry.takeProfit3 !== undefined && <IndicatorRow label="TP3 SNR H1 (info)" value={`${entry.takeProfit3}${entry.tp3Rr !== undefined ? ` · RR 1:${entry.tp3Rr.toFixed(1)}` : ''}${entry.tp3ReachPct !== undefined ? ` · lanjut setelah TP2 ${entry.tp3ReachPct.toFixed(0)}%` : ''}${entry.tp3Source === 'fib' ? ' · Fib' : ''}`} colors={colors} />}
                 {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'short' }) + ' WIB'} colors={colors} />}
               </>
             )}
@@ -402,7 +449,7 @@ function JournalEntryCard({
             )}
 
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              {entry.status === 'pending' && (
+              {(entry.status === 'pending' || (entry.status === 'win_tp1' && entry.tp2Watch)) && (
                 <Pressable onPress={onEvaluate} disabled={evaluating}
                   style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: ACCENT, backgroundColor: `${ACCENT}15`, opacity: pressed || evaluating ? 0.7 : 1 }]}>
                   {evaluating ? <ActivityIndicator size={12} color={ACCENT} /> : <Feather name="search" size={12} color={ACCENT} />}
@@ -514,7 +561,7 @@ export default function JournalScreen() {
     checkWriteStatus();
     setEntries(updated);
     setEvaluatingId(null);
-    registerFollowup(entry, patch); // fire-and-forget — analisa pasca-trade (request user)
+    if (entry.status === 'pending') registerFollowup(entry, patch); // fire-and-forget — analisa pasca-trade (sekali saat pertama resolve; pantau TP2 tidak didaftarkan ulang)
   }, []);
 
   const handleDelete = useCallback(async (id: string) => {
@@ -547,7 +594,7 @@ export default function JournalScreen() {
         sourceMenu: e.sourceMenu, sourceSkill: e.sourceSkill,
         orderType: e.orderType ?? 'limit',
         entryPrice: e.entryPrice, stopLoss: e.stopLoss,
-        takeProfit1: e.takeProfit1, takeProfit2: e.takeProfit2,
+        takeProfit1: e.takeProfit1, takeProfit2: e.takeProfit2, takeProfit3: e.takeProfit3, tp1At: e.tp1At, tp2Watch: e.tp2Watch, tp1LockedAt: e.tp1LockedAt, tp3Rr: e.tp3Rr, tp3ReachPct: e.tp3ReachPct, tp3Source: e.tp3Source, tp3Version: e.tp3Version,
         currentPriceAtSignal: e.currentPriceAtSignal,
         tfStruktur: e.tfStruktur, tfEksekusi: e.tfEksekusi,
         savedAt: e.savedAt, timestamp: e.timestamp,
@@ -564,7 +611,7 @@ export default function JournalScreen() {
         fkLvlEmaDistAtr: e.fkLvlEmaDistAtr, fkRsi1h: e.fkRsi1h, fkCandlesSinceFail: e.fkCandlesSinceFail,
         // Scalping Money Magnet H4->M30 (2026-10-21): metrik setup buat evaluasi forward test di luar app
         sfVersion: e.sfVersion, sfWr: e.sfWr, sfN: e.sfN, sfAvgR: e.sfAvgR, sfFill: e.sfFill, sfScore: e.sfScore, sfSlPct: e.sfSlPct, sfTf: e.sfTf, sfEntryKind: e.sfEntryKind, sfSlSource: e.sfSlSource, sfRegime: e.sfRegime, sfAlign: e.sfAlign, sfWhalePressure: e.sfWhalePressure, sfAlarm: e.sfAlarm,
-        mmCrtVersion: e.mmCrtVersion, mmH1Struct: e.mmH1Struct, mmH1Fib705: e.mmH1Fib705, mmSlMode: e.mmSlMode, mmFib0: e.mmFib0, mmFib1: e.mmFib1,
+        mmCrtVersion: e.mmCrtVersion, mmSetupType: e.mmSetupType, mmH1Loc: e.mmH1Loc, mmH1LegPosPct: e.mmH1LegPosPct, mmRangeAtrH1: e.mmRangeAtrH1, mmScore: e.mmScore, mmScoreParts: e.mmScoreParts, mmFvgAtr: e.mmFvgAtr, mmSweepPenAtr: e.mmSweepPenAtr, mmSlPct: e.mmSlPct, mmSlAtr: e.mmSlAtr, mmP90: e.mmP90, mmSweepExt: e.mmSweepExt, mmFvgTop: e.mmFvgTop, mmFvgBot: e.mmFvgBot, mmBtcCorr: e.mmBtcCorr, mmBtcDir: e.mmBtcDir, mmLimitFilled: e.mmLimitFilled, mmFvgDepthPct: e.mmFvgDepthPct, mmBarsToResult: e.mmBarsToResult, mmBarsFillToResult: e.mmBarsFillToResult, mmCancelReason: e.mmCancelReason, mmH1Struct: e.mmH1Struct, mmH1Fib705: e.mmH1Fib705, mmSlMode: e.mmSlMode, mmFib0: e.mmFib0, mmFib1: e.mmFib1,
         mmVersion: e.mmVersion, mmAdxH4: e.mmAdxH4, mmMagnetLevelUsed: e.mmMagnetLevelUsed, mmH4Cross: e.mmH4Cross,
         mmForceIndex: e.mmForceIndex, mmConfluencePct: e.mmConfluencePct, mmStochK: e.mmStochK, mmStochD: e.mmStochD,
         // Scalping CRT D1->M15 (2026-10-22): metrik setup (validUntil sudah diekspor di atas)
@@ -575,16 +622,16 @@ export default function JournalScreen() {
         // Scalping Retest Fib D1->H1 (2026-10-26): metrik setup (validUntil sudah diekspor di atas)
         rpVersion: e.rpVersion, rpAdxD1: e.rpAdxD1, rpRsiD1: e.rpRsiD1, rpFiH1: e.rpFiH1, rpSwingHigh: e.rpSwingHigh, rpSwingLow: e.rpSwingLow,
         rpRangeAtr: e.rpRangeAtr, rpLegAgeBars: e.rpLegAgeBars, rpZoneLo: e.rpZoneLo, rpZoneHi: e.rpZoneHi,
-        rpBasis: e.rpBasis, rpConfluence: e.rpConfluence, rpRetracePct: e.rpRetracePct,
+        rpBasis: e.rpBasis, rpConfluence: e.rpConfluence, rpRetracePct: e.rpRetracePct, rpTrend: e.rpTrend, rpClusterWidthAtr: e.rpClusterWidthAtr, rpLimitPct: e.rpLimitPct, rpSlPct: e.rpSlPct, rpSlAtr: e.rpSlAtr, rpP90: e.rpP90, rpBreakoutTime: e.rpBreakoutTime, rpAtr15: e.rpAtr15, rpLimitFilled: e.rpLimitFilled, rpRetestDepthPct: e.rpRetestDepthPct, rpRetestDepthAtr: e.rpRetestDepthAtr,
         // Sniper Breakout H1->M5 Breakout+Fib (bk1, 2026-10-30)
         bkVersion: e.bkVersion, bkLevelLo: e.bkLevelLo, bkLevelHi: e.bkLevelHi, bkVolRatio: e.bkVolRatio,
         bkSwingHigh: e.bkSwingHigh, bkSwingLow: e.bkSwingLow, bkZoneLo: e.bkZoneLo, bkZoneHi: e.bkZoneHi,
-        bkBasis: e.bkBasis, bkConfluence: e.bkConfluence, bkRetracePct: e.bkRetracePct, bkTp2Fib: e.bkTp2Fib,
+        bkBasis: e.bkBasis, bkConfluence: e.bkConfluence, bkRetracePct: e.bkRetracePct, bkTp2Fib: e.bkTp2Fib, bkEntrySource: e.bkEntrySource, bkFibEntry: e.bkFibEntry, bkH1FibSetting: e.bkH1FibSetting, bkClusterWidthAtr: e.bkClusterWidthAtr, bkSlPct: e.bkSlPct, bkSlAtr: e.bkSlAtr, bkP90: e.bkP90, bkLegShifts: e.bkLegShifts, bkLimitFilled: e.bkLimitFilled, bkDeepestFib: e.bkDeepestFib, bkBarsToResult: e.bkBarsToResult, bkBarsFillToResult: e.bkBarsFillToResult, bkCancelReason: e.bkCancelReason, rr2: e.rr2,
         bkRangeAtr: e.bkRangeAtr, bkLegAgeBars: e.bkLegAgeBars,
         bkH1High: e.bkH1High, bkH1Low: e.bkH1Low, bkH1Fib705: e.bkH1Fib705, bkH1Struct: e.bkH1Struct,
         // Skor TA PRO (info) saat sinyal disimpan
         taLongScore: e.taLongScore, taLongGrade: e.taLongGrade, taShortScore: e.taShortScore, taShortGrade: e.taShortGrade,
-        taLongPts: e.taLongPts, taShortPts: e.taShortPts, taScoreVer: e.taScoreVer, taMaxScore: e.taMaxScore,
+        taLongPts: e.taLongPts, taShortPts: e.taShortPts, taScoreVer: e.taScoreVer, taMaxScore: e.taMaxScore, taLongMax: e.taLongMax, taLongPct: e.taLongPct, taShortMax: e.taShortMax, taShortPct: e.taShortPct, taSignalSide: e.taSignalSide, taRawFundingPct: e.taRawFundingPct, taRawLsr: e.taRawLsr, taRawOiChgPct: e.taRawOiChgPct, taRawPriceChg24hPct: e.taRawPriceChg24hPct, taRawLongDistSrAtr: e.taRawLongDistSrAtr, taRawLongDistEmaAtr: e.taRawLongDistEmaAtr, taRawShortDistSrAtr: e.taRawShortDistSrAtr, taRawShortDistEmaAtr: e.taRawShortDistEmaAtr,
       }));
       const payload = { exportedAt: new Date().toISOString(), count: slim.length, entries: slim };
       // Baris pemicu di depan JSON (request user): cukup paste ke chat, agent
@@ -605,7 +652,8 @@ export default function JournalScreen() {
   const [evaluatingAll, setEvaluatingAll] = useState(false);
   const [evalProgress, setEvalProgress] = useState({ done: 0, total: 0 });
   const handleEvaluateAll = useCallback(async () => {
-    const pending = filtered.filter(e => e.status === 'pending');
+    // v23: WIN TP1 yang masih dipantau menuju TP2 ikut dievaluasi ulang
+    const pending = filtered.filter(e => e.status === 'pending' || (e.status === 'win_tp1' && e.tp2Watch));
     if (pending.length === 0) return;
     setEvaluatingAll(true);
     setEvalProgress({ done: 0, total: pending.length });
@@ -620,7 +668,7 @@ export default function JournalScreen() {
         return { id: entry.id, patch, entry };
       }));
       patches.push(...results.map(r => ({ id: r.id, patch: r.patch })));
-      results.forEach(r => registerFollowup(r.entry, r.patch)); // fire-and-forget — analisa pasca-trade (request user)
+      results.filter(r => r.entry.status === 'pending').forEach(r => registerFollowup(r.entry, r.patch)); // fire-and-forget — analisa pasca-trade (request user)
       setEvalProgress({ done: Math.min(i + batchSize, pending.length), total: pending.length });
       if (i + batchSize < pending.length) await new Promise(r => setTimeout(r, 300));
     }
@@ -635,8 +683,9 @@ export default function JournalScreen() {
     const win = filtered.filter(e => e.status === 'win_tp1' || e.status === 'win_tp2').length;
     const lose = filtered.filter(e => e.status === 'lose').length;
     const pending = filtered.filter(e => e.status === 'pending').length;
+    const watch = filtered.filter(e => e.status === 'win_tp1' && e.tp2Watch).length; // v23: WIN TP1 yang masih dipantau ke TP2
     const decided = win + lose;
-    return { win, lose, pending, winRate: decided > 0 ? Math.round((win / decided) * 100) : 0, total: filtered.length };
+    return { win, lose, pending, watch, winRate: decided > 0 ? Math.round((win / decided) * 100) : 0, total: filtered.length };
   }, [filtered]);
 
   const menuCounts = useMemo(() => {
@@ -690,7 +739,7 @@ export default function JournalScreen() {
             ))}
           </View>
 
-          {stats.pending > 0 && (
+          {(stats.pending > 0 || stats.watch > 0) && (
             <Pressable onPress={handleEvaluateAll} disabled={evaluatingAll}
               style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, borderWidth: 1, borderColor: ACCENT, backgroundColor: `${ACCENT}12`, paddingVertical: 11, marginBottom: 10, opacity: pressed || evaluatingAll ? 0.7 : 1 }]}>
               {evaluatingAll
@@ -698,7 +747,7 @@ export default function JournalScreen() {
                 : <Feather name="check-circle" size={14} color={ACCENT} />
               }
               <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: ACCENT }}>
-                {evaluatingAll ? `Evaluasi... (${evalProgress.done}/${evalProgress.total})` : `Evaluasi Semua (${stats.pending} pending)`}
+                {evaluatingAll ? `Evaluasi... (${evalProgress.done}/${evalProgress.total})` : `Evaluasi Semua (${stats.pending} pending${stats.watch ? ` + ${stats.watch} pantau TP2` : ''})`}
               </Text>
             </Pressable>
           )}

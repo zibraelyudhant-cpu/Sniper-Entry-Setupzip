@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { analyzeCounterStructural, checkTaProBonus, getTaProScoreSnapshot } from '../lib/smc';
+import { analyzeCounterStructural, checkTaProBonus, getTaProScoreSnapshot, normSniperOpts, type SniperOpts } from '../lib/smc';
 import { getUniverse, getMarketMetadata } from './screener';
 
 const router = Router();
@@ -18,7 +18,7 @@ router.get('/breakout-entry', async (req, res) => {
     ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
   const mode = 'structural' as const;
   try {
-    const result = await analyzeCounterStructural(normalized);
+    const result = await analyzeCounterStructural(normalized, normSniperOpts({ fibEntry: req.query['fibEntry'], h1Fib: req.query['h1Fib'] })); // bk6: pengaturan dari app
     // FIX (audit): TA PRO Bonus sebelumnya gak pernah dipanggil -- banner
     // di UI gak pernah muncul. Di-wire di endpoint DETAIL doang (bukan di
     // /breakout-entry/scan), biar gak 2x-in beban fetch pas scan ratusan koin.
@@ -55,14 +55,15 @@ type SniperScanState = {
   status: 'idle' | 'running' | 'complete' | 'error';
   errorMessage?: string;
   fetchedAt: number;
+  opts?: Required<SniperOpts>; // bk6: pengaturan yang dipakai scan terakhir
 };
 let sniperScanState: SniperScanState = { results: [], scanned: 0, total: 0, status: 'idle', fetchedAt: 0 };
 let sniperScanRunning = false;
 
-async function runSniperScan(): Promise<void> {
+async function runSniperScan(opts: Required<SniperOpts>): Promise<void> {
   if (sniperScanRunning) return;
   sniperScanRunning = true;
-  sniperScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now() };
+  sniperScanState = { results: [], scanned: 0, total: 0, status: 'running', fetchedAt: Date.now(), opts };
   try {
     const universe = await getUniverse(500);
     sniperScanState.total = universe.length;
@@ -70,7 +71,7 @@ async function runSniperScan(): Promise<void> {
     for (let i = 0; i < universe.length; i += batchSize) {
       const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
-        batch.map((s) => analyzeCounterStructural(s).then(val => ({ ...val, mode: 'structural' as const })))
+        batch.map((s) => analyzeCounterStructural(s, opts).then(val => ({ ...val, mode: 'structural' as const })))
       );
       sniperScanState.scanned += batch.length;
       const newValid: typeof sniperScanState.results = [];
@@ -113,7 +114,7 @@ router.get('/breakout-entry/scan', async (req, res) => {
     const forceFresh = req.query['fresh'] === 'true';
     // REVISI (request user 2026-11-05): scan TIDAK otomatis jalan (biar gak kena rate limit Binance). Mulai hanya lewat tombol (?fresh=true). Cuma Setup Finder yang otomatis.
     if (forceFresh && !sniperScanRunning) {
-      runSniperScan(); // fire-and-forget, SENGAJA gak di-await
+      runSniperScan(normSniperOpts({ fibEntry: req.query['fibEntry'], h1Fib: req.query['h1Fib'] })); // fire-and-forget, SENGAJA gak di-await
     }
     res.json({
       coins: sniperScanState.results,
@@ -122,6 +123,7 @@ router.get('/breakout-entry/scan', async (req, res) => {
       status: sniperScanState.status,
       errorMessage: sniperScanState.errorMessage,
       fetchedAt: sniperScanState.fetchedAt,
+      opts: sniperScanState.opts,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

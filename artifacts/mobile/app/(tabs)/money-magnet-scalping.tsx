@@ -20,10 +20,11 @@ import { CyberBackground } from '@/components/animated/CyberBackground';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
 import { SetupCheckButton, SetupFinderTpRow, WrBadge } from '@/components/SetupCheckPanel';
+import { Tp3Row, tp3JournalFields } from '@/components/Tp3Row';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { SortSelector, applySorting, type SortKey } from '@/components/SortSelector';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
-import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_MMS, type JournalEntry } from './journal-helpers';
+import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_MMS, SCALPING_SKILL_MMS_FTM, type JournalEntry } from './journal-helpers';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { fixedPrice } from '@/components/priceFormat';
 import { useWrSort } from '@/components/wrStore';
@@ -42,6 +43,8 @@ const ACCENT = MENU_COLORS.moneyMagnetScalping;
 
 // Nama skill di Journal (save satuan & simpan semua pakai nama yang sama biar WR gak kepecah).
 const MM_SKILL_BASE = SCALPING_SKILL_MMS; // label dipakai juga oleh forward test Jurnal (journal-helpers.ts)
+// mm4: setup Failure to Manipulate disimpan dengan label sendiri supaya hasilnya terpisah dari reversal
+const mmSkillOf = (x: any) => (x?.mmSetupType === 'failure_to_manipulate' ? SCALPING_SKILL_MMS_FTM : MM_SKILL_BASE);
 
 type ScanResponse = {
   coins: Array<ScalpingResult & { marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null }>;
@@ -171,15 +174,16 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     const entries: JournalEntry[] = eligible.map(c => ({
       id: `${Date.now()}_${c.symbol}_${Math.random().toString(36).slice(2, 7)}`,
       symbol: c.symbol, bias: c.bias!,
-      sourceMenu: 'Money Magnet Scalping', sourceSkill: MM_SKILL_BASE,
-      entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0,
+      sourceMenu: 'Money Magnet Scalping', sourceSkill: mmSkillOf(c),
+      entryPrice: c.entryPrice!, stopLoss: c.stopLoss ?? 0, takeProfit1: c.takeProfit1 ?? 0, takeProfit2: c.takeProfit2, // v24: TP2 sebelumnya tidak ikut tersimpan di 'Masukin Semua'
       currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
       // FIX: tfEksekusi PAKAI '5M' (angka duluan) -- itu konvensi yang match
       // case di evalIntervalFor() journal-helpers.ts, 'M5' gak match apapun
       // (jatuh ke default 15m yang SALAH).
       tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
-        ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+        ...taProFieldsFromSnapshot((c as any).taPro, (c as any).bias), // skor TA PRO dibekukan saat sinyal dibuat
+      mmSetupType: (c as any).mmSetupType, mmH1Loc: (c as any).mmH1Loc, mmH1LegPosPct: (c as any).mmH1LegPosPct, mmRangeAtrH1: (c as any).mmRangeAtrH1, mmScore: (c as any).score, mmScoreParts: (c as any).mmScoreParts, mmFvgAtr: (c as any).mmFvgAtr, mmSweepPenAtr: (c as any).mmSweepPenAtr, mmSlPct: (c as any).mmSlPct, mmSlAtr: (c as any).mmSlAtr, mmP90: (c as any).mmP90, mmSweepExt: (c as any).mmSweepExt, mmFvgTop: (c as any).mmFvgTop, mmFvgBot: (c as any).mmFvgBot, mmBtcCorr: (c as any).btcCorrValue, mmBtcDir: (c as any).btcCorrBtcDirection, rr2: (c as any).rr2,
       mmCrtVersion: (c as any).mmCrtVersion, mmH1Struct: (c as any).mmH1Struct, mmH1Fib705: (c as any).mmH1Fib705, mmSlMode: (c as any).mmSlMode, mmFib0: (c as any).mmFib0, mmFib1: (c as any).mmFib1,
       validUntil: (c as any).validUntilMs,
       orderType: 'limit',
@@ -355,13 +359,15 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
     const entry: JournalEntry = {
       id: `${Date.now()}_${data.symbol}`,
       symbol: data.symbol, bias: data.bias,
-      sourceMenu: 'Money Magnet Scalping', sourceSkill: MM_SKILL_BASE,
+      sourceMenu: 'Money Magnet Scalping', sourceSkill: mmSkillOf(data),
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0,
       takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
+      ...tp3JournalFields(data.symbol, data.bias === 'bullish' ? 'BUY' : 'SELL', data.entryPrice, data.stopLoss),
       tfStruktur: 'H1', tfEksekusi: '5M',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+      ...taProFieldsFromSnapshot((data as any).taPro, (data as any).bias), // skor TA PRO dibekukan saat sinyal dibuat
+      mmSetupType: (data as any).mmSetupType, mmH1Loc: (data as any).mmH1Loc, mmH1LegPosPct: (data as any).mmH1LegPosPct, mmRangeAtrH1: (data as any).mmRangeAtrH1, mmScore: (data as any).score, mmScoreParts: (data as any).mmScoreParts, mmFvgAtr: (data as any).mmFvgAtr, mmSweepPenAtr: (data as any).mmSweepPenAtr, mmSlPct: (data as any).mmSlPct, mmSlAtr: (data as any).mmSlAtr, mmP90: (data as any).mmP90, mmSweepExt: (data as any).mmSweepExt, mmFvgTop: (data as any).mmFvgTop, mmFvgBot: (data as any).mmFvgBot, mmBtcCorr: (data as any).btcCorrValue, mmBtcDir: (data as any).btcCorrBtcDirection, rr2: (data as any).rr2,
       mmCrtVersion: (data as any).mmCrtVersion, mmH1Struct: (data as any).mmH1Struct, mmH1Fib705: (data as any).mmH1Fib705, mmSlMode: (data as any).mmSlMode, mmFib0: (data as any).mmFib0, mmFib1: (data as any).mmFib1,
       validUntil: (data as any).validUntilMs,
       orderType: 'limit',
@@ -493,6 +499,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
                   <Text style={[styles.infoValue, { color: colors.gold }]}>{fixedPrice(data.takeProfit2) ?? '—'}</Text>
                 </View>
               )}
+              <Tp3Row colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
               <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
             </>
           )}
@@ -575,19 +582,23 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Money Magnet Scalping</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          H1 nentuin bias (Discount/Premium dari posisi harga dalam range H1 candle yang lagi berjalan (forming), Range/ATR14 nentuin validitas). Di M5, cari liquidity sweep -- kalau ada reclaim+displacement balik arah, itu reversal (CISD); kalau gak ada reclaim tapi displacement SEARAH sweep, itu Failure to Manipulate (continuation). Entry di 50% FVG (CE), scoring 16 poin (H1 max 5, M5 max 11), minimum 12/16 baru dieksekusi, dan jarak entry-SL minimal 0,8x ATR M5.
+          Money Magnet mm4 (2026-11-11). H1 nentuin bias: Discount/Premium dari posisi close H1 tertutup terakhir di LEG H1 swing terakhir (fractal 3), Range/ATR14 candle H1 terakhir nentuin validitas. Di M5, cari liquidity sweep TERBARU (high & low dicek bersamaan) — kalau ada reclaim + displacement + FVG berlawanan arah sweep = REVERSAL; kalau tidak ada reclaim tapi displacement + FVG searah sweep = Failure to Manipulate (label Jurnal sendiri "Money Magnet FTM"). Entry LIMIT di CE 50% FVG, SL di luar ekstrem sweep memakai kedalaman gocekan.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. H1 Bias — posisi harga dalam range H1 yang lagi berjalan (forming) (Discount di bawah 50% / Premium di atas 50%), Range/ATR14 0,70-1,50 = valid{'\n'}
-          2. M5 Liquidity Sweep — nembus swing high/low ≥0,10x ATR M5{'\n'}
-          3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
-          4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
-          5. Scoring 16 poin (H1 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M5 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
-          6. Entry LIMIT di 50% FVG (CE). SL (v18) = SL anti-gocekan Setup Finder (v18): dihitung dari level entry — di luar swing 15M terdekat + kedalaman gocekan P90, atau di luar tembok order book (mana yang lebih jauh), digeser dari angka bulat, maksimal 4% dari entry. Kalau data Setup Finder gagal diambil, pakai SL bawaan (mm3 lama: Fib 0,71 dari leg sweep→displacement (BUY: Fib 1 = ekstrem sweep, Fib 0 = high tertinggi sejak sweep; SELL kebalikannya; setup failure-to-manipulate: Fib 1 = swing berlawanan sebelum sweep), tanpa jarak SL minimal; leg gak kebentuk = SL 2x ATR M5; Fib 0,71 tetap dipakai hanya untuk menolak setup yang sudah patah). TP1 RR 1:2, TP2 RR 1:3 dari jarak SL baru. Ditolak kalau CE sudah melewati Fib 0,71. Limit expired 36 candle M5 (~3 jam){'\n'}
-          Filter struktur H1 (mm2, 2026-11-02): satu-satunya yang bisa memblokir — sinyal ditolak kalau ada close H1 (body) yang sudah melewati Fib 0,705 dari leg H1 terakhir (swing fractal 3; BUY: swing high terbaru + swing low sebelumnya, SELL kebalikannya). Tanpa syarat HH/LL, tanpa poin skor, tidak mengubah logic di atas. Leg H1 belum terbentuk = tidak diblokir.
+          1. H1 (150 candle): Range/ATR14 candle H1 tertutup terakhir &lt; 0,70 atau &gt; 2,00 = skip; 0,70–1,50 valid (+1); 1,50–2,00 hati-hati (+0). Premium/Discount = posisi close H1 tertutup terakhir di leg swing fractal 3 H1 yang terakhir terbentuk (swing terakhir high → dari swing low sebelumnya ke high itu; swing terakhir low → dari swing high sebelumnya ke low itu): di bawah 50% = Discount, di atas = Premium{'\n'}
+          2. M5 (36 candle): swing fractal 3 di 28 candle, swing high DAN low dicek bersamaan; sweep = candle pertama yang menembus swing dalam 14 candle terakhir dengan tusukan ≥ 0,10x ATR M5. Dipakai sweep PALING BARU (kalau tidak membentuk pola = tidak ada sinyal); sweep high & low di candle yang sama: Discount → sweep LOW, Premium → sweep HIGH{'\n'}
+          3. Reversal (CISD): dalam 8 candle ada close reclaim level, lalu dalam 5 candle displacement berlawanan arah sweep (body ≥ 0,8x ATR & ≥ 60% range) + FVG ≥ 0,10x ATR, CE di luar ekstrem sweep{'\n'}
+          4. Failure to Manipulate (label Jurnal "Money Magnet FTM"): tanpa reclaim, displacement + FVG SEARAH sweep dalam 10 candle — continuation{'\n'}
+          5. Skor 16 poin (minimal 12, A+ ≥ 14): H1 bias searah +2, liquidity jelas +2, Range/ATR valid +1 | sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR TP2 (≥ 3,5 +2; 3,0–3,5 +1; TP2 = RR 3 → +1). Nilai tiap komponen disimpan di Jurnal{'\n'}
+          6. Filter struktur H1: tolak kalau ada close H1 (body) melewati Fib 0,705 leg H1 terakhir. Filter Fib 0,71 leg sweep: tolak kalau CE sudah melewati Fib 0,71{'\n'}
+          7. Entry LIMIT di CE 50% FVG, harus di sisi harga yang benar dan maksimal 2% dari harga (kalau tidak = waiting){'\n'}
+          8. SL: BUY = ekstrem sweep (low terendah dari candle sweep sampai displacement) − (kedalaman gocekan P90 + 0,1) × ATR M5; SELL = high tertinggi + (P90 + 0,1) × ATR M5. P90 = rumus Setup Finder di 1000 candle M5 (diambil hanya untuk koin yang lolos setup). SL di angka bulat digeser. SL &gt; 2% dari entry = DITOLAK. Tanpa data gocekan: ekstrem ∓ 1x ATR M5{'\n'}
+          9. Korelasi BTC (M15): ≥ 0,50 = peringatan; ≥ 0,75 DIBLOKIR hanya kalau arah BTC (naik/turun selama 48 candle M15) berlawanan dengan setup, kalau searah = peringatan{'\n'}
+          10. TP1 = RR 1:2, TP2 = RR 1:3, TP3 = SNR H1 di layar Analisa. Kedaluwarsa 36 candle M5 (~3 jam) = EXPIRED. Sebelum limit terisi ada close M5 melewati ekstrem sweep = BATAL (sweep tertembus){'\n'}
+          11. Jurnal menyimpan: arah, tipe (reversal/FTM), premium/discount + posisi di leg H1 (%), Range/ATR H1, skor total & tiap komponen, korelasi & arah BTC, lebar FVG & tusukan sweep (ATR M5), jarak SL (% & ATR M5); setelah selesai: limit terisi, kedalaman terdalam masuk FVG (0% = tepi depan, 100% = tepi belakang), hasil, lama sampai hasil (candle M5)
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Money Magnet Scalping" accentColor={ACCENT} />

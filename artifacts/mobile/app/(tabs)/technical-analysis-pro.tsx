@@ -220,13 +220,13 @@ function LongShortSideCard({ title, side, max }: { title: string; side: any; max
         <CyberBadge label={grade === 'Tidak layak' ? 'TIDAK LAYAK' : `GRADE ${grade}`} color={color} pulsing={grade === 'A+'} />
       </View>
       <View style={styles.numRow}>
-        <CyberBigNumber value={`${side?.score ?? 0}`} label={`DARI MAKS ${max}`} color={color} fontSize={32} />
+        <CyberBigNumber value={`${side?.score ?? 0}`} label={`DARI MAKS ${side?.max ?? max}${typeof side?.pct === 'number' ? ` · ${side.pct.toFixed(1)}%` : ''}`} color={color} fontSize={32} />
       </View>
       {(side?.components ?? []).map((c: any) => (
         <View key={c.key} style={{ marginTop: 8 }}>
           <View style={styles.divRow}>
             <Text style={styles.divRowLabel}>{c.label}</Text>
-            <CyberBadge label={`${c.points > 0 ? '+' : ''}${c.points}`} color={c.points > 0 ? CYAN : c.points < 0 ? MAGENTA : NEUTRAL} pulsing={false} />
+            <CyberBadge label={c.available === false ? 'TIDAK ADA DATA' : `${c.points > 0 ? '+' : ''}${c.points} / ${c.max}`} color={c.available === false ? NEUTRAL : c.points > 0 ? CYAN : c.points < 0 ? MAGENTA : NEUTRAL} pulsing={false} />
           </View>
           <Text style={styles.tfDetail}>{c.detail}</Text>
         </View>
@@ -238,8 +238,8 @@ function LongShortSideCard({ title, side, max }: { title: string; side: any; max
 function LongShortScoreResultView({ data }: { data: any }) {
   return (
     <View>
-      <LongShortSideCard title="SKOR LONG" side={data.long} max={data.maxScore ?? 11} />
-      <LongShortSideCard title="SKOR SHORT (kebalikan long)" side={data.short} max={data.maxScore ?? 11} />
+      <LongShortSideCard title="SKOR LONG" side={data.long} max={data.maxScore ?? 8} />
+      <LongShortSideCard title="SKOR SHORT (kebalikan long)" side={data.short} max={data.maxScore ?? 8} />
       {(data.notes ?? []).map((t: string, i: number) => <Text key={`n${i}`} style={[styles.tfDetail, { fontStyle: 'italic', marginBottom: 6 }]}>{t}</Text>)}
     </View>
   );

@@ -42,7 +42,7 @@ export function TaProScoreCard({ symbol, bias, snapshot }: Props) {
     return (
       <View style={[styles.side, { borderColor: highlight ? c : `${NEUTRAL}55`, backgroundColor: highlight ? `${c}14` : 'transparent' }]}>
         <Text style={styles.sideTitle}>{title}{highlight ? ' • searah sinyal' : ''}</Text>
-        <Text style={[styles.score, { color: c }]}>{s?.score ?? 0}<Text style={styles.max}> / {data?.maxScore ?? 9}</Text></Text>
+        <Text style={[styles.score, { color: c }]}>{s?.score ?? 0}<Text style={styles.max}> / {s?.max ?? data?.maxScore ?? 9}{typeof s?.pct === 'number' ? ` (${s.pct.toFixed(0)}%)` : ''}</Text></Text>
         <Text style={[styles.grade, { color: c }]}>{gradeText(s?.grade)}</Text>
       </View>
     );
@@ -63,7 +63,7 @@ export function TaProScoreCard({ symbol, bias, snapshot }: Props) {
               <View key={k} style={{ marginTop: 8 }}>
                 <Text style={styles.sideTitle}>{k === 'long' ? 'RINCIAN LONG' : 'RINCIAN SHORT'}</Text>
                 {(data[k]?.components ?? []).map((c: any) => (
-                  <Text key={`${k}-${c.key}`} style={styles.detail}>{c.points > 0 ? '+' : ''}{c.points}  {c.label}: {c.detail}</Text>
+                  <Text key={`${k}-${c.key}`} style={styles.detail}>{c.available === false ? 'n/a' : `${c.points > 0 ? '+' : ''}${c.points}`}  {c.label}: {c.detail}</Text>
                 ))}
               </View>
             ))}

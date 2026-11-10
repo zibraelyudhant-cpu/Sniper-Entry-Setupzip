@@ -68,6 +68,8 @@ export const SCALPING_SKILL_RP_M5 = 'Scalping Retest Fib H1→M5';
 export const SCALPING_SKILL_RP = 'Fibonacci Retest';
 // Menu Money Magnet Scalping (H1→M5 CRT). Label WAJIB sama dengan yang dipakai money-magnet-scalping.tsx saat menyimpan sinyal.
 export const SCALPING_SKILL_MMS = 'Money Magnet Scalping (H1→M5 CRT)';
+// mm4 (2026-11-11): setup Failure to Manipulate disimpan dengan label sendiri (reversal tetap SCALPING_SKILL_MMS)
+export const SCALPING_SKILL_MMS_FTM = 'Money Magnet FTM';
 // Setup Finder (sf1). Label WAJIB sama dengan SF.SKILL_LABEL di api-server/src/lib/setup-finder.ts.
 export const SCALPING_SKILL_SF = 'Setup Finder (Whale + Backtest)';
 
@@ -91,8 +93,11 @@ export interface JournalEntry {
   stopLoss: number;
   takeProfit1: number;
   takeProfit2?: number;
+  takeProfit3?: number;      // v20: TP3 SNR H1 (info, tidak dipakai evaluator WIN/LOSE)
+  tp3Rr?: number; tp3ReachPct?: number; tp3Source?: 'snr' | 'fib'; tp3Version?: string;
   currentPriceAtSignal: number; // harga pas sinyal diberikan
   rr1?: number;
+  rr2?: number;              // RR TP2 (bk6 dicatat)
   orderType?: 'stop' | 'limit'; // WAJIB buat evaluasi akurat — nentuin arah cek "entry udah ke-hit belum" (limit: harga harus DATENG ke entry; stop: harga harus TEMBUS ke arah breakout). Default 'limit' kalau gak ada (mayoritas skill basis breakout+retest limit order).
   btcAligned?: boolean; // BTC Correlation pas sinyal ini diberikan — informasional, buat riset kombinasi kondisi win/lose
   btcBias?: 'bullish' | 'bearish' | 'ranging';
@@ -133,7 +138,14 @@ export interface JournalEntry {
   mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 & TP2 RR 1:3 (2026-11-02)
   mmH1Struct?: 'ok' | 'unknown';     // struktur H1 saat sinyal (ok = belum ada close H1 melewati 0,705; unknown = leg belum terbentuk)
   mmH1Fib705?: number;               // level Fib 0,705 leg H1 (harga asli)
-  mmSlMode?: 'fib' | 'atr' | 'sf';          // mm3: 'fib' = SL di Fib 0,71 leg sweep→displacement; 'atr' = fallback 2 x ATR M5
+  mmSlMode?: 'fib' | 'atr' | 'sf' | 'sweep';
+  // mm4 Money Magnet (2026-11-11): data evaluasi per sinyal
+  mmSetupType?: 'reversal' | 'failure_to_manipulate'; mmH1Loc?: 'discount' | 'premium' | 'unknown'; mmH1LegPosPct?: number;
+  mmRangeAtrH1?: number; mmScore?: number; mmScoreParts?: string; mmFvgAtr?: number; mmSweepPenAtr?: number;
+  mmSlPct?: number; mmSlAtr?: number; mmP90?: number; mmSweepExt?: number; mmFvgTop?: number; mmFvgBot?: number;
+  mmBtcCorr?: number; mmBtcDir?: 'bullish' | 'bearish' | 'ranging';
+  mmLimitFilled?: boolean; mmFvgDepthPct?: number; mmBarsToResult?: number; mmBarsFillToResult?: number;
+  mmCancelReason?: 'sweep_tertembus'; // evaluator: batal sebelum terisi (status expired, tampil BATAL)          // mm3: 'fib' = SL di Fib 0,71 leg sweep→displacement; 'atr' = fallback 2 x ATR M5
   mmFib0?: number;                   // harga Fib 0 leg (mode fib)
   mmFib1?: number;                   // harga Fib 1 leg (mode fib)
   mmAdxH4?: number;                  // ADX(14) H4 closed (aturan > 25)
@@ -162,6 +174,16 @@ export interface JournalEntry {
   pbZoneHi?: number;
   pbPullbackBars?: number;   // candle H1 sejak harga terakhir >= 1 ATR dari zona
   // Scalping Retest Fib (rp1 = D1->H1 2026-10-26, rp2 = H1->M5 2026-10-27): metrik setup saat sinyal (rpAdxD1/rpRsiD1 = ADX/RSI TF struktur), buat forward test & riset. validUntil = batas fill limit.
+  // rp11 Fibonacci Retest (2026-11-10): data evaluasi per sinyal
+  rpTrend?: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+  rpClusterWidthAtr?: number;  // lebar cluster / ATR M15
+  rpLimitPct?: number;         // posisi limit di cluster (0 = tepi luar, 100 = tepi dalam)
+  rpSlPct?: number; rpSlAtr?: number; rpP90?: number; // jarak SL (% dan ATR M15), P90 gocekan dipakai SL
+  rpBreakoutTime?: number;     // open time candle breakout (kunci satu sinyal per breakout)
+  rpAtr15?: number;            // ATR14 M15 saat sinyal
+  rpLimitFilled?: boolean;     // diisi evaluator saat selesai
+  rpRetestDepthPct?: number;   // kedalaman ekor retest, % lebar cluster (evaluator)
+  rpRetestDepthAtr?: number;   // kalau lebar cluster 0: kedalaman dalam ATR M15
   rpVersion?: string;
   rpAdxD1?: number;          // ADX(14) D1 (aturan > 25)
   rpRsiD1?: number;          // LEGACY (rp1/rp2): RSI(14) TF struktur (LONG 50-60, SHORT 40-50)
@@ -187,7 +209,15 @@ export interface JournalEntry {
   bkBasis?: 'fvg' | 'snr' | 'mid'; // dasar level limit (mid = Fib 0,5 tanpa konfluensi)
   bkConfluence?: string;     // mis. 'FVG+SNR' ('' = tidak ada)
   bkRetracePct?: number;     // posisi limit dalam retrace (bk4: 0,5-0,618; bk1-bk3: 0,382-0,618)
-  bkTp2Fib?: number;         // level Fib yang dipakai TP2 (BUY 1,13-1,618; SELL -0,13 s/d -0,618)
+  bkTp2Fib?: number;
+  // bk6 Sniper (2026-11-10): data evaluasi per sinyal
+  bkEntrySource?: 'FVG' | 'SNR' | 'fib'; bkFibEntry?: number; bkH1FibSetting?: number; bkClusterWidthAtr?: number;
+  bkSlPct?: number; bkSlAtr?: number; bkP90?: number; bkLegShifts?: number;
+  bkLimitFilled?: boolean;       // evaluator: limit terisi
+  bkDeepestFib?: number;         // evaluator: level fib terdalam yang disentuh (0 = H, 1 = L, > 1 tembus L) sampai hasil
+  bkBarsToResult?: number;       // evaluator: candle M5 dari disimpan sampai hasil
+  bkBarsFillToResult?: number;   // evaluator: candle M5 dari limit terisi sampai hasil
+  bkCancelReason?: 'close_lewat_L' | 'leg_digeser'; // evaluator: alasan batal sebelum terisi         // level Fib yang dipakai TP2 (BUY 1,13-1,618; SELL -0,13 s/d -0,618)
   bkRangeAtr?: number;       // range leg / ATR M5
   bkLegAgeBars?: number;     // umur swing akhir leg (candle M5)
   bkH1High?: number; bkH1Low?: number; // leg struktur H1 (bk3)
@@ -202,10 +232,20 @@ export interface JournalEntry {
   taShortPts?: string;
   taScoreAt?: number;        // ms epoch saat skor diambil
   taScoreVer?: number;       // versi skor: kosong/1 = lama (H4+H1, A+ 7-9), 2 = H4+M30+lokasi H4, 3 = D1+H1+lokasi H4 (A+ >= 8, maks 11)
-  taMaxScore?: number;       // skor maksimum versi itu (9 atau 11)
+  taMaxScore?: number;       // skor maksimum versi itu (9 / 11 / v4: 8)
+  // v4 (2026-11-11): maksimal & persen per sisi (komponen tanpa data dikeluarkan), grade dari persen, angka mentah
+  taLongMax?: number; taLongPct?: number; taShortMax?: number; taShortPct?: number;
+  taSignalSide?: 'LONG' | 'SHORT';
+  taRawFundingPct?: number; taRawLsr?: number; taRawOiChgPct?: number; taRawPriceChg24hPct?: number;
+  taRawLongDistSrAtr?: number; taRawLongDistEmaAtr?: number; taRawShortDistSrAtr?: number; taRawShortDistEmaAtr?: number;
   d1ChangePct?: number; // perubahan harga 3 candle D1 saat sinyal (%)
   entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif) DAN statistik timing (request user)
   resolvedAt?: number; // timestamp candle saat SL/TP kena — buat statistik "rata-rata berapa jam sampe resolve"
+  // TP2 lanjutan (v23, request user 2026-11-10): setelah TP1 kena = WIN TP1, SL dianggap pindah ke TP1.
+  // Lanjut dipantau: tembus TP2 sebelum balik ke TP1 = WIN TP2; balik ke TP1 dulu = final WIN TP1.
+  tp1At?: number;        // waktu candle TP1 pertama kali kena
+  tp2Watch?: boolean;    // true = WIN TP1 masih dipantau menuju TP2 (Evaluasi lagi untuk update)
+  tp1LockedAt?: number;  // waktu harga balik ke TP1 (WIN TP1 final)
   oiAtEntryHit?: number; // Open Interest baseline saat entry kehit
 
   // TF
@@ -311,12 +351,13 @@ export async function journalLoadAll(): Promise<JournalEntry[]> {
  * 24 jam terakhir -- lewat dari itu, sinyal "sama" boleh disimpen lagi
  * (dianggap kejadian baru, bukan re-save yang gak sengaja).
  */
-function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow' | 'bkVersion' | 'bkSwingHigh' | 'bkSwingLow'> & { entryPrice?: number; rr1?: number }): string {
+function signalDedupKey(e: Pick<JournalEntry, 'symbol' | 'bias' | 'sourceSkill' | 'orderType' | 'rpSwingHigh' | 'rpSwingLow' | 'bkVersion' | 'bkSwingHigh' | 'bkSwingLow' | 'rpBreakoutTime'> & { entryPrice?: number; rr1?: number }): string {
   const orderType = e.orderType ?? 'limit';
   // Fakeout: satu koin bisa punya beberapa setup berbeda dalam 24 jam (level beda) -> entryPrice ikut kunci. Setup yang SAMA tetap ke-dedupe.
   const lv = (e.sourceSkill === SCALPING_SKILL_FAKEOUT || e.sourceSkill === SCALPING_SKILL_CRT) ? `|${e.entryPrice}` : '';
   // Retest Fib: satu sinyal per LEG (swing high+low yang sama), bukan per entryPrice (level limit bisa bergeser sedikit di leg yang sama).
-  const leg = (e.sourceSkill === SCALPING_SKILL_RP || e.sourceSkill === SCALPING_SKILL_RP_M5 || e.sourceSkill === SCALPING_SKILL_RP_D1) ? `|${e.rpSwingHigh}|${e.rpSwingLow}` : '';
+  // rp11: satu sinyal per BREAKOUT (waktu candle breakout), bukan per leg.
+  const leg = (e.sourceSkill === SCALPING_SKILL_RP || e.sourceSkill === SCALPING_SKILL_RP_M5 || e.sourceSkill === SCALPING_SKILL_RP_D1) ? (e.rpBreakoutTime !== undefined ? `|bo${e.rpBreakoutTime}` : `|${e.rpSwingHigh}|${e.rpSwingLow}`) : '';
   // Sniper Breakout+Fib: satu sinyal per LEG (swing high+low yang sama).
   const bkLeg = e.bkVersion ? `|${e.bkSwingHigh}|${e.bkSwingLow}` : '';
   // Setup Finder: satu koin bisa punya beberapa setup (entry & RR beda) -> entry + RR ikut kunci.
@@ -406,6 +447,7 @@ export async function journalDelete(id: string): Promise<JournalEntry[]> {
 // sebelumnya — evaluasi WAJIB pake TF sesuai eksekusi ASLI sinyal, bukan
 // candle kasar 15M fixed).
 function evalIntervalFor(entry: JournalEntry): { interval: string; limit: number } {
+  if (entry.bkVersion === 'bk6') return { interval: '5m', limit: 1000 }; // bk6: dinilai di candle M5 (batal close lewat L, kedalaman fib, lama dalam candle M5)
   const tf = entry.tfEksekusi ?? entry.tfStruktur;
   switch (tf) {
     case '1M': return { interval: '1m', limit: 1500 };
@@ -473,7 +515,101 @@ async function refineFillCandle(
   }
 }
 
+// rp11 (Fibonacci Retest): setelah sinyal selesai (SL/TP/expired) catat apakah limit terisi dan seberapa dalam ekor retest masuk ke cluster.
+// Kedalaman = titik terjauh harga ke arah cluster sejak disimpan sampai selesai, dalam % lebar cluster (0 = tepi luar, 100 = tepi dalam, > 100 = tembus).
+// Cluster lebar 0 -> kedalaman dalam ATR M15 saat sinyal. Negatif = harga tidak sampai ke cluster.
+/** Pantau WIN TP1 menuju TP2 mulai candle setelah TP1 kena. TP1 = SL baru. Candle yang menyentuh TP1 dan TP2 sekaligus = TP1 (konservatif). */
+async function trackTp2(entry: JournalEntry, tp1At: number): Promise<Partial<JournalEntry>> {
+  const tp2 = entry.takeProfit2, tp1 = entry.takeProfit1;
+  if (!tp2) return { tp2Watch: false };
+  const { interval, limit } = evalIntervalFor(entry);
+  const iv = INTERVAL_MS[interval] ?? 900_000;
+  const now = Date.now();
+  const risk = Math.abs(entry.entryPrice - entry.stopLoss);
+  const evalAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+  const buy = entry.bias === 'bullish';
+  let cursor = tp1At + iv;
+  try {
+    for (let iter = 0; iter < 20 && cursor < now; iter++) {
+      const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${entry.symbol}&interval=${interval}&startTime=${cursor}&endTime=${now}&limit=${limit}`);
+      if (!res.ok) return { tp2Watch: true };
+      const klines: number[][] = await res.json();
+      if (!Array.isArray(klines) || klines.length === 0) break;
+      for (const k of klines) {
+        const t = Number(k[0]), high = Number(k[2]), low = Number(k[3]);
+        const backTp1 = buy ? low <= tp1 : high >= tp1;
+        if (backTp1) return { status: 'win_tp1', tp2Watch: false, tp1LockedAt: t, evaluatedAt: evalAt };
+        const hitTp2 = buy ? high >= tp2 : low <= tp2;
+        if (hitTp2) {
+          const out: Partial<JournalEntry> = { status: 'win_tp2', exitPrice: tp2, rr: risk > 0 ? Math.round((Math.abs(tp2 - entry.entryPrice) / risk) * 10) / 10 : entry.rr, tp2Watch: false, resolvedAt: t, evaluatedAt: evalAt };
+          if (entry.mmCrtVersion === 'mm4') {
+            out.mmBarsToResult = Math.max(0, Math.round((t - entry.savedAt) / 300_000));
+            if (entry.entryHitAt !== undefined) out.mmBarsFillToResult = Math.max(0, Math.round((t - entry.entryHitAt) / 300_000));
+          }
+          if (entry.bkVersion === 'bk6') {
+            out.bkBarsToResult = Math.max(0, Math.round((t - entry.savedAt) / 300_000));
+            if (entry.entryHitAt !== undefined) out.bkBarsFillToResult = Math.max(0, Math.round((t - entry.entryHitAt) / 300_000));
+          }
+          return out;
+        }
+      }
+      cursor = Number(klines[klines.length - 1]![6]) + 1;
+      if (iter < 19) await new Promise(r => setTimeout(r, 150));
+    }
+  } catch { /* biarkan tetap dipantau */ }
+  return { tp2Watch: true, evaluatedAt: evalAt };
+}
+
 export async function journalEvaluate(entry: JournalEntry): Promise<Partial<JournalEntry>> {
+  // WIN TP1 yang masih dipantau: cek lanjut ke TP2 / balik ke TP1
+  if (entry.status === 'win_tp1' && entry.tp2Watch) return trackTp2(entry, entry.tp1At ?? entry.resolvedAt ?? entry.savedAt);
+  const res0 = await journalEvaluateCoreTracked(entry);
+  if (res0.status === 'win_tp1' && res0.resolvedAt !== undefined && entry.takeProfit2) {
+    const nxt = await trackTp2(entry, res0.resolvedAt);
+    return { ...res0, tp1At: res0.resolvedAt, ...nxt };
+  }
+  return res0;
+}
+
+async function journalEvaluateCoreTracked(entry: JournalEntry): Promise<Partial<JournalEntry>> {
+  const tr: { min: number; max: number; lastT?: number } = { min: Infinity, max: -Infinity };
+  const res = await journalEvaluateCore(entry, tr);
+  if (entry.rpVersion === 'rp11' && entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
+    const lo = entry.rpZoneLo, hi = entry.rpZoneHi, w = hi - lo;
+    const dist = entry.bias === 'bullish' ? hi - tr.min : tr.max - lo; // jarak masuk dari tepi luar
+    const extra: Partial<JournalEntry> = { rpLimitFilled: res.status !== 'expired' };
+    if (w > 0) extra.rpRetestDepthPct = Math.round(dist / w * 1000) / 10;
+    else if (entry.rpAtr15 && entry.rpAtr15 > 0) extra.rpRetestDepthAtr = Math.round(dist / entry.rpAtr15 * 100) / 100;
+    return { ...res, ...extra };
+  }
+  if (entry.mmCrtVersion === 'mm4' && entry.mmFvgTop !== undefined && entry.mmFvgBot !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
+    // kedalaman masuk FVG: 0% = tepi depan (BUY: atas), 100% = tepi belakang (BUY: bawah), > 100% = lewat; negatif = tidak sampai
+    const w = entry.mmFvgTop - entry.mmFvgBot;
+    const extra: Partial<JournalEntry> = { mmLimitFilled: res.status !== 'expired' };
+    if (w > 0) extra.mmFvgDepthPct = Math.round((entry.bias === 'bullish' ? (entry.mmFvgTop - tr.min) / w : (tr.max - entry.mmFvgBot) / w) * 1000) / 10;
+    const end = res.resolvedAt ?? tr.lastT;
+    if (end !== undefined) {
+      extra.mmBarsToResult = Math.max(0, Math.round((end - entry.savedAt) / 300_000));
+      if (res.entryHitAt !== undefined && res.status !== 'expired') extra.mmBarsFillToResult = Math.max(0, Math.round((end - res.entryHitAt) / 300_000));
+    }
+    return { ...res, ...extra };
+  }
+  if (entry.bkVersion === 'bk6' && entry.bkSwingHigh !== undefined && entry.bkSwingLow !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
+    const H = entry.bkSwingHigh, L = entry.bkSwingLow, R = H - L;
+    const extra: Partial<JournalEntry> = { bkLimitFilled: res.status !== 'expired' };
+    if (R > 0) extra.bkDeepestFib = Math.round((entry.bias === 'bullish' ? (H - tr.min) / R : (tr.max - L) / R) * 1000) / 1000;
+    const end = res.resolvedAt ?? tr.lastT;
+    if (end !== undefined) {
+      extra.bkBarsToResult = Math.max(0, Math.round((end - entry.savedAt) / 300_000));
+      const hit = res.entryHitAt;
+      if (hit !== undefined && res.status !== 'expired') extra.bkBarsFillToResult = Math.max(0, Math.round((end - hit) / 300_000));
+    }
+    return { ...res, ...extra };
+  }
+  return res;
+}
+
+async function journalEvaluateCore(entry: JournalEntry, tr: { min: number; max: number; lastT?: number }): Promise<Partial<JournalEntry>> {
   try {
     const { interval, limit } = evalIntervalFor(entry);
     const risk = Math.abs(entry.entryPrice - entry.stopLoss);
@@ -513,6 +649,28 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
         if (!entryHit && entry.validUntil !== undefined && openTime >= entry.validUntil) {
           return { status: 'expired', evaluatedAt: evalAt };
         }
+        // mm4: batal sebelum limit terisi kalau close M5 melewati ekstrem sweep (BUY < ekstrem / SELL > ekstrem)
+        if (!entryHit && entry.mmCrtVersion === 'mm4' && entry.mmSweepExt !== undefined) {
+          const close = Number(k[4]);
+          const touchesEntry = entry.bias === 'bullish' ? low <= entry.entryPrice : high >= entry.entryPrice;
+          const lewat = entry.bias === 'bullish' ? close < entry.mmSweepExt : close > entry.mmSweepExt;
+          if (!touchesEntry && lewat) {
+            tr.min = Math.min(tr.min, low); tr.max = Math.max(tr.max, high); tr.lastT = openTime;
+            return { status: 'expired', evaluatedAt: evalAt, mmCancelReason: 'sweep_tertembus' };
+          }
+        }
+        // bk6: batal sebelum limit terisi kalau close M5 lewat awal leg (BUY < L / SELL > H) atau harga bikin high/low baru di luar ujung leg (leg digeser -> sinyal baru)
+        if (!entryHit && entry.bkVersion === 'bk6' && entry.bkSwingHigh !== undefined && entry.bkSwingLow !== undefined) {
+          const close = Number(k[4]);
+          const touchesEntry = entry.bias === 'bullish' ? low <= entry.entryPrice : high >= entry.entryPrice;
+          const lewatL = entry.bias === 'bullish' ? close < entry.bkSwingLow : close > entry.bkSwingHigh;
+          const geser = entry.bias === 'bullish' ? high > entry.bkSwingHigh : low < entry.bkSwingLow;
+          if (!touchesEntry && (lewatL || geser)) {
+            tr.min = Math.min(tr.min, low); tr.max = Math.max(tr.max, high); tr.lastT = openTime;
+            return { status: 'expired', evaluatedAt: evalAt, bkCancelReason: lewatL ? 'close_lewat_L' : 'leg_digeser' };
+          }
+        }
+        tr.min = Math.min(tr.min, low); tr.max = Math.max(tr.max, high); tr.lastT = openTime;
 
         if (!entryHit) {
           const filled =
@@ -920,9 +1078,11 @@ export function buildScalpForwardTest(entries: JournalEntry[], skill: string, sh
   };
 }
 
-/** Forward test menu yang aktif sekarang: Fibonacci Retest (rp7, H1 only). */
+/** Versi logic Fibonacci Retest yang aktif (HARUS sama dengan SCALPING_RP.VERSION di api-server smc.ts). */
+export const RP_ACTIVE_VERSION = 'rp11';
+/** Forward test menu yang aktif sekarang: Fibonacci Retest — HANYA sinyal versi logic aktif (v23; sebelumnya rp7-rp11 tercampur karena label sama). */
 export function buildRpForwardTest(entries: JournalEntry[]): ScalpForwardTest {
-  return buildScalpForwardTest(entries, SCALPING_SKILL_RP, 'Fibonacci Retest');
+  return buildScalpForwardTest(entries.filter(e => e.rpVersion === RP_ACTIVE_VERSION), SCALPING_SKILL_RP, `Fibonacci Retest ${RP_ACTIVE_VERSION}`);
 }
 
 /** LEGACY: forward test Retest Fib H1->M5 (rp2-rp6; menu sudah diganti Fibonacci Retest, sinyal lama tetap bisa dihitung). */
@@ -1902,12 +2062,14 @@ export function taScoreOfEntry(e: JournalEntry): { score: number; grade: 'A+' | 
   const score = long ? e.taLongScore : e.taShortScore;
   const grade = long ? e.taLongGrade : e.taShortGrade;
   if (typeof score !== 'number' || !grade) return null;
-  const ver = e.taScoreVer === 3 ? 3 : e.taScoreVer === 2 ? 2 : 1;
-  return { score, grade, ver, max: typeof e.taMaxScore === 'number' ? e.taMaxScore : ver >= 2 ? 11 : 9 };
+  const ver = e.taScoreVer === 4 ? 4 : e.taScoreVer === 3 ? 3 : e.taScoreVer === 2 ? 2 : 1;
+  const sideMax = long ? e.taLongMax : e.taShortMax;
+  return { score, grade, ver, max: typeof sideMax === 'number' ? sideMax : typeof e.taMaxScore === 'number' ? e.taMaxScore : ver >= 2 ? 11 : 9 };
 }
 
 // Skor v1 (H4+H1), v2 (H4+M30+lokasi H4), dan v3 (D1+H1+lokasi H4) TIDAK boleh digabung: komponen dan batas grade beda.
 const TA_GRADE_LABELS = [
+  'A+ v4 (≥75%)', 'B v4 (55–74%)', 'Tidak layak v4 (<55%)',
   'A+ v3 (skor ≥8)', 'B v3 (skor 6–7)', 'Tidak layak v3 (skor ≤5)',
   'A+ v2 (skor ≥8)', 'B v2 (skor 6–7)', 'Tidak layak v2 (skor ≤5)',
   'A+ v1 (skor 7–9)', 'B v1 (skor 5–6)', 'Tidak layak v1 (skor ≤4)',
@@ -1916,15 +2078,15 @@ const TA_GRADE_LABELS = [
 
 function taGradeLabel(e: JournalEntry): string {
   const s = taScoreOfEntry(e);
-  if (!s) return TA_GRADE_LABELS[9]!;
-  const base = s.ver === 3 ? 0 : s.ver === 2 ? 3 : 6;
+  if (!s) return TA_GRADE_LABELS[12]!;
+  const base = s.ver === 4 ? 0 : s.ver === 3 ? 3 : s.ver === 2 ? 6 : 9;
   return s.grade === 'A+' ? TA_GRADE_LABELS[base]! : s.grade === 'B' ? TA_GRADE_LABELS[base + 1]! : TA_GRADE_LABELS[base + 2]!;
 }
 
 /** Pilih sinyal bernilai skor satu versi saja: versi terbaru yang sudah punya >=30 sinyal selesai (v3, lalu v2), selain itu v1. */
 function taSameVersion(entries: JournalEntry[]): { ver: number; list: JournalEntry[] } {
   const scored = entries.filter(e => taScoreOfEntry(e));
-  for (const v of [3, 2]) {
+  for (const v of [4, 3, 2]) {
     const list = scored.filter(e => taScoreOfEntry(e)!.ver === v);
     const done = list.filter(e => e.status === 'lose' || e.status === 'win_tp1' || e.status === 'win_tp2').length;
     if (done >= 30) return { ver: v, list };

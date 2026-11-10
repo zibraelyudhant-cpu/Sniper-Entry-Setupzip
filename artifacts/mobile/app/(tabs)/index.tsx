@@ -12,6 +12,8 @@ import { AnimatedCard } from '@/components/animated/AnimatedCard';
 import { TaProBonusBanner } from '@/components/animated/TaProBonusBanner';
 import { TaProScoreCard } from '@/components/TaProScoreCard';
 import { SetupCheckButton, SetupFinderTpRow, WrBadge } from '@/components/SetupCheckPanel';
+import { Tp3Row, tp3JournalFields } from '@/components/Tp3Row';
+import { SniperSettingsPanel, useSniperSettings, sniperQuery } from '@/components/SniperSettings';
 import { TaProScoreBadge } from '@/components/TaProScoreBadge';
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { DirectionalCard } from '@/components/animated/DirectionalCard';
@@ -90,6 +92,8 @@ interface BreakoutTradingResult {
   bkBasis?: 'fvg' | 'snr' | 'mid'; bkConfluence?: string; bkRetracePct?: number; bkTp2Fib?: number;
   bkRangeAtr?: number; bkLegAgeBars?: number;
   bkH1High?: number; bkH1Low?: number; bkH1Fib705?: number; bkH1Struct?: 'LL' | 'HH';
+  bkEntrySource?: 'FVG' | 'SNR' | 'fib'; bkFibEntry?: number; bkH1FibSetting?: number; bkClusterWidthAtr?: number;
+  bkSlPct?: number; bkSlAtr?: number; bkP90?: number; bkLegShifts?: number; // bk6
   // FIX (request user, tombol sortir Volume/Perubahan Harga/Funding Rate)
   marketMeta?: { priceChangePercent: number; quoteVolume: number; fundingRate: number | null } | null;
 }
@@ -230,6 +234,7 @@ function ScanNowButton({ onPress, isLoading, colors }: { onPress: () => void; is
 }
 
 function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors>; onSelectCoin: (coin: BreakoutTradingResult) => void }) {
+  const sniperSet = useSniperSettings(); // bk6: fib entry & Fib H1 ikut dikirim saat scan dimulai
   const insets = useSafeAreaInsets();
   // FIX (request user, "diem di tab lain 5-10 menit, balik ke Scan malah
   // auto-refetch"): staleTime Infinity — data scan GAK PERNAH dianggap basi
@@ -250,7 +255,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   });
   const scanStatus = (data as any)?.status as 'idle' | 'running' | 'complete' | 'error' | undefined;
   // Scan manual (request user 2026-11-05): mulai scan baru lewat ?fresh=true, lalu polling jalan sendiri.
-  const startScan = useCallback(async () => { try { await customFetch('/api/breakout-entry/scan?fresh=true'); } catch { /* polling tetap jalan */ } refetch(); }, [refetch]);
+  const startScan = useCallback(async () => { try { await customFetch(`/api/breakout-entry/scan?fresh=true&${sniperQuery(sniperSet)}`); } catch { /* polling tetap jalan */ } refetch(); }, [refetch, sniperSet]);
   const scannedCount = (data as any)?.scanned ?? 0;
   const totalCount = (data as any)?.total ?? 0;
   const [showCompleteNotif, setShowCompleteNotif] = useState(false);
@@ -291,7 +296,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         currentPriceAtSignal: c.currentPrice, rr1: c.rr1,
         tfStruktur, tfEksekusi,
         technicalSnapshot: c.technicalSnapshot as JournalEntry['technicalSnapshot'],
-        ...taProFieldsFromSnapshot((c as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+        ...taProFieldsFromSnapshot((c as any).taPro, (c as any).bias), // skor TA PRO dibekukan saat sinyal dibuat
         orderType: c.orderType,
         btcAligned: c.btcAligned, btcBias: c.btcBias,
         validUntil: c.validUntilMs,
@@ -300,6 +305,8 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         bkBasis: c.bkBasis, bkConfluence: c.bkConfluence, bkRetracePct: c.bkRetracePct, bkTp2Fib: c.bkTp2Fib,
         bkRangeAtr: c.bkRangeAtr, bkLegAgeBars: c.bkLegAgeBars,
         bkH1High: c.bkH1High, bkH1Low: c.bkH1Low, bkH1Fib705: c.bkH1Fib705, bkH1Struct: c.bkH1Struct,
+        bkEntrySource: c.bkEntrySource, bkFibEntry: c.bkFibEntry, bkH1FibSetting: c.bkH1FibSetting, bkClusterWidthAtr: c.bkClusterWidthAtr,
+        bkSlPct: c.bkSlPct, bkSlAtr: c.bkSlAtr, bkP90: c.bkP90, bkLegShifts: c.bkLegShifts, rr2: c.rr2,
         signalStatus: (c.status === 'siap_retest' || c.status === 'siap_breakout' || c.status === 'in_zone') ? 'in_zone' : c.status === 'approaching' ? 'approaching' : 'waiting',
         timestamp: c.timestamp, savedAt: Date.now(), status: 'pending',
       };
@@ -402,6 +409,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <ScanNowButton onPress={startScan} isLoading={isFetching} colors={colors} />
       </View>
 
+      <SniperSettingsPanel accent={ACCENT} />
       <SortSelector value={sortKey} onChange={setSortKey} wrProgress={wrProgress} />
 
       {eligibleCount > 0 && (
@@ -503,9 +511,11 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinnedData]);
 
+  const sniperSet = useSniperSettings(); // bk6: fib entry & Fib H1 ikut dikirim ke Analisa
+  const bkParams = { symbol: querySymbol, mode, fibEntry: sniperSet.fibEntry, h1Fib: sniperSet.h1Fib } as any;
   const { data: liveData, isLoading, isFetching, isError, refetch } = useGetBreakoutEntry(
-    { symbol: querySymbol, mode },
-    { query: { queryKey: getGetBreakoutEntryQueryKey({ symbol: querySymbol, mode }), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
+    bkParams,
+    { query: { queryKey: getGetBreakoutEntryQueryKey(bkParams), enabled: !!querySymbol && liveMode, staleTime: 120_000 } }
   );
   // liveData bertipe API (tanpa field d1*), pinnedData bertipe lokal; samakan ke tipe lokal supaya d1Aligned/d1Action/d1Trend/d1ChangePct terbaca.
   const data = (liveMode ? liveData : pinnedData) as BreakoutTradingResult | null | undefined;
@@ -544,9 +554,10 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
       sourceMenu: 'Sniper Breakout', sourceSkill: skillLabel,
       entryPrice: data.entryPrice, stopLoss: data.stopLoss ?? 0, takeProfit1: data.takeProfit1 ?? 0, takeProfit2: data.takeProfit2,
       currentPriceAtSignal: data.currentPrice, rr1: data.rr1,
+      ...tp3JournalFields(data.symbol, data.bias === 'bullish' ? 'BUY' : 'SELL', data.entryPrice, data.stopLoss),
       tfStruktur, tfEksekusi: 'M5',
       technicalSnapshot: data.technicalSnapshot as JournalEntry['technicalSnapshot'],
-      ...taProFieldsFromSnapshot((data as any).taPro), // skor TA PRO dibekukan saat sinyal dibuat
+      ...taProFieldsFromSnapshot((data as any).taPro, (data as any).bias), // skor TA PRO dibekukan saat sinyal dibuat
       orderType: data.orderType,
       btcAligned: data.btcAligned, btcBias: data.btcBias,
       validUntil: data.validUntilMs,
@@ -555,6 +566,8 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
         bkBasis: data.bkBasis, bkConfluence: data.bkConfluence, bkRetracePct: data.bkRetracePct, bkTp2Fib: data.bkTp2Fib,
         bkRangeAtr: data.bkRangeAtr, bkLegAgeBars: data.bkLegAgeBars,
         bkH1High: data.bkH1High, bkH1Low: data.bkH1Low, bkH1Fib705: data.bkH1Fib705, bkH1Struct: data.bkH1Struct,
+        bkEntrySource: data.bkEntrySource, bkFibEntry: data.bkFibEntry, bkH1FibSetting: data.bkH1FibSetting, bkClusterWidthAtr: data.bkClusterWidthAtr,
+        bkSlPct: data.bkSlPct, bkSlAtr: data.bkSlAtr, bkP90: data.bkP90, bkLegShifts: data.bkLegShifts, rr2: data.rr2,
       timestamp: data.timestamp, savedAt: Date.now(), status: 'pending',
     };
     await journalSave(entry);
@@ -740,6 +753,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData, onSignalReady }: {
                   <Text style={[styles.infoValue, { color: colors.bullish }]}>{formatPrice(data.takeProfit2)}</Text>
                 </View>
               )}
+              <Tp3Row colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
               <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
               {data.candlesNearEdge !== undefined && (
                 <>
@@ -883,20 +897,21 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Sniper Breakout</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          H1 nentuin arah lewat EMA50 dan EMA200 (close di atas keduanya = bullish, di bawah keduanya = bearish), lalu cek struktur H1: swing terbaru harus LL (bearish) atau HH (bullish) dan close H1 belum menembus Fib 0,705 dari leg H1. Di M5, cari breakout SnR searah H1 dengan volume ≥ 1,6x rata-rata 20 candle. Setelah breakout, tunggu swing high/low baru terbentuk, lalu tarik Fibonacci dan pasang LIMIT di area retest (pakai FVG atau SNR kuat dalam zona 0,5–0,618 kalau ada; kalau tidak ada, BUY dan SELL di Fib 0,559).
+          Sniper Breakout bk6 (2026-11-10). H1 nentuin arah lewat EMA50 dan EMA200 (close di atas keduanya = bullish, di bawah keduanya = bearish), lalu cek struktur H1: swing terbaru harus HH (bullish) atau LL (bearish) dan close H1 belum menembus batas Fib leg H1 (pengaturan, default 0,705). Di M5, cari breakout SnR searah H1 dengan volume ≥ 1,6x rata-rata 20 candle yang bertahan 12 candle (1 jam) tanpa close kembali ke cluster. Setelah breakout terbentuk swing baru, tarik Fibonacci dari low terendah sejak breakout sampai swing itu, lalu pasang LIMIT di tengah FVG/SNR dalam zona 0,5–0,618 (yang paling dekat ke level fib entry), atau di level fib entry kalau tidak ada. SL di luar awal leg memakai kedalaman gocekan.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. H1 (fetch 300 candle): close di atas EMA50 dan EMA200 = BULLISH, di bawah keduanya = BEARISH, selain itu dilewati{'\n'}
-          1b. Struktur H1 (swing fractal 3): BEARISH = swing low terbaru harus LL (lebih rendah dari swing low sebelumnya), BULLISH = swing high terbaru harus HH. Leg H1 = swing high terakhir sebelum swing low itu (BULLISH: kebalikannya). Tolak bila ada close H1 melewati Fib 0,705 leg itu (struktur patah, ekor candle tidak dihitung), atau close H1 terakhir sudah melewati swing itu (low/high baru masih terbentuk, tunggu swing){'\n'}
-          2. M5 (fetch 300 candle): cari breakout SnR searah H1. SnR = cluster swing fractal 3 (toleransi 0,5 ATR, minimal 2 sentuhan). Breakout valid = close M5 pertama di luar cluster dengan volume ≥ 1,6x MA20{'\n'}
-          3. Biarkan breakout membentuk swing high/low terbaru dulu (swing fractal 3; leg: swing low → swing high untuk BUY, kebalikannya untuk SELL). Range leg M5 minimal 2x ATR M5, kalau lebih kecil sinyal ditolak (bk5){'\n'}
-          4. Area retest Fibonacci 0,5–0,618 dari leg. Ada FVG atau SNR kuat di zona → limit di tepi terdekat ke harga. Tidak ada → BUY dan SELL limit di Fib 0,559 (tengah zona){'\n'}
-          5. SL = SL anti-gocekan Setup Finder (v18): dihitung dari level entry — di luar swing 15M terdekat + kedalaman gocekan P90, atau di luar tembok order book (mana yang lebih jauh), digeser dari angka bulat, maksimal 4% dari entry. Kalau data Setup Finder gagal diambil, pakai SL bawaan (entry ∓ 2x ATR M5). TP1 RR 1:2 dihitung dari jarak SL baru{'\n'}
-          6. TP1 = RR 1:2. TP2 = level Fib terkecil di 1,13 / 1,272 / 1,414 / 1,618 (SELL: -0,13 / -0,272 / -0,414 / -0,618) yang melewati TP1; kalau tidak ada yang melewati TP1 sinyal dilewati{'\n'}
-          7. Batal bila: high/low baru melewati ujung leg, close menembus awal leg, limit sudah tersentuh, atau close kembali ke dalam level SnR (breakout gagal). Limit berlaku 24 jam.{'\n'}
+          1. H1 (fetch 300 candle, minimal 250 tertutup): close di atas EMA50 dan EMA200 = BULLISH (BUY), di bawah keduanya = BEARISH (SELL), selain itu dilewati{'\n'}
+          2. Struktur H1 (swing fractal 3): BULLISH = swing high terbaru harus HH, BEARISH = swing low terbaru harus LL. Leg H1 = swing berlawanan terakhir sebelum swing itu. Tolak bila ada close H1 (body) melewati batas Fib leg H1 (pengaturan "Batas Fib H1": 0,618 / 0,705 / 0,786, default 0,705), atau close H1 terakhir sudah melewati swing itu (swing belum selesai, tunggu){'\n'}
+          3. Breakout M5 (fetch 1000 candle): close M5 pertama di luar cluster SnR (swing fractal 3, toleransi 0,5 ATR M5, minimal 2 sentuhan, dicari dalam 200 candle), candle searah, volume ≥ 1,6x MA20{'\n'}
+          4. Konfirmasi 12 candle M5 (1 jam): tidak boleh ada close yang masuk kembali ke cluster (BUY: close ≤ tepi atas; SELL: close ≥ tepi bawah). Kalau ada = fakeout, tidak ada sinyal. Setelah 12 candle harga boleh retest ke dalam cluster; sinyal batal kalau close menembus tepi seberang cluster{'\n'}
+          5. Leg M5: BUY = low TERENDAH sejak candle breakout (L) sampai swing high fractal 3 (H); SELL kebalikannya. Range minimal 2x ATR M5. Kalau harga membuat high baru di atas H SEBELUM limit terisi, leg digeser ke swing high baru setelah terkonfirmasi (fib & limit dihitung ulang; selama menunggu konfirmasi = tidak ada sinyal). Batal kalau ada close di bawah L{'\n'}
+          6. Entry LIMIT: ada FVG / SNR di zona Fib 0,5–0,618 → limit di tengah bagian FVG/SNR yang ada di dalam zona; kalau lebih dari satu, yang tengahnya paling dekat ke level fib entry. Tidak ada → limit di level fib entry (pengaturan: 0,5 / 0,559 / 0,618, default 0,559). Level limit belum boleh tersentuh sejak swing high terbentuk{'\n'}
+          7. SL: BUY = L − (kedalaman gocekan P90 + 0,1) × ATR M5; SELL = H + (P90 + 0,1) × ATR M5. P90 = rumus Setup Finder di candle M5 menu ini. SL yang jatuh di angka bulat digeser melewatinya. SL lebih dari 4% dari entry = sinyal DITOLAK. Tanpa data gocekan: L − 1x ATR M5 / H + 1x ATR M5{'\n'}
+          8. TP1 = RR 1:2, TP2 = RR 1:3 (dari jarak entry ke SL). TP3 = SNR H1 (2688 candle) di luar TP2, dihitung otomatis hanya saat layar Analisa dibuka{'\n'}
+          9. Kedaluwarsa 6 jam, atau lebih cepat kalau sebelum limit terisi ada close M5 melewati L (BUY) / H (SELL), atau harga membuat high/low baru di luar ujung leg (leg digeser = sinyal baru). Jurnal menyimpan: arah, sumber entry (FVG/SNR/fib), level fib entry, lebar cluster & range leg (ATR M5), jarak SL (% & ATR), RR TP1/TP2, jumlah leg digeser; setelah selesai: limit terisi, level fib terdalam yang disentuh, hasil, lama sampai hasil (candle M5). Label Jurnal tetap, versi bk6{'\n'}
           Catatan: strategi ini belum di-backtest, Journal yang jadi pembuktiannya. Detail yang tidak dijelaskan di file strategi (definisi SnR valid, pemilihan swing, level TP2) memakai tafsiran gua.
         </Text>
       </View>

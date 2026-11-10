@@ -78,19 +78,25 @@ export function SortSelector({ value, onChange, wrProgress }: { value: SortKey; 
  * Skor TA PRO sisi yang SEARAH sinyal (bullish -> LONG, bearish -> SHORT), dari `taPro` yang dibekukan server
  * saat sinyal dibuat. null kalau koin itu belum punya skor (mis. status waiting / data lama).
  */
-export function taProScoreOf(item: any): { score: number; grade: 'A+' | 'B' | 'Tidak layak'; max: number } | null {
+export function taProScoreOf(item: any): { score: number; grade: 'A+' | 'B' | 'Tidak layak'; max: number; pct: number | null } | null {
   const snap = item?.taPro;
   if (!snap?.long || !snap?.short) return null;
   const side = item?.bias === 'bearish' ? snap.short : snap.long;
-  return typeof side?.score === 'number' ? { score: side.score, grade: side.grade, max: typeof snap.maxScore === 'number' ? snap.maxScore : 9 } : null;
+  if (typeof side?.score !== 'number') return null;
+  // v4: maksimal per sisi (komponen tanpa data dikeluarkan) + persen; versi lama: maksimal versi, tanpa persen
+  const max = typeof side.max === 'number' ? side.max : typeof snap.maxScore === 'number' ? snap.maxScore : 9;
+  const pct = typeof side.pct === 'number' ? side.pct : null;
+  return { score: side.score, grade: side.grade, max, pct };
 }
+/** Nilai urut Skor TA PRO: v4 pakai persen, versi lama pakai skor / maksimal x 100. */
+const taSortVal = (x: any): number => { const s = taProScoreOf(x); if (!s) return -9999; return s.pct ?? (s.max > 0 ? s.score / s.max * 100 : s.score); };
 
 export function applySorting<T>(items: T[], sortKey: SortKey, getMeta: (item: T) => MarketMeta | null | undefined): T[] {
   if (sortKey === 'default') return items;
   const sorted = [...items];
   if (sortKey === 'skor') {
     // skor tertinggi dulu; yang belum punya skor di paling bawah; seri = urutan asli (sort stabil)
-    sorted.sort((a, b) => (taProScoreOf(b)?.score ?? -99) - (taProScoreOf(a)?.score ?? -99));
+    sorted.sort((a, b) => taSortVal(b) - taSortVal(a)); // v4: urut persen skor
     return sorted;
   }
   if (sortKey === 'selisihWr') {

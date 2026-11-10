@@ -7,6 +7,7 @@ import technicalAnalysisProRouter from "./technical-analysis-pro";
 import journalFollowupRouter from "./journal-followup";
 import moneyMagnetScalpingRouter from "./money-magnet-scalping";
 import setupFinderRouter from "./setup-finder";
+import tp3Router from "./tp3";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(technicalAnalysisProRouter);
 router.use(journalFollowupRouter);
 router.use(moneyMagnetScalpingRouter);
 router.use(setupFinderRouter);
+router.use(tp3Router);
 
 export default router;
