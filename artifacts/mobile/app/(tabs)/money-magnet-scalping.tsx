@@ -25,6 +25,8 @@ import { SortSelector, applySorting, type SortKey } from '@/components/SortSelec
 import { taProFieldsFromSnapshot } from '@/components/taProJournal';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_MMS, type JournalEntry } from './journal-helpers';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
+import { fixedPrice } from '@/components/priceFormat';
+import { useWrSort } from '@/components/wrStore';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MENU BARU (request user): Money Magnet Scalping -- logic Money Magnet
@@ -100,15 +102,15 @@ function ScanCoinCard({ coin, onPress, colors, index = 0 }: { coin: ScalpingResu
           <View style={scanStyles.levelsRow}>
             <View style={scanStyles.levelCol}>
               <Text style={[scanStyles.levelLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
-              <Text style={[scanStyles.levelValue, { color: colors.foreground }]}>{coin.entryPrice?.toFixed(6) ?? '—'}</Text>
+              <Text style={[scanStyles.levelValue, { color: colors.foreground }]}>{fixedPrice(coin.entryPrice) ?? '—'}</Text>
             </View>
             <View style={scanStyles.levelCol}>
               <Text style={[scanStyles.levelLabel, { color: colors.mutedForeground }]}>SL</Text>
-              <Text style={[scanStyles.levelValue, { color: colors.bearish }]}>{coin.stopLoss?.toFixed(6) ?? '—'}</Text>
+              <Text style={[scanStyles.levelValue, { color: colors.bearish }]}>{fixedPrice(coin.stopLoss) ?? '—'}</Text>
             </View>
             <View style={scanStyles.levelCol}>
               <Text style={[scanStyles.levelLabel, { color: colors.mutedForeground }]}>TP1</Text>
-              <Text style={[scanStyles.levelValue, { color: colors.bullish }]}>{coin.takeProfit1?.toFixed(6) ?? '—'}</Text>
+              <Text style={[scanStyles.levelValue, { color: colors.bullish }]}>{fixedPrice(coin.takeProfit1) ?? '—'}</Text>
             </View>
             <View style={scanStyles.levelCol}>
               <Text style={[scanStyles.levelLabel, { color: colors.mutedForeground }]}>RR</Text>
@@ -155,6 +157,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const coins = data?.coins ?? [];
   const fetchedAt = data ? new Date(data.fetchedAt || Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null;
   const [sortKey, setSortKey] = useState<SortKey>('default');
+  const wrProgress = useWrSort(coins, sortKey);
   const getMeta = (c: any) => c.marketMeta;
   const inZone = applySorting(coins.filter(c => c.status === 'in_zone'), sortKey, getMeta);
   const approaching = applySorting(coins.filter(c => c.status === 'approaching'), sortKey, getMeta);
@@ -270,7 +273,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         </Pressable>
       </View>
 
-      <SortSelector value={sortKey} onChange={setSortKey} />
+      <SortSelector value={sortKey} onChange={setSortKey} wrProgress={wrProgress} />
 
       {inZone.length > 0 && (
         <>
@@ -473,21 +476,21 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
 
               <View style={[styles.levelCard, { borderColor: data.bias === 'bullish' ? colors.bullish : colors.bearish, backgroundColor: `${data.bias === 'bullish' ? colors.bullish : colors.bearish}10` }]}>
                 <Text style={[styles.levelCardLabel, { color: colors.mutedForeground }]}>ENTRY</Text>
-                <Text style={[styles.levelCardValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>{data.entryPrice?.toFixed(6)}</Text>
+                <Text style={[styles.levelCardValue, { color: data.bias === 'bullish' ? colors.bullish : colors.bearish }]}>{fixedPrice(data.entryPrice)}</Text>
                 <Text style={[styles.levelCardSub, { color: colors.mutedForeground }]}>{data.bias === 'bullish' ? 'BUY LIMIT' : 'SELL LIMIT'} — magnet zone (M5)</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.bearish }]}>Stop Loss</Text>
-                <Text style={[styles.infoValue, { color: colors.bearish }]}>{data.stopLoss?.toFixed(6) ?? '—'}</Text>
+                <Text style={[styles.infoValue, { color: colors.bearish }]}>{fixedPrice(data.stopLoss) ?? '—'}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: colors.bullish }]}>TP1 (RR 1:{data.rr1?.toFixed(1) ?? '2.0'})</Text>
-                <Text style={[styles.infoValue, { color: colors.bullish }]}>{data.takeProfit1?.toFixed(6) ?? '—'}</Text>
+                <Text style={[styles.infoValue, { color: colors.bullish }]}>{fixedPrice(data.takeProfit1) ?? '—'}</Text>
               </View>
               {data.takeProfit2 !== undefined && (
                 <View style={styles.infoRow}>
                   <Text style={[styles.infoLabel, { color: colors.gold }]}>TP2 (RR 1:{data.rr2?.toFixed(1) ?? '—'})</Text>
-                  <Text style={[styles.infoValue, { color: colors.gold }]}>{data.takeProfit2?.toFixed(6) ?? '—'}</Text>
+                  <Text style={[styles.infoValue, { color: colors.gold }]}>{fixedPrice(data.takeProfit2) ?? '—'}</Text>
                 </View>
               )}
               <SetupFinderTpRow colors={colors} symbol={(data as any).symbol ?? querySymbol} side={(data as any).bias === 'bullish' ? 'BUY' : 'SELL'} entry={(data as any).entryPrice} sl={(data as any).stopLoss} tp={(data as any).takeProfit2 ?? (data as any).takeProfit1} rowStyle={styles.infoRow} labelStyle={styles.infoLabel} valueStyle={styles.infoValue} />
@@ -583,7 +586,7 @@ function RingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }) {
           3. Reversal (CISD): reclaim + displacement ≥0,8x ATR + body ≥60% + FVG ≥0,10x ATR, searah BALIK dari sweep{'\n'}
           4. Failure to Manipulate: gak ada reclaim lawan arah, tapi displacement+FVG SEARAH sweep asli — continuation{'\n'}
           5. Scoring 16 poin (H1 max 5: bias searah +2, liquidity jelas +2, range/ATR +1 | M5 max 11: sweep +2, reclaim/failure +2, displacement +2, body +1, FVG +1, entry CE +1, RR di atas sama dengan 2,5 +2){'\n'}
-          6. Entry LIMIT di 50% FVG (CE). SL (mm3) = Fib 0,71 dari leg sweep→displacement (BUY: Fib 1 = ekstrem sweep, Fib 0 = high tertinggi sejak sweep; SELL kebalikannya; setup failure-to-manipulate: Fib 1 = swing berlawanan sebelum sweep), tanpa jarak SL minimal; leg gak kebentuk = SL 2x ATR M5. TP1 RR 1:2, TP2 RR 1:3. Ditolak kalau CE sudah melewati Fib 0,71. Limit expired 36 candle M5 (~3 jam){'\n'}
+          6. Entry LIMIT di 50% FVG (CE). SL (v18) = SL anti-gocekan Setup Finder (v18): dihitung dari level entry — di luar swing 15M terdekat + kedalaman gocekan P90, atau di luar tembok order book (mana yang lebih jauh), digeser dari angka bulat, maksimal 4% dari entry. Kalau data Setup Finder gagal diambil, pakai SL bawaan (mm3 lama: Fib 0,71 dari leg sweep→displacement (BUY: Fib 1 = ekstrem sweep, Fib 0 = high tertinggi sejak sweep; SELL kebalikannya; setup failure-to-manipulate: Fib 1 = swing berlawanan sebelum sweep), tanpa jarak SL minimal; leg gak kebentuk = SL 2x ATR M5; Fib 0,71 tetap dipakai hanya untuk menolak setup yang sudah patah). TP1 RR 1:2, TP2 RR 1:3 dari jarak SL baru. Ditolak kalau CE sudah melewati Fib 0,71. Limit expired 36 candle M5 (~3 jam){'\n'}
           Filter struktur H1 (mm2, 2026-11-02): satu-satunya yang bisa memblokir — sinyal ditolak kalau ada close H1 (body) yang sudah melewati Fib 0,705 dari leg H1 terakhir (swing fractal 3; BUY: swing high terbaru + swing low sebelumnya, SELL kebalikannya). Tanpa syarat HH/LL, tanpa poin skor, tidak mengubah logic di atas. Leg H1 belum terbentuk = tidak diblokir.
         </Text>
       </View>

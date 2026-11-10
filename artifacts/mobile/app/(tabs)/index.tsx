@@ -27,6 +27,8 @@ import { TFBreakdownTable } from '@/components/TFBreakdownTable';
 import { useGetBreakoutEntry, getGetBreakoutEntryQueryKey, useGetBreakoutEntryScan, getGetBreakoutEntryScanQueryKey, customFetch, type TechnicalSnapshot as ApiTechnicalSnapshot } from '@workspace/api-client-react';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, type JournalEntry } from './journal-helpers';
+import { smallPriceDecimals } from '@/components/priceFormat';
+import { useWrSort } from '@/components/wrStore';
 
 const ACCENT = MENU_COLORS.breakout;
 // ─── Types (mirror BreakoutTradingResult dari backend) ─────────────────────────
@@ -106,7 +108,7 @@ function formatPrice(price: number): string {
   if (price >= 1000) return price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (price >= 1) return price.toFixed(4);
   if (price >= 0.01) return price.toFixed(5);
-  return price.toFixed(6);
+  return price.toFixed(smallPriceDecimals(price));
 }
 
 // ─── Breakout Type Badge (khusus Menu 1) ────────────────────────────────────
@@ -264,6 +266,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('default');
+  const wrProgress = useWrSort((data as any)?.coins ?? [], sortKey);
 
   // FIX (request user, "Masukin Semua ke Journal"): status 'waiting' itu GAK
   // PUNYA entryPrice/SL/TP/bias sama sekali — gak bisa dievaluasi, OTOMATIS
@@ -399,7 +402,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <ScanNowButton onPress={startScan} isLoading={isFetching} colors={colors} />
       </View>
 
-      <SortSelector value={sortKey} onChange={setSortKey} />
+      <SortSelector value={sortKey} onChange={setSortKey} wrProgress={wrProgress} />
 
       {eligibleCount > 0 && (
         <Pressable
@@ -891,7 +894,7 @@ function SniperRingkasanTab({ colors }: { colors: ReturnType<typeof useColors> }
           2. M5 (fetch 300 candle): cari breakout SnR searah H1. SnR = cluster swing fractal 3 (toleransi 0,5 ATR, minimal 2 sentuhan). Breakout valid = close M5 pertama di luar cluster dengan volume ≥ 1,6x MA20{'\n'}
           3. Biarkan breakout membentuk swing high/low terbaru dulu (swing fractal 3; leg: swing low → swing high untuk BUY, kebalikannya untuk SELL). Range leg M5 minimal 2x ATR M5, kalau lebih kecil sinyal ditolak (bk5){'\n'}
           4. Area retest Fibonacci 0,5–0,618 dari leg. Ada FVG atau SNR kuat di zona → limit di tepi terdekat ke harga. Tidak ada → BUY dan SELL limit di Fib 0,559 (tengah zona){'\n'}
-          5. SL = entry ∓ 2x ATR M5{'\n'}
+          5. SL = SL anti-gocekan Setup Finder (v18): dihitung dari level entry — di luar swing 15M terdekat + kedalaman gocekan P90, atau di luar tembok order book (mana yang lebih jauh), digeser dari angka bulat, maksimal 4% dari entry. Kalau data Setup Finder gagal diambil, pakai SL bawaan (entry ∓ 2x ATR M5). TP1 RR 1:2 dihitung dari jarak SL baru{'\n'}
           6. TP1 = RR 1:2. TP2 = level Fib terkecil di 1,13 / 1,272 / 1,414 / 1,618 (SELL: -0,13 / -0,272 / -0,414 / -0,618) yang melewati TP1; kalau tidak ada yang melewati TP1 sinyal dilewati{'\n'}
           7. Batal bila: high/low baru melewati ujung leg, close menembus awal leg, limit sudah tersentuh, atau close kembali ke dalam level SnR (breakout gagal). Limit berlaku 24 jam.{'\n'}
           Catatan: strategi ini belum di-backtest, Journal yang jadi pembuktiannya. Detail yang tidak dijelaskan di file strategi (definisi SnR valid, pemilihan swing, level TP2) memakai tafsiran gua.

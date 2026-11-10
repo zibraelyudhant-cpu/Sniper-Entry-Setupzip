@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { customFetch } from '@workspace/api-client-react';
+import { getWrCached, loadWr, type WrResp } from '@/components/wrStore';
 import { useColors } from '@/hooks/useColors';
 import { MENU_COLORS } from '@/constants/theme';
+import { smallPriceDecimals } from '@/components/priceFormat';
 
 // ═══════════════════════════════════════════════════════════════════════
 // CEK ENTRY & SARAN (Setup Finder bagian 16) — komponen bersama.
@@ -14,7 +16,7 @@ import { MENU_COLORS } from '@/constants/theme';
 
 const ACCENT = MENU_COLORS.setupFinder;
 // Harga tampil dengan KOMA desimal (tanpa pemisah ribuan) supaya bisa disalin ke Binance versi koma (permintaan user 2026-11-08)
-const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6)).replace('.', ',');
+const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(smallPriceDecimals(v))).replace('.', ',');
 
 function Chip({ label, active, onPress, colors, accent }: { label: string; active: boolean; onPress: () => void; colors: ReturnType<typeof useColors>; accent: string }) {
   return (
@@ -150,11 +152,7 @@ export function SetupCheckPanel({ colors, initial, accent = ACCENT }: { colors: 
 // ─── WR di kartu hasil Scan ────────────────────────────────────────────────
 // WR dasar backtest (SAMA dengan "WR dasar" di Cek entry / layar Analisa), ±10 weight per koin.
 // Antrean maks 3 request bersamaan, hasil di-cache 5 menit. TP = TP2 kalau ada, kalau tidak TP1 (sama dengan layar Analisa).
-type WrResp = { wr: number; n: number; tf: '15M' | '1H'; usedAllCandles: boolean; rr: number; breakevenWr: number; avgR: number };
-const wrCache = new Map<string, { at: number; res: WrResp }>();
-let wrActive = 0; const wrQueue: Array<() => void> = [];
-function wrAcquire(): Promise<void> { return new Promise(r => { const go = () => { wrActive++; r(); }; if (wrActive < 3) go(); else wrQueue.push(go); }); }
-function wrRelease() { wrActive--; const n = wrQueue.shift(); if (n) n(); }
+// (cache + antrean WR ada di components/wrStore.ts, dipakai bersama urutan "Selisih WR")
 
 export function WrBadge({ colors, symbol, side, entry, sl, tp }: { colors: ReturnType<typeof useColors>; symbol: string; side: 'BUY' | 'SELL'; entry?: number; sl?: number; tp?: number }) {
   const [res, setRes] = useState<WrResp | null>(null);
@@ -164,16 +162,10 @@ export function WrBadge({ colors, symbol, side, entry, sl, tp }: { colors: Retur
   useEffect(() => {
     if (!ok) return;
     let dead = false;
-    const hit = wrCache.get(key);
-    if (hit && Date.now() - hit.at < 300_000) { setRes(hit.res); return; }
+    const hit = getWrCached(key);
+    if (hit) { setRes(hit); return; }
     setRes(null); setErr(false);
-    (async () => {
-      await wrAcquire();
-      try {
-        const r = await customFetch<WrResp>(`/api/setup-finder/wr?symbol=${encodeURIComponent(symbol)}&side=${side}&entry=${entry}&sl=${sl}&tp=${tp}`);
-        wrCache.set(key, { at: Date.now(), res: r }); if (!dead) setRes(r);
-      } catch { if (!dead) setErr(true); } finally { wrRelease(); }
-    })();
+    loadWr(symbol, side, entry!, sl!, tp!).then(r => { if (!dead) setRes(r); }).catch(() => { if (!dead) setErr(true); });
     return () => { dead = true; };
   }, [key]);
   if (!ok) return null;

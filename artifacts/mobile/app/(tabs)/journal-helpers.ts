@@ -133,7 +133,7 @@ export interface JournalEntry {
   mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 & TP2 RR 1:3 (2026-11-02)
   mmH1Struct?: 'ok' | 'unknown';     // struktur H1 saat sinyal (ok = belum ada close H1 melewati 0,705; unknown = leg belum terbentuk)
   mmH1Fib705?: number;               // level Fib 0,705 leg H1 (harga asli)
-  mmSlMode?: 'fib' | 'atr';          // mm3: 'fib' = SL di Fib 0,71 leg sweep→displacement; 'atr' = fallback 2 x ATR M5
+  mmSlMode?: 'fib' | 'atr' | 'sf';          // mm3: 'fib' = SL di Fib 0,71 leg sweep→displacement; 'atr' = fallback 2 x ATR M5
   mmFib0?: number;                   // harga Fib 0 leg (mode fib)
   mmFib1?: number;                   // harga Fib 1 leg (mode fib)
   mmAdxH4?: number;                  // ADX(14) H4 closed (aturan > 25)

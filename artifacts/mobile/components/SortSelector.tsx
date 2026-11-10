@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
+import { wrSelisihOf } from '@/components/wrStore';
 
 /**
  * Tombol sortir buat semua Menu Scan (request user — samain persis 3 kolom
@@ -10,7 +11,7 @@ import { useColors } from '@/hooks/useColors';
  * fundingRate) itu dari field marketMeta yang di-attach backend — sortirnya
  * sendiri dikerjain CLIENT-SIDE (data udah lengkap, gak perlu fetch ulang).
  */
-export type SortKey = 'default' | 'skor' | 'volume' | 'priceChange' | 'fundingRate';
+export type SortKey = 'default' | 'skor' | 'selisihWr' | 'volume' | 'priceChange' | 'fundingRate';
 
 export interface MarketMeta {
   priceChangePercent: number;
@@ -21,6 +22,7 @@ export interface MarketMeta {
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'default', label: 'Default' },
   { key: 'skor', label: 'Skor TA PRO' },
+  { key: 'selisihWr', label: 'Selisih WR' },
   { key: 'volume', label: 'Volume' },
   { key: 'priceChange', label: 'Perubahan 24j' },
   { key: 'fundingRate', label: 'Funding Rate' },
@@ -35,9 +37,10 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 // gak ke-trigger lagi. FIX: ganti jadi View biasa + flexWrap — cuma 4 opsi
 // pendek, GAK PERLU scroll horizontal sama sekali, jadi masalah nested-
 // scroll-conflict-nya HILANG TOTAL (bukan di-patch, tapi dihindarin).
-export function SortSelector({ value, onChange }: { value: SortKey; onChange: (key: SortKey) => void }) {
+export function SortSelector({ value, onChange, wrProgress }: { value: SortKey; onChange: (key: SortKey) => void; wrProgress?: { done: number; total: number } | null }) {
   const colors = useColors();
   return (
+    <>
     <View style={styles.row}>
       {SORT_OPTIONS.map(opt => {
         const active = value === opt.key;
@@ -54,6 +57,12 @@ export function SortSelector({ value, onChange }: { value: SortKey; onChange: (k
         );
       })}
     </View>
+    {value === 'selisihWr' && (
+      <Text style={{ fontSize: 10, color: colors.mutedForeground, marginBottom: 8 }}>
+        Urut dari selisih WR backtest (WR − impas) terbesar. {wrProgress && wrProgress.done < wrProgress.total ? `Menghitung WR ${wrProgress.done}/${wrProgress.total}…` : 'Koin tanpa entry/SL/TP atau gagal dihitung di paling bawah.'}
+      </Text>
+    )}
+    </>
   );
 }
 
@@ -82,6 +91,11 @@ export function applySorting<T>(items: T[], sortKey: SortKey, getMeta: (item: T)
   if (sortKey === 'skor') {
     // skor tertinggi dulu; yang belum punya skor di paling bawah; seri = urutan asli (sort stabil)
     sorted.sort((a, b) => (taProScoreOf(b)?.score ?? -99) - (taProScoreOf(a)?.score ?? -99));
+    return sorted;
+  }
+  if (sortKey === 'selisihWr') {
+    // selisih WR (WR backtest − impas) terbesar dulu; belum dihitung / gagal / tanpa entry di paling bawah; seri = urutan asli
+    sorted.sort((a, b) => (wrSelisihOf(b) ?? -999) - (wrSelisihOf(a) ?? -999));
     return sorted;
   }
   sorted.sort((a, b) => {

@@ -9,6 +9,7 @@ import { MENU_COLORS } from '@/constants/theme';
 import { SetupCheckPanel } from '@/components/SetupCheckPanel';
 import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { journalSave, journalSaveMany, journalGetLastWriteStatus, SCALPING_SKILL_SF, type JournalEntry } from './journal-helpers';
+import { smallPriceDecimals } from '@/components/priceFormat';
 
 // ═══════════════════════════════════════════════════════════════════════
 // SETUP FINDER (sf2, request user 2026-11-05) — spesifikasi_setup_finder.md
@@ -42,7 +43,7 @@ type ScanResponse = {
 };
 
 // Harga tampil dengan KOMA desimal (tanpa pemisah ribuan) supaya bisa disalin ke Binance versi koma (permintaan user 2026-11-08)
-const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6)).replace('.', ',');
+const fmt = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(smallPriceDecimals(v))).replace('.', ',');
 const fmtUsd = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(2)}jt` : `${Math.round(v / 1e3)}rb`);
 
 function Chip({ label, active, onPress, colors }: { label: string; active: boolean; onPress: () => void; colors: ReturnType<typeof useColors> }) {

@@ -27,6 +27,8 @@ import { MenuJournalSummary } from '@/components/MenuJournalSummary';
 import { MarketStructureV2Card } from '@/components/MarketStructureV2Card';
 import { SortSelector, applySorting, type SortKey, type MarketMeta } from '@/components/SortSelector';
 import { TFBreakdownTable } from '@/components/TFBreakdownTable';
+import { smallPriceDecimals } from '@/components/priceFormat';
+import { useWrSort } from '@/components/wrStore';
 
 const ACCENT = MENU_COLORS.scalping;
 
@@ -36,7 +38,7 @@ function formatPrice(price: number): string {
   if (price >= 1000) return price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (price >= 1) return price.toFixed(4);
   if (price >= 0.01) return price.toFixed(5);
-  return price.toFixed(6);
+  return price.toFixed(smallPriceDecimals(price));
 }
 
 // 2026-10-26: Menu Scalping GANTI TOTAL ke Retest Fib H1->M5 (EMA50/200 + ADX + Force Index EMA2 di H1, Fibonacci 0,5-0,618 di M5, entry LIMIT). Label skill baru biar statistik forward test bersih.
@@ -207,6 +209,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllResult, setSaveAllResult] = useState<{ savedCount: number; skippedCount: number } | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('default');
+  const wrProgress = useWrSort((data as any)?.coins ?? [], sortKey);
 
   // FIX (request user, "Masukin Semua ke Journal"): status 'waiting' itu GAK
   // PUNYA entryPrice/SL/TP/bias sama sekali (belum ada breakout kejadian) —
@@ -259,7 +262,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
     return (
       <View style={scanStyles.center}>
         <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
-        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Fibonacci Retest M15 (EMA640 + ADX + Force Index, Fib 0,5–0,618, limit)</Text>
+        <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>Fibonacci Retest M15 (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)</Text>
       </View>
     );
   }
@@ -305,7 +308,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <View style={scanStyles.center}>
           <ScanLoading label="SCANNING SCALPING" accentColor={ACCENT} />
           <Text style={[scanStyles.loadingSub, { color: colors.mutedForeground }]}>
-            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Fibonacci Retest M15 (EMA640 + ADX + Force Index, Fib 0,5–0,618, limit)'}
+            {totalCount > 0 ? `${scannedCount}/${totalCount} koin — hasil bakal muncul progresif` : 'Fibonacci Retest M15 (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)'}
           </Text>
         </View>
       );
@@ -347,7 +350,7 @@ function ScanTab({ colors, onSelectCoin }: { colors: ReturnType<typeof useColors
         <ScanNowButton onPress={startScan} isLoading={isFetching} colors={colors} />
       </View>
 
-      <SortSelector value={sortKey} onChange={setSortKey} />
+      <SortSelector value={sortKey} onChange={setSortKey} wrProgress={wrProgress} />
 
       {eligibleCount > 0 && (
         <Pressable
@@ -524,7 +527,7 @@ function AnalisaTab({ colors, initialSymbol, pinnedData }: { colors: ReturnType<
         <View style={styles.emptyState}>
           <Feather name="crosshair" size={40} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Fibonacci Retest Scanner</Text>
-          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Fibonacci Retest M15 (EMA640 + ADX + Force Index + struktur LL/HH, Fib 0,5–0,618, limit)</Text>
+          <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Masukkan pair untuk analisa — Fibonacci Retest M15 (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)</Text>
         </View>
       ) : (liveMode && isLoading) ? (
         <View style={styles.emptyState}>
@@ -740,7 +743,7 @@ export default function ScalpingScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={[styles.headerTitle, { color: colors.foreground }]}>Fibonacci Retest</Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 only (EMA640 + ADX + Force Index + struktur LL/HH, Fib 0,5–0,618, limit)</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>M15 only (EMA800/1120 + breakout SNR vol 1,6x, limit di SNR)</Text>
           </View>
           {activeTab === 'scan' && (
             <View style={[styles.liveDot, { backgroundColor: `${colors.bullish}20` }]}>
@@ -780,23 +783,20 @@ function ScalpingRingkasanTab({ colors }: { colors: ReturnType<typeof useColors>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Tentang Fibonacci Retest</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          Fibonacci Retest (rp9, 2026-11-08: TF M15 + EMA640; rp8 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di M15. Idenya: ikuti tren M15 yang kuat, masuk SEBELUM struktur berbalik (swing terbaru masih LL untuk SELL / HH untuk BUY, belum HL/LH), lalu pasang LIMIT order di zona retracement Fibonacci 0,5–0,618 dari leg M15, dengan level limit diarahkan ke FVG / Order Block / SNR bila ada. Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
+          Fibonacci Retest (rp10, 2026-11-09: logic baru; rp9 M15 + EMA640; rp8 2026-11-02; rp7 2026-11-01; sebelumnya Scalping Retest Fib H1→M5). Single timeframe: semuanya di M15. Idenya: ikuti arah breakout SNR yang valid (volume kuat), masuk SEBELUM struktur berbalik (swing baru L→H / H→L sudah ada, tapi belum LH / HL), lalu pasang LIMIT order di SNR yang baru ditembus (masih fresh). Semua pakai candle yang SUDAH CLOSE.{'\n\n'}
           Status: strategi ini BELUM di-backtest, sengaja dibuktikan lewat Jurnal (forward test). Lihat kartu "FORWARD TEST" di bawah (kriteria: 100 sinyal resolve, win rate &gt; 38%, avgR &gt; 0). Sinyal yang tidak terisi sampai 24 jam dicatat EXPIRED dan tidak dihitung menang/kalah.
         </Text>
       </View>
       <View style={{ backgroundColor: `${colors.border}20`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.foreground, marginBottom: 8 }}>Alur Logic</Text>
         <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 19 }}>
-          1. M15 (fetch 1500 candle, minimal 700 tertutup): close di atas EMA640 → BUY; di bawah EMA640 → SELL{'\n'}
-          1b. Struktur M15 (swing fractal 3): SELL = swing low terbaru harus LL, BUY = swing high terbaru harus HH. Kalau swing terbaru sudah HL (SELL) / LH (BUY) = telat masuk, ditolak. Leg Fib = swing high terakhir sebelum swing low itu (BUY kebalikannya){'\n'}
-          1c. Tolak bila ada close M15 (body, bukan wick) melewati Fib 0,705 leg itu (struktur patah), atau high/low (termasuk candle berjalan) sudah melewati ujung leg (leg belum final){'\n'}
-          2. M15: ADX(14) &gt; 29,4 (tanpa syarat arah DI){'\n'}
-          3. M15: Force Index (EMA 2) wajib positif untuk BUY, negatif untuk SELL{'\n'}
-          4. Zona entry = retrace Fibonacci 0,5–0,618 dari leg M15{'\n'}
-          5. Konfluensi di zona: FVG yang belum tertutup, Order Block yang belum dimitigasi, atau SNR (cluster swing fractal 3, toleransi 0,5 ATR, ≥ 2 sentuhan). Bukan filter wajib, hanya menentukan level limit{'\n'}
-          6. LIMIT di tepi konfluensi terdekat ke harga (tetap di dalam zona); tanpa konfluensi → limit di tengah zona (retrace 0,559). Batal bila limit sudah tersentuh sejak swing terbentuk atau harga sudah di limit{'\n'}
-          7. SL = entry ∓ 1x ATR M15. TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618. Syarat leg: range leg M15 minimal 2x ATR M15, kalau lebih kecil sinyal ditolak (rp8, dari studi Futures Replay 4 tahun){'\n'}
-          8. Kedaluwarsa 24 jam. Satu sinyal per leg. Label Jurnal "Fibonacci Retest", versi rp9 (rp8 = H1 + EMA50/200; entri rp8 ke bawah tetap di label yang sama, bedakan lewat versi). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
+          1. Tren M15 (fetch 1500 candle, minimal 1200 tertutup): close di atas EMA800 dan EMA1120 → BULLISH (hanya BUY); di bawah keduanya → BEARISH (hanya SELL); di antara keduanya → SIDEWAYS (logic sama, arah breakout valid yang menentukan BUY/SELL){'\n'}
+          2. Breakout SNR valid: close M15 pertama yang menembus cluster SNR (swing fractal 3, toleransi 0,5 ATR, minimal 2 sentuhan), candle searah, volume ≥ 1,6x MA20. Dicari dalam 200 candle terakhir. Batal bila ada close kembali di sisi lain cluster{'\n'}
+          3. Setelah breakout, harus sudah terbentuk swing baru yang valid (L→H untuk BUY, H→L untuk SELL). Kalau sudah terbentuk LH (BUY) / HL (SELL) = telat masuk, ditolak{'\n'}
+          4. Leg Fib = swing terakhir berlawanan sebelum swing baru itu (SELL: swing high terakhir sebelum swing low). Range leg minimal 2x ATR(14) M15; ujung leg belum boleh dilewati (termasuk candle berjalan){'\n'}
+          5. LIMIT di SNR yang baru ditembus: BUY di tepi atas cluster, SELL di tepi bawah cluster. Harus fresh: belum tersentuh sejak breakout dan harga belum di level limit{'\n'}
+          6. SL = SL anti-gocekan Setup Finder (v18): dihitung dari level entry — di luar swing 15M terdekat + kedalaman gocekan P90, atau di luar tembok order book (mana yang lebih jauh), digeser dari angka bulat, maksimal 4% dari entry. Kalau data Setup Finder gagal diambil, pakai SL bawaan (entry ∓ 2x ATR M15). TP1 = ekstensi Fib 1,272, TP2 = ekstensi Fib 1,618 (RR tidak tetap){'\n'}
+          7. Kedaluwarsa 24 jam. Satu sinyal per leg. Filter lama (ADX, Force Index, Fib 0,705, zona 0,5–0,618, FVG/OB) tidak dipakai lagi di rp10. Label Jurnal "Fibonacci Retest", versi rp10 (rp9 ke bawah tetap di label yang sama, bedakan lewat versi). Sinyal lama (label "Scalping Retest Fib H1→M5") tetap tampil terpisah.
         </Text>
       </View>
       <MenuJournalSummary sourceMenu="Scalping" accentColor={ACCENT} />

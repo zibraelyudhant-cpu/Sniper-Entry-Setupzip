@@ -26,6 +26,7 @@ import {
   type JournalBreakdown, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
 } from './journal-helpers';
 import { simulateFilters, taComponentAnalysis, type FilterScope } from './journal-research';
+import { smallPriceDecimals } from '@/components/priceFormat';
 
 const ACCENT = MENU_COLORS.journal;
 
@@ -33,7 +34,7 @@ function formatPrice(v: number): string {
   if (v >= 1000) return v.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (v >= 1) return v.toFixed(4);
   if (v >= 0.01) return v.toFixed(5);
-  return v.toFixed(6);
+  return v.toFixed(smallPriceDecimals(v));
 }
 
 const MENU_FILTER_COLORS: Record<SourceMenu, string> = {
@@ -258,7 +259,7 @@ function JournalEntryCard({
                 </Text>
                 <IndicatorRow label="Struktur H1 (filter Fib 0,705)" value={entry.mmH1Struct === 'ok' ? 'aman, belum ada close H1 melewati 0,705' : 'belum bisa dinilai (leg H1 belum terbentuk)'} colors={colors} />
                 {entry.mmH1Fib705 !== undefined && <IndicatorRow label="Fib 0,705 leg H1" value={String(entry.mmH1Fib705)} colors={colors} />}
-                {entry.mmSlMode !== undefined && <IndicatorRow label="SL (mm3)" value={entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
+                {entry.mmSlMode !== undefined && <IndicatorRow label="SL (mm3)" value={entry.mmSlMode === 'sf' ? 'Anti-gocekan Setup Finder (dari entry)' : entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
                 {entry.mmFib0 !== undefined && entry.mmFib1 !== undefined && <IndicatorRow label="Leg Fib (Fib 1 – Fib 0)" value={`${entry.mmFib1} – ${entry.mmFib0}`} colors={colors} />}
               </>
             )}

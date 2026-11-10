@@ -517,6 +517,33 @@ function antiGocekSl(ctx: Ctx, side: Side, capMode: SlCapMode | 'none') {
   return { sl, src: far.src, rounded, clipped, rejected: capMode === 'tolak' && tooFar };
 }
 
+// SL anti-gocekan untuk LEVEL ENTRY tertentu (dipakai menu Sniper / Fibo Retest / Money Magnet, v18+).
+// Logika sama dengan antiGocekSl, tapi dijangkarkan ke ENTRY limit (bukan harga live): swing terdekat DI LUAR entry,
+// tembok order book DI LUAR entry (jarak <= 3% dari entry), angka bulat di sekitar SL, batas 4% dari entry (dipotong).
+export async function sfAntiGocekForEntry(symbol: string, side: Side, entry: number): Promise<{ sl: number; src: 'swing' | 'wall' | 'fallback'; rounded: boolean; clipped: boolean; p90: number }> {
+  const ctx = await loadCtx(symbol, { rr: [2], side, minWall: SF.walls.minUsdt }, false);
+  const buy = side === 'BUY'; const sgn = buy ? 1 : -1; const { atr15, atrH1, p90 } = ctx;
+  const wallsSide = ctx.allWalls.filter(w => w.side === (buy ? 'bid' : 'ask') && (buy ? w.price < entry : w.price > entry) && Math.abs(entry - w.price) / entry * 100 <= SF.walls.maxDistPct);
+  const bigWall = [...wallsSide].sort((a, b) => b.value - a.value);
+  const slWall = bigWall.find(w => w.real) ?? bigWall[0] ?? null;
+  const sw = findSwings(ctx.k15, SF.swing.fractal);
+  const fromIdx = ctx.k15.length - SF.swing.lookback;
+  const outside = (buy ? sw.lows.filter(s => s.i >= fromIdx && s.p < entry).sort((a, b) => b.p - a.p) : sw.highs.filter(s => s.i >= fromIdx && s.p > entry).sort((a, b) => a.p - b.p));
+  const swing = outside[0];
+  const cands: Array<{ v: number; src: 'swing' | 'wall' | 'fallback' }> = [];
+  if (swing) cands.push({ v: swing.p - sgn * (p90 + SF.sl.swingBufAtr) * atr15, src: 'swing' });
+  if (slWall) cands.push({ v: slWall.price - sgn * SF.sl.wallBufAtr1h * atrH1, src: 'wall' });
+  if (!cands.length) cands.push({ v: entry - sgn * SF.sl.fallbackAtr1h * atrH1, src: 'fallback' });
+  const far = cands.reduce((a, b) => (buy ? (b.v < a.v ? b : a) : (b.v > a.v ? b : a)));
+  let sl = far.v; let rounded = false;
+  for (const r of roundLevels(entry)) {
+    if (Math.abs(sl - r) <= SF.round.zoneAtr * p90 * atr15) { sl = r - sgn * (SF.round.zoneAtr * p90 + SF.sl.roundBuf) * atr15; rounded = true; break; }
+  }
+  let clipped = false;
+  if (Math.abs(entry - sl) / entry * 100 > SF.sl.maxPct) { sl = entry * (1 - sgn * SF.sl.maxPct / 100); clipped = true; }
+  return { sl, src: far.src, rounded, clipped, p90 };
+}
+
 // kandidat entry (spek #10) — validitas dicek pemanggil
 function entryCandidates(ctx: Ctx, side: Side) {
   const buy = side === 'BUY'; const sgn = buy ? 1 : -1;
