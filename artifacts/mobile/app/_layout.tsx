@@ -16,9 +16,13 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { setBaseUrl } from '@workspace/api-client-react';
+import { journalSyncStart } from './(tabs)/journal-helpers';
 
 // Set API base URL for the Expo client (absolute URL needed outside the web proxy)
 setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+
+// v25: sinkron jurnal HP <-> server saat app dibuka (latar belakang, tanpa tombol)
+setTimeout(() => { journalSyncStart().catch(() => {}); }, 3000);
 
 SplashScreen.preventAutoHideAsync();
 

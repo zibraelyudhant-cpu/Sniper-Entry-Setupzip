@@ -1,9 +1,6 @@
 // SMC (Smart Money Concepts) Analysis Library
 // Implements top-down analysis: H4 → H1 → 15M → 5M
 
-import { spawn } from 'child_process';
-import nodePath from 'path';
-import nodeFs from 'fs';
 import { CRT_PARAMS } from './crt-engine';
 import { sfAntiGocekForEntry, gocekP90FromOhlc, sfRoundLevels, SF_ROUND_ZONE_ATR, SF_ROUND_BUF } from './setup-finder';
 
@@ -110,9 +107,11 @@ export async function fetchKlines(
   // koin x 2 skill): retry dinaikkan dari 2x ke 3x, delay awal diperpanjang
   // dari 3 detik ke 5 detik (exponential: 5s, 10s, 15s)
   for (let attempt = 0; attempt < 3; attempt++) {
+    await binanceWeightGate();
     const res = await fetch(url, {
       headers: { 'Accept': 'application/json' }
     });
+    noteBinanceWeight(res);
     if (res.status === 418 || res.status === 429) {
       // Rate limited — tunggu sebentar lalu retry
       await new Promise(r => setTimeout(r, 5000 * (attempt + 1)));
@@ -133,6 +132,109 @@ export async function fetchKlines(
     return result;
   }
   throw new Error(`Klines fetch failed after retries: rate limited`);
+}
+
+// ─── v25: rem weight Binance + ambil candle beberapa halaman ───────────────
+// Rem: baca header X-MBX-USED-WEIGHT-1M dari tiap respons kline. Kalau sudah >= 1800 (batas Binance 2400/menit),
+// request kline berikutnya ditahan sampai menit berikutnya.
+const BINANCE_WEIGHT_BRAKE = 1800;
+let binanceWeight = { used: 0, minute: 0 };
+function noteBinanceWeight(res: Response): void {
+  const w = Number(res.headers.get('x-mbx-used-weight-1m'));
+  if (Number.isFinite(w) && w > 0) binanceWeight = { used: w, minute: Math.floor(Date.now() / 60_000) };
+}
+async function binanceWeightGate(): Promise<void> {
+  const m = Math.floor(Date.now() / 60_000);
+  if (binanceWeight.minute === m && binanceWeight.used >= BINANCE_WEIGHT_BRAKE) {
+    await new Promise(r => setTimeout(r, (m + 1) * 60_000 - Date.now() + 250));
+  }
+}
+
+type KRow = [number, number, number, number, number, number, number]; // t, o, h, l, c, v, takerBuy
+const INTERVAL_MS_SRV: Record<string, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
+const DEEP_OLD_CACHE_MS = 6 * 3_600_000; // halaman lama di-cache 6 jam per koin
+const deepOldCache = new Map<string, { ts: number; rows: KRow[] }>();
+async function fetchKlinePage(symbol: string, interval: string, limit: number, endTime?: number): Promise<KRow[]> {
+  const url = `${BINANCE_FUTURES_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}${endTime !== undefined ? `&endTime=${endTime}` : ''}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await binanceWeightGate();
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    noteBinanceWeight(res);
+    if (res.status === 418 || res.status === 429) { await new Promise(r => setTimeout(r, 5000 * (attempt + 1))); continue; }
+    if (!res.ok) throw new Error(`Klines fetch failed: ${res.status}`);
+    const data = (await res.json()) as unknown[][];
+    return data.map(k => [Number(k[0]), parseFloat(k[1] as string), parseFloat(k[2] as string), parseFloat(k[3] as string), parseFloat(k[4] as string), parseFloat(k[5] as string), parseFloat(k[9] as string)] as KRow);
+  }
+  throw new Error('Klines fetch failed after retries: rate limited');
+}
+/**
+ * v25: candle sampai minimal `needRows` baris (termasuk candle berjalan) lewat beberapa halaman (maks 1500 per request).
+ * Halaman pertama tanpa endTime; berikutnya endTime = openTime candle paling lama - 1. Digabung, duplikat dibuang, urut lama -> baru.
+ * Halaman LAMA (ke-2 dst) di-cache 6 jam per koin+TF; scan berikutnya cukup ambil halaman terbaru lalu digabung dengan cache.
+ */
+export async function fetchKlinesDeep(symbol: string, interval: string, needRows: number): Promise<KlineData> {
+  const iv = INTERVAL_MS_SRV[interval] ?? 0;
+  const latest = await fetchKlinePage(symbol, interval, 1500);
+  let rows: KRow[] = latest;
+  if (latest.length >= 1500 && needRows > latest.length) {
+    const key = `${symbol}_${interval}`;
+    const first = latest[0]![0];
+    const hit = deepOldCache.get(key);
+    let older: KRow[] | null = null;
+    // cache dipakai kalau masih < 6 jam DAN nyambung (candle terbaru cache tepat sebelum / menumpuk halaman terbaru)
+    if (hit && Date.now() - hit.ts < DEEP_OLD_CACHE_MS && hit.rows.length && hit.rows[hit.rows.length - 1]![0] >= first - iv) {
+      older = hit.rows.filter(r => r[0] < first);
+    }
+    if (!older || older.length + latest.length < needRows) {
+      older = [];
+      let end = first - 1;
+      for (let page = 0; page < 6 && older.length + latest.length < needRows; page++) {
+        const pg = await fetchKlinePage(symbol, interval, 1500, end);
+        if (!pg.length) break;
+        older = [...pg, ...older];
+        end = pg[0]![0] - 1;
+        if (pg.length < 1500) break; // sudah sampai candle paling awal (koin baru listing)
+      }
+      deepOldCache.set(key, { ts: Date.now(), rows: older });
+    }
+    const seen = new Set<number>();
+    rows = [...older, ...latest].filter(r => (seen.has(r[0]) ? false : (seen.add(r[0]), true))).sort((x, y) => x[0] - y[0]);
+  }
+  return {
+    opens: rows.map(r => r[1]), highs: rows.map(r => r[2]), lows: rows.map(r => r[3]), closes: rows.map(r => r[4]),
+    volumes: rows.map(r => r[5]), times: rows.map(r => r[0]), takerBuyVolumes: rows.map(r => r[6]),
+  };
+}
+
+/** v25: EMA versi lama vs baru untuk dicocokkan dengan TradingView (BINANCE:<symbol>.P). Candle tertutup saja. */
+export async function emaCheck(symbol: string) {
+  const closedOf = (k: KlineData, iv: number) => {
+    const n = k.times.length - (k.times.length && k.times[k.times.length - 1]! + iv > Date.now() ? 1 : 0);
+    return { closes: k.closes.slice(0, n), times: k.times.slice(0, n) };
+  };
+  const last = (arr: number[], p: number) => { const s = calcEMASeries(arr, p); return s.length ? s[s.length - 1]! : NaN; };
+  const wib = (t: number) => new Date(t).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+  const m15Old = closedOf(await fetchKlines(symbol, '15m', 1500, true), 900_000);
+  const m15New = closedOf(await fetchKlinesDeep(symbol, '15m', SCALPING_RP.HTF_MIN_BARS + 1), 900_000);
+  const h1Old = closedOf(await fetchKlines(symbol, '1h', 300, true), 3_600_000);
+  const h1New = closedOf(await fetchKlines(symbol, '1h', SNIPER_BK.HTF_FETCH, true), 3_600_000);
+  const lt = (x: { times: number[] }, iv: number) => { const t = x.times[x.times.length - 1]!; return { lastClosedOpenUtc: new Date(t).toISOString(), lastClosedCloseWib: wib(t + iv) }; };
+  return {
+    symbol, tradingView: `BINANCE:${symbol}.P`,
+    m15: {
+      ...lt(m15New, 900_000),
+      old: { candles: m15Old.closes.length, ema800: last(m15Old.closes, 800), ema1120: last(m15Old.closes, 1120) },
+      new: { candles: m15New.closes.length, ema800: last(m15New.closes, 800), ema1120: last(m15New.closes, 1120) },
+      lastClose: m15New.closes[m15New.closes.length - 1],
+    },
+    h1: {
+      ...lt(h1New, 3_600_000),
+      old: { candles: h1Old.closes.length, ema50: last(h1Old.closes, 50), ema200: last(h1Old.closes, 200) },
+      new: { candles: h1New.closes.length, ema50: last(h1New.closes, 50), ema200: last(h1New.closes, 200) },
+      lastClose: h1New.closes[h1New.closes.length - 1],
+    },
+    note: 'Nilai di TradingView dibaca pada candle tertutup yang sama (lastClosed...). EMA versi baru seharusnya hampir sama persis dengan TradingView; versi lama bisa meleset karena data kurang dari 3x panjang EMA.',
+  };
 }
 
 // ─── Fetch Open Interest & CVD Spot (BARU — basis skill "CVD Spot + OI
@@ -1368,11 +1470,11 @@ async function checkBtcCorrelationFilter(
 // ═══════════════════════════════════════════════════════════════════════════
 export const SCALPING_CRT = CRT_PARAMS; // LEGACY: konstanta CRT lama (tidak dipakai lagi)
 export const SCALPING_RP = {
-  VERSION: 'rp11', // rp11 (2026-11-10) = konfirmasi breakout 4 candle, swing dari low sejak breakout, limit % di cluster, SL dari cluster + P90, sideways opsional; rp10 (2026-11-09) = EMA800/1120 + breakout SNR; rp9 = EMA640 + ADX + Force Index; rp8 = leg >= 2 ATR; rp7 = H1
+  VERSION: 'rp12', // rp12 (2026-11-11) = EMA800/1120 dari >= 3400 candle M15 tertutup (3 halaman + cache 6 jam), logic lain sama rp11; rp11 (2026-11-10) = rp11 (2026-11-10) = konfirmasi breakout 4 candle, swing dari low sejak breakout, limit % di cluster, SL dari cluster + P90, sideways opsional; rp10 (2026-11-09) = EMA800/1120 + breakout SNR; rp9 = EMA640 + ADX + Force Index; rp8 = leg >= 2 ATR; rp7 = H1
   SKILL_LABEL: 'Fibonacci Retest',
   TF: '15m', TF_LABEL: 'M15', TF_MS: 900_000,
-  HTF_FETCH: 1500, // EMA1120 butuh > 1120 candle + warmup (batas Binance 1500)
-  HTF_MIN_BARS: 1200,
+  HTF_FETCH: 1500, // LEGACY (rp11); rp12 pakai fetchKlinesDeep
+  HTF_MIN_BARS: 3400, // rp12: EMA1120 butuh >= 3x panjang = 3360 -> 3400 candle M15 tertutup
   EMA_A: 800, EMA_B: 1120,
   SWING: 3, // fractal 3 kiri-kanan (swing struktur, SNR)
   SCAN_BARS: 200, // jendela candle M15 untuk cluster SNR dan pencarian breakout
@@ -1535,14 +1637,14 @@ export async function analyzeScalpingEntry(symbol: string, optsIn: ScalpingOpts 
     ({ status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message, maxScore });
 
   try {
-    const raw = await fetchKlines(symbol, K.TF, K.HTF_FETCH, true);
+    const raw = await fetchKlinesDeep(symbol, K.TF, K.HTF_MIN_BARS + 1); // rp12: >= 3400 tertutup + candle berjalan
     const nowMs = Date.now();
     const last = raw.times.length - 1;
     const forming = last >= 0 && raw.times[last]! + K.TF_MS > nowMs;
     const cN = forming ? last : last + 1; // jumlah candle M15 yang sudah close
     const currentPrice = last >= 0 ? raw.closes[last]! : 0;
     if (cN < K.HTF_MIN_BARS) {
-      return { status: 'error', symbol, currentPrice, timestamp, mode: 'structural', message: `Data candle gak cukup (butuh M15 ${K.HTF_MIN_BARS}+ candle tertutup, ada ${cN})`, maxScore };
+      return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'structural', message: `Data belum cukup untuk EMA (ada ${cN} candle M15 tertutup, butuh ${K.HTF_MIN_BARS})`, maxScore };
     }
     const o = raw.opens.slice(0, cN), h = raw.highs.slice(0, cN), l = raw.lows.slice(0, cN), c = raw.closes.slice(0, cN), v = raw.volumes.slice(0, cN);
     const fmt = (x: number) => x.toFixed(6);
@@ -3499,9 +3601,9 @@ export interface BreakoutTradingResult {
 //     Fib 0,705 leg H1 = batas struktur: ada close candle H1 melewatinya sejak swing terbentuk -> sinyal ditolak (ekor candle tidak dihitung).
 //     Close H1 terakhir sudah melewati swing itu (low/high baru sedang terbentuk) -> tunggu swing.
 const SNIPER_BK = {
-  VERSION: 'bk6', // bk6 (2026-11-10) = konfirmasi breakout 12 candle M5, leg dari low terendah sejak breakout + geser leg, entry tengah FVG/SNR dalam zona (terdekat ke fib entry), SL dari L/H + P90 gocekan M5, kedaluwarsa 6 jam, Fib H1 & fib entry jadi pengaturan; bk5 (2026-11-02) = bk5 (2026-11-02) = + leg M5 minimal 2 x ATR(M5) (studi Futures Replay 4 tahun); bk4 (2026-11-01) = zona entry Fib 0,5-0,618 dan fallback BUY/SELL sama-sama Fib 0,559 (tengah zona); bk1 = fractal 2-2, fallback Fib 0,5; bk2 = fractal 3, fallback BUY 0,705 / SELL 0,5; bk3 (2026-11-01) = + struktur H1 (LL/HH) & batas Fib 0,705 H1
+  VERSION: 'bk7', // bk7 (2026-11-11) = EMA50/200 H1 dari >= 600 candle H1 tertutup (sebelumnya 300), logic lain sama bk6; bk6 (2026-11-10) = bk6 (2026-11-10) = konfirmasi breakout 12 candle M5, leg dari low terendah sejak breakout + geser leg, entry tengah FVG/SNR dalam zona (terdekat ke fib entry), SL dari L/H + P90 gocekan M5, kedaluwarsa 6 jam, Fib H1 & fib entry jadi pengaturan; bk5 (2026-11-02) = bk5 (2026-11-02) = + leg M5 minimal 2 x ATR(M5) (studi Futures Replay 4 tahun); bk4 (2026-11-01) = zona entry Fib 0,5-0,618 dan fallback BUY/SELL sama-sama Fib 0,559 (tengah zona); bk1 = fractal 2-2, fallback Fib 0,5; bk2 = fractal 3, fallback BUY 0,705 / SELL 0,5; bk3 (2026-11-01) = + struktur H1 (LL/HH) & batas Fib 0,705 H1
   H1_SWING: 3, H1_FIB_BREAK: 0.705,
-  HTF_FETCH: 300, LTF_FETCH: 1000, HTF_MIN_BARS: 250, // bk6: M5 300 -> 1000 (P90 gocekan rumus Setup Finder butuh 1000 candle)
+  HTF_FETCH: 601, LTF_FETCH: 1000, HTF_MIN_BARS: 600, // bk7: EMA200 butuh >= 3x = 600 candle H1 tertutup (+1 candle berjalan, 1 request) // bk6: M5 300 -> 1000 (P90 gocekan rumus Setup Finder butuh 1000 candle)
   CONFIRM_BARS: 12, // bk6: 12 candle M5 setelah breakout tidak boleh close kembali masuk cluster
   FIB_ENTRY_DEFAULT: 0.559, FIB_ENTRY_OPTIONS: [0.5, 0.559, 0.618], // bk6: pengaturan level fib entry
   H1_FIB_OPTIONS: [0.618, 0.705, 0.786], // bk6: pengaturan batas Fib H1 (default H1_FIB_BREAK)
@@ -3741,7 +3843,7 @@ export async function analyzeCounterStructural(symbol: string, optsIn: SniperOpt
     const formingM = lastM >= 0 && m5Raw.times[lastM]! + 300_000 > nowMs;
     const cH = h1Raw.closes.length - (formingH ? 1 : 0);
     const cM = m5Raw.closes.length - (formingM ? 1 : 0);
-    if (cH < K.HTF_MIN_BARS) return { status: 'error', symbol, currentPrice, timestamp, message: `Data H1 kurang (butuh ${K.HTF_MIN_BARS} candle tertutup)`, maxScore };
+    if (cH < K.HTF_MIN_BARS) return { status: 'no_setup', symbol, currentPrice, timestamp, message: `Data belum cukup untuk EMA (ada ${cH} candle H1 tertutup, butuh ${K.HTF_MIN_BARS})`, maxScore };
     if (cM < 60) return { status: 'error', symbol, currentPrice, timestamp, message: 'Data M5 kurang (butuh 60+ candle tertutup)', maxScore };
 
     // 1. H1: struktur market via EMA50 / EMA200
@@ -3874,171 +3976,8 @@ function scaleForTFH1Basis(h1Count: number, tf: 'M5' | 'M15' | 'M30' | 'H4'): nu
   return Math.round(h1Count * ratio[tf]!);
 }
 
-export interface PyBacktestSummary {
-  totalTrades: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-  trades: Array<{ bias: string; result: 'WIN' | 'LOSE'; entryPrice: number; stopLoss: number; takeProfit1: number; entryTime: number; exitTime: number }>;
-}
-
-export interface BacktestResult {
-  symbol: string;
-  period: string;
-  timestamp: string;
-  structuralResult: PyBacktestSummary | null;
-  scalping15mResult: PyBacktestSummary | null;
-  counterScalpingResult: PyBacktestSummary | null;
-  elapsedSeconds: number;
-}
-
-/**
- * Spawn Python subprocess (request user, opsi B — child_process, BUKAN
- * service HTTP terpisah). Kirim data candle via stdin (JSON), terima hasil
- * backtest via stdout (JSON).
- */
-// FIX BUG KRUSIAL (ketemu user — EPIPE gara-gara path SALAH TOTAL): folder
-// backtest_py/ itu PYTHON, BUKAN bagian dari bundle esbuild — jadi __dirname
-// (yang nunjuk ke folder HASIL BUILD, dist/) itu SALAH basis buat cari
-// backtest_py/ (yang lokasinya di src/backtest_py/, BUKAN dist/backtest_py/
-// ATAU 1 folder di atas dist/). Cek BEBERAPA kandidat lokasi yang mungkin
-// (dev vs production build beda struktur), pakai yang PERTAMA GENUINELY ADA
-// — biar gak assumsi struktur folder yang belum tentu benar di semua environment.
-function resolveBacktestScriptPath(): string {
-  const candidates = [
-    nodePath.join(process.cwd(), 'src', 'backtest_py', 'backtest_engine.py'), // dev: cwd = api-server/
-    nodePath.join(process.cwd(), 'backtest_py', 'backtest_engine.py'), // fallback kalau cwd udah di src/
-    nodePath.join(__dirname, '..', 'backtest_py', 'backtest_engine.py'), // fallback lama (dist/../backtest_py)
-    nodePath.join(__dirname, 'backtest_py', 'backtest_engine.py'),
-  ];
-  for (const candidate of candidates) {
-    if (nodeFs.existsSync(candidate)) return candidate;
-  }
-  throw new Error(`backtest_engine.py gak ketemu di kandidat manapun: ${candidates.join(', ')} (cwd: ${process.cwd()}, __dirname: ${__dirname})`);
-}
-
-function runPythonBacktest(payload: object): Promise<{ structuralResult: PyBacktestSummary | null; scalping15mResult: PyBacktestSummary | null; counterScalpingResult: PyBacktestSummary | null; elapsedSeconds: number }> {
-  return new Promise((resolve, reject) => {
-    let scriptPath: string;
-    try {
-      scriptPath = resolveBacktestScriptPath();
-    } catch (err) {
-      reject(err instanceof Error ? err : new Error('Gagal cari backtest_engine.py'));
-      return;
-    }
-    const proc = spawn('python3', [scriptPath]);
-
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const safeResolve = (v: any) => { if (!settled) { settled = true; resolve(v); } };
-    const safeReject = (e: Error) => { if (!settled) { settled = true; reject(e); } };
-
-    // FIX BUG KRUSIAL (ketemu user — EPIPE bikin SELURUH SERVER CRASH, 2x
-    // kejadian): semua listener error (proc + SEMUA stream stdin/stdout/
-    // stderr) WAJIB di-attach SEBELUM proc.stdin.write() dipanggil — kalau
-    // proses child mati SANGAT CEPAT (spawn gagal, python3 crash instant,
-    // dst), event 'error' bisa ke-emit SEBELUM baris write() sempat jalan.
-    // 'error' di level proc TIDAK otomatis nangkep error di child stream
-    // (itu EventEmitter TERPISAH) — makanya HARUS dipasang manual di
-    // stdin/stdout/stderr juga, bukan cuma proc.
-    proc.on('error', (err: Error) => safeReject(new Error(`Gagal spawn python3: ${err.message}`)));
-    proc.stdin.on('error', (err: Error) => safeReject(new Error(`stdin error (proses Python kemungkinan mati dini — cek python3 & pandas/numpy terinstall): ${err.message}`)));
-    proc.stdout.on('error', (err: Error) => safeReject(new Error(`stdout error: ${err.message}`)));
-    proc.stderr.on('error', (err: Error) => safeReject(new Error(`stderr error: ${err.message}`)));
-
-    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-
-    proc.on('close', (code: number) => {
-      if (code !== 0) {
-        safeReject(new Error(`Python backtest exit code ${code}: ${stderr.slice(-2000) || '(stderr kosong)'}`));
-        return;
-      }
-      try {
-        safeResolve(JSON.parse(stdout));
-      } catch {
-        safeReject(new Error(`Gagal parse output Python: ${stdout.slice(-1000)}`));
-      }
-    });
-
-    // Timeout guard — backtest 3 tahun bisa lama, tapi kalau subprocess
-    // hang/gak pernah exit, jangan biarin request nge-gantung selamanya.
-    const timeoutMs = 5 * 60 * 1000; // 5 menit
-    const timer = setTimeout(() => {
-      if (!settled) {
-        try { proc.kill(); } catch {}
-        safeReject(new Error('Backtest timeout (>5 menit) — coba periode lebih pendek'));
-      }
-    }, timeoutMs);
-    proc.on('close', () => clearTimeout(timer));
-
-    if (!proc.pid) {
-      // spawn gagal total, gak ada PID sama sekali — jangan coba write ke stdin
-      safeReject(new Error('Gagal spawn subprocess python3 (proc.pid kosong)'));
-      return;
-    }
-
-    try {
-      proc.stdin.write(JSON.stringify(payload));
-      proc.stdin.end();
-    } catch (err) {
-      safeReject(err instanceof Error ? err : new Error('Gagal nulis ke stdin Python subprocess'));
-    }
-  });
-}
-
-export async function runBacktest(
-  symbol: string,
-  period: '1m' | '3m' | '6m' | '1y' | '2y' | '3y',
-  menu: 'structural' | 'scalping15m' | 'counter_scalping' | 'both',
-): Promise<BacktestResult> {
-  const timestamp = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit',
-    day: '2-digit', month: 'long', year: 'numeric',
-  }) + ' WIB';
-
-  const h1Count = getPeriodLimitH1(period);
-  const needM30 = menu === 'structural' || menu === 'both';
-  const needM5 = menu === 'structural' || menu === 'both';
-  const needM15 = menu === 'scalping15m' || menu === 'both';
-  const needH4 = menu === 'structural' || menu === 'scalping15m' || menu === 'both';
-  const needH1 = menu === 'counter_scalping' || menu === 'both';
-
-  const [m30, m5, m15, h4, h1, btcH1] = await Promise.all([
-    needM30 ? fetchKlinesLong(symbol, '30m', scaleForTFH1Basis(h1Count, 'M30')) : Promise.resolve(null),
-    needM5 ? fetchKlinesLong(symbol, '5m', scaleForTFH1Basis(h1Count, 'M5')) : Promise.resolve(null),
-    needM15 ? fetchKlinesLong(symbol, '15m', scaleForTFH1Basis(h1Count, 'M15')) : Promise.resolve(null),
-    needH4 ? fetchKlinesLong(symbol, '4h', scaleForTFH1Basis(h1Count, 'H4')) : Promise.resolve(null),
-    needH1 ? fetchKlinesLong(symbol, '1h', h1Count) : Promise.resolve(null),
-    fetchKlinesLong('BTCUSDT', '1h', h1Count),
-  ]);
-
-  const candles: Record<string, number[][]> = { btc_h1: btcH1! };
-  if (m30) candles['m30'] = m30;
-  if (m5) candles['m5'] = m5;
-  if (m15) candles['m15'] = m15;
-  if (h4) candles['h4'] = h4;
-  if (h1) candles['h1'] = h1;
-
-  const pyResult = await runPythonBacktest({ menu, candles });
-
-  return {
-    symbol, period, timestamp,
-    structuralResult: pyResult.structuralResult,
-    scalping15mResult: pyResult.scalping15mResult,
-    counterScalpingResult: pyResult.counterScalpingResult,
-    elapsedSeconds: pyResult.elapsedSeconds,
-  };
-}
-
-// ─── Mini-Backtest Instan (buat tab Analisa, BUKAN Scan) ───────────────────
-// Ide: pas user analisa 1 koin manual, langsung kasih konteks historis
-// "N setup terakhir buat koin ini menang/kalah berapa" — tanpa perlu buka tab
-// Backtest terpisah dan set periode manual. Sengaja SCOPE KECIL (1 bulan aja,
-// bukan periode panjang) biar CEPET — ini dipanggil per-klik user, bukan di
-// loop scan 50 koin (kalau ditaro di analyzeXEntry langsung, Scan jadi 50x
-// lebih lambat). Dipanggil di level ROUTE, cuma buat endpoint single-symbol.
+// v25 (2026-11-11): backtest Python lama (backtest_py, spawn python3, runBacktest, getRecentPerformance) DIHAPUS — tidak dipanggil dari route mana pun.
+// Interface RecentPerformance dipertahankan karena masih jadi tipe field opsional di hasil analisa.
 export interface RecentPerformance {
   totalTrades: number;
   wins: number;
@@ -4047,28 +3986,6 @@ export interface RecentPerformance {
   periodLabel: string;
 }
 
-export async function getRecentPerformance(
-  symbol: string,
-  menu: 'structural' | 'scalping15m' | 'counter_scalping'
-): Promise<RecentPerformance | null> {
-  try {
-    const result = await runBacktest(symbol, '1m', menu);
-    const analysis =
-      menu === 'structural' ? result.structuralResult :
-      menu === 'scalping15m' ? result.scalping15mResult :
-      result.counterScalpingResult;
-    if (!analysis || analysis.totalTrades === 0) return null; // gak ada histori — biar UI tau buat sembunyiin section ini, bukan nampilin 0/0
-    return {
-      totalTrades: analysis.totalTrades,
-      wins: analysis.wins,
-      losses: analysis.losses,
-      winRate: analysis.winRate,
-      periodLabel: '30 hari terakhir',
-    };
-  } catch {
-    return null; // fail-safe — kalau mini-backtest gagal, jangan ganggu hasil analisa utama
-  }
-}
 
 
 // ═══════════════════════════════════════════════════════════════════════════

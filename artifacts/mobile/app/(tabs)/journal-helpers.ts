@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { customFetch } from '@workspace/api-client-react';
 
 // ─── Tipe data ──────────────────────────────────────────────────────────────
 
@@ -67,6 +68,10 @@ export const SCALPING_SKILL_RP_M5 = 'Scalping Retest Fib H1→M5';
 // Fibonacci Retest (rp7, H1 only, request user 2026-11-01). Label WAJIB sama dengan SCALPING_RP.SKILL_LABEL di api-server/src/lib/smc.ts.
 export const SCALPING_SKILL_RP = 'Fibonacci Retest';
 // Menu Money Magnet Scalping (H1→M5 CRT). Label WAJIB sama dengan yang dipakai money-magnet-scalping.tsx saat menyimpan sinyal.
+/** bk6 ke atas (bk6, bk7, ...) memakai evaluasi & field Jurnal bk6. */
+export const isBk6Plus = (v?: string) => !!v && /^bk(\d+)$/.test(v) && Number(v.slice(2)) >= 6;
+/** rp11 ke atas memakai field Jurnal rp11 (cluster, kedalaman retest). */
+export const isRp11Plus = (v?: string) => !!v && /^rp(\d+)$/.test(v) && Number(v.slice(2)) >= 11;
 export const SCALPING_SKILL_MMS = 'Money Magnet Scalping (H1→M5 CRT)';
 // mm4 (2026-11-11): setup Failure to Manipulate disimpan dengan label sendiri (reversal tetap SCALPING_SKILL_MMS)
 export const SCALPING_SKILL_MMS_FTM = 'Money Magnet FTM';
@@ -240,6 +245,7 @@ export interface JournalEntry {
   taRawLongDistSrAtr?: number; taRawLongDistEmaAtr?: number; taRawShortDistSrAtr?: number; taRawShortDistEmaAtr?: number;
   d1ChangePct?: number; // perubahan harga 3 candle D1 saat sinyal (%)
   entryHitAt?: number; // timestamp candle saat entry pertama kali kehit — dipake fitur Monitoring (real-time health tracking posisi aktif) DAN statistik timing (request user)
+  updatedAt?: number;  // v25: waktu terakhir entri diubah di HP (ms) — dipakai sinkron jurnal ke server (yang terbaru menang)
   resolvedAt?: number; // timestamp candle saat SL/TP kena — buat statistik "rata-rata berapa jam sampe resolve"
   // TP2 lanjutan (v23, request user 2026-11-10): setelah TP1 kena = WIN TP1, SL dianggap pindah ke TP1.
   // Lanjut dipantau: tembus TP2 sebelum balik ke TP1 = WIN TP2; balik ke TP1 dulu = final WIN TP1.
@@ -376,9 +382,10 @@ export async function journalSave(entry: JournalEntry): Promise<JournalEntry[]> 
   // Max 1500 entri (request user, naik dari 300 -- dihitung biar masih aman
   // di bawah limit localStorage: ~1,9KB/entry x 1500 = ~2,85MB).
   const beforeCount = all.length + 1;
-  const updated = [entry, ...all].slice(0, 1500);
+  const stamped = { ...entry, updatedAt: Date.now() };
+  const updated = [stamped, ...all].slice(0, 1500);
   const droppedCount = Math.max(0, beforeCount - updated.length);
-  await persistJournal(updated, droppedCount);
+  if (await persistJournal(updated, droppedCount)) syncEnqueue([stamped.id]);
   return updated;
 }
 
@@ -404,20 +411,21 @@ export async function journalSaveMany(entries: JournalEntry[]): Promise<{ all: J
     const key = signalDedupKey(e);
     if (existingKeys.has(key) || seenInBatch.has(key)) continue; // udah ada di storage (24 jam terakhir) ATAU duplikat sesama batch ini
     seenInBatch.add(key);
-    deduped.push(e);
+    deduped.push({ ...e, updatedAt: Date.now() });
   }
   // Max 1500 entri (request user, naik dari 300 -- lihat journalSave).
   const beforeCount = deduped.length + all.length;
   const updated = [...deduped, ...all].slice(0, 1500);
   const droppedCount = Math.max(0, beforeCount - updated.length);
-  await persistJournal(updated, droppedCount);
+  if (await persistJournal(updated, droppedCount)) syncEnqueue(deduped.map(e => e.id));
   return { all: updated, savedCount: deduped.length, skippedCount: entries.length - deduped.length };
 }
 
 export async function journalUpdate(id: string, patch: Partial<JournalEntry>): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
-  const updated = all.map(e => e.id === id ? { ...e, ...patch } : e);
-  await persistJournal(updated);
+  const now = Date.now();
+  const updated = all.map(e => e.id === id ? { ...e, ...patch, updatedAt: now } : e);
+  if (await persistJournal(updated)) syncEnqueue([id]);
   return updated;
 }
 
@@ -429,16 +437,123 @@ export async function journalUpdate(id: string, patch: Partial<JournalEntry>): P
 export async function journalUpdateMany(patches: { id: string; patch: Partial<JournalEntry> }[]): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
   const patchMap = new Map(patches.map(p => [p.id, p.patch]));
-  const updated = all.map(e => patchMap.has(e.id) ? { ...e, ...patchMap.get(e.id) } : e);
-  await persistJournal(updated);
+  const now = Date.now();
+  const updated = all.map(e => patchMap.has(e.id) ? { ...e, ...patchMap.get(e.id), updatedAt: now } : e);
+  if (await persistJournal(updated)) syncEnqueue(patches.map(p => p.id));
   return updated;
 }
 
 export async function journalDelete(id: string): Promise<JournalEntry[]> {
   const all = await journalLoadAll();
   const updated = all.filter(e => e.id !== id);
-  await persistJournal(updated);
+  if (await persistJournal(updated)) syncEnqueue([id], true);
   return updated;
+}
+
+// ═══ Sinkron jurnal ke server (v25, request user 2026-11-11) ════════════════
+// Tiap simpan / ubah / hapus -> id masuk antrean (tersimpan di HP) -> dikirim di latar belakang ke /api/journal-sync.
+// Gagal (offline) = antrean tetap, dikirim ulang saat app dibuka, tab Jurnal dibuka, perubahan berikutnya, atau tiap 60 detik.
+// Saat app dibuka: ambil semua dari server, gabung per id (updatedAt terbaru menang; tanda hapus ikut menghapus).
+// Sekali di awal: semua entri yang sudah ada di HP dikirim (penanda SYNC_INIT_KEY).
+const SYNC_OUTBOX_KEY = 'journal_sync_outbox_v1';
+const SYNC_INIT_KEY = 'journal_sync_init_v1';
+type OutboxOp = { del?: number }; // del = waktu hapus (ms); tanpa del = upsert entri saat ini
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let syncRunning = false;
+async function loadOutbox(): Promise<Record<string, OutboxOp>> {
+  try { const raw = await AsyncStorage.getItem(SYNC_OUTBOX_KEY); return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+async function saveOutbox(o: Record<string, OutboxOp>): Promise<void> {
+  try { await AsyncStorage.setItem(SYNC_OUTBOX_KEY, JSON.stringify(o)); } catch { /* best-effort */ }
+}
+function syncEnqueue(ids: string[], deleted = false): void {
+  (async () => {
+    const o = await loadOutbox();
+    const now = Date.now();
+    for (const id of ids) o[id] = deleted ? { del: now } : {};
+    await saveOutbox(o);
+    scheduleJournalSync(1500);
+  })().catch(() => {});
+}
+function scheduleJournalSync(ms: number): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => { syncTimer = null; journalSyncFlush().catch(() => {}); }, ms);
+}
+/** Kirim isi antrean ke server (batch 100). Return jumlah item yang terkirim. */
+export async function journalSyncFlush(): Promise<number> {
+  if (syncRunning) return 0;
+  syncRunning = true;
+  let sent = 0;
+  try {
+    const o = await loadOutbox();
+    const ids = Object.keys(o);
+    if (!ids.length) return 0;
+    const raw = await AsyncStorage.getItem(JOURNAL_KEY);
+    const all: JournalEntry[] = raw ? JSON.parse(raw) : [];
+    const byId = new Map(all.map(e => [e.id, e]));
+    const items: { id: string; updatedAt: number; deleted?: boolean; data?: unknown }[] = [];
+    const skip: string[] = [];
+    for (const id of ids) {
+      const op = o[id]!;
+      if (op.del !== undefined) items.push({ id, updatedAt: op.del, deleted: true });
+      else { const e = byId.get(id); if (e) items.push({ id, updatedAt: e.updatedAt ?? e.savedAt, data: e }); else skip.push(id); }
+    }
+    const done = new Set<string>(skip);
+    for (let i = 0; i < items.length; i += 100) {
+      const batch = items.slice(i, i + 100);
+      await customFetch('/api/journal-sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: batch }) });
+      for (const it of batch) done.add(it.id);
+      sent += batch.length;
+    }
+    const cur = await loadOutbox(); // hapus yang terkirim, kecuali berubah lagi selama pengiriman
+    for (const id of done) if (JSON.stringify(cur[id]) === JSON.stringify(o[id])) delete cur[id];
+    await saveOutbox(cur);
+  } catch {
+    scheduleJournalSync(60_000); // offline / server error -> coba lagi nanti
+  } finally {
+    syncRunning = false;
+  }
+  return sent;
+}
+/** Dipanggil saat app dibuka & tab Jurnal dibuka: gabung dengan server lalu kirim antrean. Aman dipanggil berkali-kali. */
+export async function journalSyncStart(): Promise<{ pulled: number; pushed: number } | null> {
+  try {
+    const raw = await AsyncStorage.getItem(JOURNAL_KEY);
+    const local: JournalEntry[] = raw ? JSON.parse(raw) : [];
+    // sekali di awal: semua entri yang sudah ada di HP masuk antrean
+    if (!(await AsyncStorage.getItem(SYNC_INIT_KEY))) {
+      const o = await loadOutbox();
+      for (const e of local) if (!o[e.id]) o[e.id] = {};
+      await saveOutbox(o);
+      await AsyncStorage.setItem(SYNC_INIT_KEY, String(Date.now()));
+    }
+    let pulled = 0;
+    const resp = await customFetch<{ items: { id: string; updatedAt: number; deleted?: boolean; data?: JournalEntry }[] }>('/api/journal-sync');
+    const outbox = await loadOutbox();
+    const map = new Map(local.map(e => [e.id, e]));
+    let changed = false;
+    for (const it of resp.items ?? []) {
+      if (outbox[it.id]) continue; // perubahan lokal belum terkirim -> versi lokal yang dikirim
+      const l = map.get(it.id);
+      const lt = l ? (l.updatedAt ?? l.savedAt) : -1;
+      if (it.deleted) { if (l && it.updatedAt >= lt) { map.delete(it.id); changed = true; pulled++; } continue; }
+      if (!it.data) continue;
+      if (!l || it.updatedAt > lt) { map.set(it.id, { ...it.data, updatedAt: it.updatedAt }); changed = true; pulled++; }
+      else if (it.updatedAt < lt) outbox[it.id] = {}; // lokal lebih baru -> kirim
+    }
+    const serverIds = new Set((resp.items ?? []).map(x => x.id));
+    for (const e of local) if (!serverIds.has(e.id) && !outbox[e.id]) outbox[e.id] = {}; // lokal belum ada di server
+    await saveOutbox(outbox);
+    if (changed) {
+      const merged = [...map.values()].sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0)).slice(0, 1500);
+      await persistJournal(merged);
+    }
+    const pushed = await journalSyncFlush();
+    return { pulled, pushed };
+  } catch {
+    scheduleJournalSync(60_000);
+    return null;
+  }
 }
 
 // ─── Evaluasi win/lose ──────────────────────────────────────────────────────
@@ -447,7 +562,7 @@ export async function journalDelete(id: string): Promise<JournalEntry[]> {
 // sebelumnya — evaluasi WAJIB pake TF sesuai eksekusi ASLI sinyal, bukan
 // candle kasar 15M fixed).
 function evalIntervalFor(entry: JournalEntry): { interval: string; limit: number } {
-  if (entry.bkVersion === 'bk6') return { interval: '5m', limit: 1000 }; // bk6: dinilai di candle M5 (batal close lewat L, kedalaman fib, lama dalam candle M5)
+  if (isBk6Plus(entry.bkVersion)) return { interval: '5m', limit: 1000 }; // bk6: dinilai di candle M5 (batal close lewat L, kedalaman fib, lama dalam candle M5)
   const tf = entry.tfEksekusi ?? entry.tfStruktur;
   switch (tf) {
     case '1M': return { interval: '1m', limit: 1500 };
@@ -546,7 +661,7 @@ async function trackTp2(entry: JournalEntry, tp1At: number): Promise<Partial<Jou
             out.mmBarsToResult = Math.max(0, Math.round((t - entry.savedAt) / 300_000));
             if (entry.entryHitAt !== undefined) out.mmBarsFillToResult = Math.max(0, Math.round((t - entry.entryHitAt) / 300_000));
           }
-          if (entry.bkVersion === 'bk6') {
+          if (isBk6Plus(entry.bkVersion)) {
             out.bkBarsToResult = Math.max(0, Math.round((t - entry.savedAt) / 300_000));
             if (entry.entryHitAt !== undefined) out.bkBarsFillToResult = Math.max(0, Math.round((t - entry.entryHitAt) / 300_000));
           }
@@ -574,7 +689,7 @@ export async function journalEvaluate(entry: JournalEntry): Promise<Partial<Jour
 async function journalEvaluateCoreTracked(entry: JournalEntry): Promise<Partial<JournalEntry>> {
   const tr: { min: number; max: number; lastT?: number } = { min: Infinity, max: -Infinity };
   const res = await journalEvaluateCore(entry, tr);
-  if (entry.rpVersion === 'rp11' && entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
+  if (isRp11Plus(entry.rpVersion) && entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
     const lo = entry.rpZoneLo, hi = entry.rpZoneHi, w = hi - lo;
     const dist = entry.bias === 'bullish' ? hi - tr.min : tr.max - lo; // jarak masuk dari tepi luar
     const extra: Partial<JournalEntry> = { rpLimitFilled: res.status !== 'expired' };
@@ -594,7 +709,7 @@ async function journalEvaluateCoreTracked(entry: JournalEntry): Promise<Partial<
     }
     return { ...res, ...extra };
   }
-  if (entry.bkVersion === 'bk6' && entry.bkSwingHigh !== undefined && entry.bkSwingLow !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
+  if (isBk6Plus(entry.bkVersion) && entry.bkSwingHigh !== undefined && entry.bkSwingLow !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
     const H = entry.bkSwingHigh, L = entry.bkSwingLow, R = H - L;
     const extra: Partial<JournalEntry> = { bkLimitFilled: res.status !== 'expired' };
     if (R > 0) extra.bkDeepestFib = Math.round((entry.bias === 'bullish' ? (H - tr.min) / R : (tr.max - L) / R) * 1000) / 1000;
@@ -660,7 +775,7 @@ async function journalEvaluateCore(entry: JournalEntry, tr: { min: number; max: 
           }
         }
         // bk6: batal sebelum limit terisi kalau close M5 lewat awal leg (BUY < L / SELL > H) atau harga bikin high/low baru di luar ujung leg (leg digeser -> sinyal baru)
-        if (!entryHit && entry.bkVersion === 'bk6' && entry.bkSwingHigh !== undefined && entry.bkSwingLow !== undefined) {
+        if (!entryHit && isBk6Plus(entry.bkVersion) && entry.bkSwingHigh !== undefined && entry.bkSwingLow !== undefined) {
           const close = Number(k[4]);
           const touchesEntry = entry.bias === 'bullish' ? low <= entry.entryPrice : high >= entry.entryPrice;
           const lewatL = entry.bias === 'bullish' ? close < entry.bkSwingLow : close > entry.bkSwingHigh;
@@ -1079,7 +1194,7 @@ export function buildScalpForwardTest(entries: JournalEntry[], skill: string, sh
 }
 
 /** Versi logic Fibonacci Retest yang aktif (HARUS sama dengan SCALPING_RP.VERSION di api-server smc.ts). */
-export const RP_ACTIVE_VERSION = 'rp11';
+export const RP_ACTIVE_VERSION = 'rp12';
 /** Forward test menu yang aktif sekarang: Fibonacci Retest — HANYA sinyal versi logic aktif (v23; sebelumnya rp7-rp11 tercampur karena label sama). */
 export function buildRpForwardTest(entries: JournalEntry[]): ScalpForwardTest {
   return buildScalpForwardTest(entries.filter(e => e.rpVersion === RP_ACTIVE_VERSION), SCALPING_SKILL_RP, `Fibonacci Retest ${RP_ACTIVE_VERSION}`);
@@ -1958,7 +2073,11 @@ export function buildDiagnosticReport(
  * Journal, jadi sisa data lama di server otomatis ke-abaikan.
  */
 export async function journalDeleteAll(): Promise<void> {
+  // v25: hapus semua juga dikirim ke server sebagai tanda hapus
+  let ids: string[] = [];
+  try { const raw = await AsyncStorage.getItem(JOURNAL_KEY); ids = raw ? (JSON.parse(raw) as JournalEntry[]).map(e => e.id) : []; } catch { ids = []; }
   await AsyncStorage.multiRemove([JOURNAL_KEY, BASELINE_KEY]);
+  if (ids.length) syncEnqueue(ids, true);
 }
 
 // ─── Data siap-pakai buat chart tab Diagnosa ────────────────────────────────

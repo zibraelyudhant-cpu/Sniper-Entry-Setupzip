@@ -24,6 +24,7 @@ import {
   registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
   buildDiagnosticReport, buildDailyWinRateTrend, buildLoseConditionHeatmap, type DiagnosticFinding, type FindingSeverity,
   type JournalBreakdown, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
+  isBk6Plus, isRp11Plus, journalSyncStart,
 } from './journal-helpers';
 import { simulateFilters, taComponentAnalysis, type FilterScope } from './journal-research';
 import { smallPriceDecimals } from '@/components/priceFormat';
@@ -279,9 +280,9 @@ function JournalEntryCard({
                 {entry.mmFib0 !== undefined && entry.mmFib1 !== undefined && <IndicatorRow label="Leg Fib (Fib 1 – Fib 0)" value={`${entry.mmFib1} – ${entry.mmFib0}`} colors={colors} />}
               </>
             )}
-            {entry.rpVersion === 'rp11' && (
+            {isRp11Plus(entry.rpVersion) && (
               <>
-                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.8, marginTop: 8 }}>FIBONACCI RETEST rp11 (M15)</Text>
+                <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.8, marginTop: 8 }}>FIBONACCI RETEST {entry.rpVersion} (M15)</Text>
                 {entry.rpTrend !== undefined && <IndicatorRow label="Kondisi tren" value={entry.rpTrend} colors={colors} />}
                 {entry.rpZoneLo !== undefined && entry.rpZoneHi !== undefined && <IndicatorRow label="Cluster (bawah – atas)" value={`${entry.rpZoneLo} – ${entry.rpZoneHi}`} colors={colors} />}
                 {entry.rpClusterWidthAtr !== undefined && <IndicatorRow label="Lebar cluster" value={`${entry.rpClusterWidthAtr.toFixed(2)} ATR`} colors={colors} />}
@@ -296,7 +297,7 @@ function JournalEntryCard({
                 {entry.validUntil !== undefined && <IndicatorRow label="Limit berlaku sampai" value={new Date(entry.validUntil).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} colors={colors} />}
               </>
             )}
-            {entry.rpVersion && entry.rpVersion !== 'rp11' && (
+            {entry.rpVersion && !isRp11Plus(entry.rpVersion) && (
               <>
                 <Text style={{ fontSize: 10, fontFamily: 'Inter_600SemiBold', color: colors.mutedForeground, letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
                   {(entry.rpVersion === 'rp7' || entry.rpVersion === 'rp8') ? 'FIBONACCI RETEST (H1)' : entry.rpVersion === 'rp1' ? 'SCALPING RETEST FIB D1→H1' : 'SCALPING RETEST FIB H1→M5'}
@@ -328,11 +329,11 @@ function JournalEntryCard({
                 {entry.bkRangeAtr !== undefined && <IndicatorRow label="Range leg / ATR M5" value={`${entry.bkRangeAtr.toFixed(2)}x`} colors={colors} />}
                 {entry.bkLegAgeBars !== undefined && <IndicatorRow label="Umur swing akhir leg" value={`${entry.bkLegAgeBars} candle M5`} colors={colors} />}
                 {entry.bkZoneLo !== undefined && entry.bkZoneHi !== undefined && <IndicatorRow label="Zona retrace (bk4+: 0,5–0,618; sebelumnya 0,382–0,618)" value={`${entry.bkZoneLo} – ${entry.bkZoneHi}`} colors={colors} />}
-                {entry.bkBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.bkBasis === 'mid' ? `Fib ${entry.bkVersion === 'bk6' && entry.bkFibEntry !== undefined ? entry.bkFibEntry : entry.bkRetracePct ?? ''} (tanpa FVG/SNR)` : `${entry.bkVersion === 'bk6' ? 'Tengah' : 'Tepi'} ${entry.bkBasis.toUpperCase()}${entry.bkVersion === 'bk6' ? ' (bagian di dalam zona)' : ''}`} colors={colors} />}
+                {entry.bkBasis !== undefined && <IndicatorRow label="Dasar level limit" value={entry.bkBasis === 'mid' ? `Fib ${isBk6Plus(entry.bkVersion) && entry.bkFibEntry !== undefined ? entry.bkFibEntry : entry.bkRetracePct ?? ''} (tanpa FVG/SNR)` : `${isBk6Plus(entry.bkVersion) ? 'Tengah' : 'Tepi'} ${entry.bkBasis.toUpperCase()}${isBk6Plus(entry.bkVersion) ? ' (bagian di dalam zona)' : ''}`} colors={colors} />}
                 {entry.bkConfluence !== undefined && <IndicatorRow label="Konfluensi di zona" value={entry.bkConfluence ? entry.bkConfluence.replace(/\+/g, ' + ') : 'tidak ada'} colors={colors} />}
                 {entry.bkRetracePct !== undefined && <IndicatorRow label="Retrace level limit" value={`${(entry.bkRetracePct * 100).toFixed(1)}%`} colors={colors} />}
                 {entry.bkTp2Fib !== undefined && <IndicatorRow label="TP2 = level Fib" value={String(entry.bkTp2Fib)} colors={colors} />}
-                {entry.bkVersion === 'bk6' && (
+                {isBk6Plus(entry.bkVersion) && (
                   <>
                     {entry.bkEntrySource !== undefined && <IndicatorRow label="Sumber entry (bk6)" value={`${entry.bkEntrySource}${entry.bkFibEntry !== undefined ? ` · fib entry ${entry.bkFibEntry}` : ''}`} colors={colors} />}
                     {entry.bkClusterWidthAtr !== undefined && <IndicatorRow label="Lebar cluster / range leg" value={`${entry.bkClusterWidthAtr.toFixed(2)} ATR · ${entry.bkRangeAtr?.toFixed(2) ?? '—'} ATR M5`} colors={colors} />}
@@ -550,6 +551,8 @@ export default function JournalScreen() {
   useFocusEffect(
     useCallback(() => {
       load(!hasLoadedOnceRef.current);
+      // v25: tiap tab Jurnal dibuka, gabung dengan server + kirim antrean; kalau ada data baru dari server, muat ulang
+      journalSyncStart().then(r => { if (r && r.pulled > 0) load(false); }).catch(() => {});
     }, [load])
   );
 

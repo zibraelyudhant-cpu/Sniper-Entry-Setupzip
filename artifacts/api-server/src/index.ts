@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { checkPendingFollowups } from "./routes/journal-followup";
+import { emaCheck } from "./lib/smc";
 
 // FIX BUG KRUSIAL (ketemu user — server MATI TOTAL gara-gara EPIPE dari
 // subprocess Python backtest): tanpa handler ini, SATU error async yang gak
@@ -59,3 +60,10 @@ setInterval(() => {
       logger.error({ err }, 'checkPendingFollowups gagal — worker tetep jalan, coba lagi interval berikutnya');
     });
 }, FOLLOWUP_CHECK_INTERVAL_MS);
+
+// v25: log sekali saat server start — EMA versi lama vs baru BTCUSDT (cocokkan dengan TradingView BINANCE:BTCUSDT.P)
+setTimeout(() => {
+  emaCheck('BTCUSDT')
+    .then((r) => logger.info({ emaCheck: r }, 'EMA check BTCUSDT (lama vs baru)'))
+    .catch((err) => logger.warn({ err }, 'EMA check BTCUSDT gagal'));
+}, 5_000);

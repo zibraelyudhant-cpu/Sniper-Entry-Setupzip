@@ -17,7 +17,7 @@
 //   export type InsertPost = z.infer<typeof insertPostSchema>;
 //   export type Post = typeof postsTable.$inferSelect;
 
-import { pgTable, text, serial, real, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, real, timestamp, boolean, jsonb, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -67,3 +67,19 @@ export const signalFollowupsTable = pgTable("signal_followups", {
 export const insertSignalFollowupSchema = createInsertSchema(signalFollowupsTable).omit({ id: true, createdAt: true });
 export type InsertSignalFollowup = z.infer<typeof insertSignalFollowupSchema>;
 export type SignalFollowup = typeof signalFollowupsTable.$inferSelect;
+
+/**
+ * Journal Entries (v25, request user 2026-11-11) — salinan jurnal HP di server supaya tidak hilang
+ * kalau aplikasi dihapus / ganti HP. `data` = entri jurnal persis seperti di HP (JSON).
+ * `updatedAtMs` = waktu ubah versi HP (ms); server hanya menimpa kalau yang masuk lebih baru.
+ * `deleted` = tanda hapus (supaya entri yang dihapus di satu HP ikut hilang di HP lain).
+ */
+export const journalEntriesTable = pgTable("journal_entries", {
+  id: text("id").primaryKey(),                         // = JournalEntry.id
+  data: jsonb("data").notNull(),                       // entri jurnal lengkap
+  updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+  deleted: boolean("deleted").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type JournalEntryRow = typeof journalEntriesTable.$inferSelect;

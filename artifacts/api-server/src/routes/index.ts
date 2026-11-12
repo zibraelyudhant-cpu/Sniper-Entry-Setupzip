@@ -8,6 +8,8 @@ import journalFollowupRouter from "./journal-followup";
 import moneyMagnetScalpingRouter from "./money-magnet-scalping";
 import setupFinderRouter from "./setup-finder";
 import tp3Router from "./tp3";
+import journalSyncRouter from "./journal-sync";
+import debugRouter from "./debug";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use(journalFollowupRouter);
 router.use(moneyMagnetScalpingRouter);
 router.use(setupFinderRouter);
 router.use(tp3Router);
+router.use(journalSyncRouter);
+router.use(debugRouter);
 
 export default router;
