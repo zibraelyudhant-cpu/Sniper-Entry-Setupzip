@@ -140,7 +140,7 @@ export interface JournalEntry {
   sfWr?: number; sfN?: number; sfAvgR?: number; sfFill?: number; sfScore?: number; sfSlPct?: number;
   sfTf?: '15M' | '1H'; sfEntryKind?: 'market' | 'wall' | 'swing'; sfSlSource?: 'swing' | 'wall' | 'fallback';
   sfRegime?: string; sfAlign?: string; sfWhalePressure?: number; sfAlarm?: string; sfWallReal?: boolean | null;
-  mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 & TP2 RR 1:3 (2026-11-02)
+  mmCrtVersion?: string;             // Money Magnet CRT H1→M5: 'mm2' = + filter Fib 0,705 leg H1, 'mm3' = + SL Fib 0,71 & TP2 RR 1:3 (2026-11-02), 'mm4' (2026-11-11), 'mm5' (2026-11-13) = M5 100, sweep cara mm1, SL anti-gocekan SF potong 4%, BTC tidak memblokir
   mmH1Struct?: 'ok' | 'unknown';     // struktur H1 saat sinyal (ok = belum ada close H1 melewati 0,705; unknown = leg belum terbentuk)
   mmH1Fib705?: number;               // level Fib 0,705 leg H1 (harga asli)
   mmSlMode?: 'fib' | 'atr' | 'sf' | 'sweep';
@@ -578,6 +578,36 @@ const INTERVAL_MS: Record<string, number> = {
   '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000,
 };
 
+/** Money Magnet mm4 dan sesudahnya (mm5) memakai field evaluasi & batal sweep tertembus yang sama. */
+export function isMm4Plus(v?: string): boolean { return v === 'mm4' || v === 'mm5'; }
+
+// ─── v27: candle penilaian lewat server (request user 2026-11-13) ─────────────
+// Dulu HP memanggil fapi.binance.com langsung; kalau gagal, sinyal diam-diam tetap PENDING.
+// Sekarang lewat GET /api/journal-klines (server meneruskan klines Binance apa adanya),
+// dan setiap kegagalan dicatat per id supaya layar Jurnal bisa memberi tahu.
+const evalErrors = new Map<string, string>();
+/** Ambil & hapus catatan gagal penilaian untuk id yang diberikan. */
+export function journalTakeEvalErrors(ids: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of ids) { const m = evalErrors.get(id); if (m) { out.set(id, m); evalErrors.delete(id); } }
+  return out;
+}
+function noteEvalError(id: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  evalErrors.set(id, msg.length > 160 ? msg.slice(0, 160) + '…' : msg);
+}
+async function getKlines(symbol: string, interval: string, startTime: number, endTime: number, limit: number): Promise<number[][]> {
+  const q = `symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${Math.floor(startTime)}&endTime=${Math.floor(endTime)}&limit=${limit}`;
+  try {
+    const data = await customFetch<unknown>(`/api/journal-klines?${q}`);
+    if (!Array.isArray(data)) throw new Error('jawaban server bukan daftar candle');
+    return data as number[][];
+  } catch (e) {
+    const d = (e as { data?: { error?: string } })?.data?.error;
+    throw new Error(d ?? (e instanceof Error ? e.message : String(e)));
+  }
+}
+
 /**
  * Candle tempat entry ke-fill sering juga menyentuh SL/TP. Urutan di dalam
  * candle tidak diketahui, jadi hasilnya bisa WIN/LOSE palsu (SL/TP kesentuh
@@ -592,10 +622,7 @@ async function refineFillCandle(
   risk: number, evalAt: string,
 ): Promise<Partial<JournalEntry> | 'unresolved' | null> {
   try {
-    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${entry.symbol}&interval=1m&startTime=${openTime}&endTime=${openTime + intervalMs - 1}&limit=1500`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const mins: unknown = await res.json();
+    const mins: unknown = await getKlines(entry.symbol, '1m', openTime, openTime + intervalMs - 1, 1500);
     if (!Array.isArray(mins) || mins.length === 0) return null;
     let filledAt: number | undefined;
     for (const m of mins as (string | number)[][]) {
@@ -646,9 +673,9 @@ async function trackTp2(entry: JournalEntry, tp1At: number): Promise<Partial<Jou
   let cursor = tp1At + iv;
   try {
     for (let iter = 0; iter < 20 && cursor < now; iter++) {
-      const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${entry.symbol}&interval=${interval}&startTime=${cursor}&endTime=${now}&limit=${limit}`);
-      if (!res.ok) return { tp2Watch: true };
-      const klines: number[][] = await res.json();
+      let klines: number[][];
+      try { klines = await getKlines(entry.symbol, interval, cursor, now, limit); }
+      catch (e) { noteEvalError(entry.id, e); return { tp2Watch: true }; }
       if (!Array.isArray(klines) || klines.length === 0) break;
       for (const k of klines) {
         const t = Number(k[0]), high = Number(k[2]), low = Number(k[3]);
@@ -657,7 +684,7 @@ async function trackTp2(entry: JournalEntry, tp1At: number): Promise<Partial<Jou
         const hitTp2 = buy ? high >= tp2 : low <= tp2;
         if (hitTp2) {
           const out: Partial<JournalEntry> = { status: 'win_tp2', exitPrice: tp2, rr: risk > 0 ? Math.round((Math.abs(tp2 - entry.entryPrice) / risk) * 10) / 10 : entry.rr, tp2Watch: false, resolvedAt: t, evaluatedAt: evalAt };
-          if (entry.mmCrtVersion === 'mm4') {
+          if (isMm4Plus(entry.mmCrtVersion)) {
             out.mmBarsToResult = Math.max(0, Math.round((t - entry.savedAt) / 300_000));
             if (entry.entryHitAt !== undefined) out.mmBarsFillToResult = Math.max(0, Math.round((t - entry.entryHitAt) / 300_000));
           }
@@ -697,7 +724,7 @@ async function journalEvaluateCoreTracked(entry: JournalEntry): Promise<Partial<
     else if (entry.rpAtr15 && entry.rpAtr15 > 0) extra.rpRetestDepthAtr = Math.round(dist / entry.rpAtr15 * 100) / 100;
     return { ...res, ...extra };
   }
-  if (entry.mmCrtVersion === 'mm4' && entry.mmFvgTop !== undefined && entry.mmFvgBot !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
+  if (isMm4Plus(entry.mmCrtVersion) && entry.mmFvgTop !== undefined && entry.mmFvgBot !== undefined && res.status && res.status !== 'pending' && isFinite(tr.min)) {
     // kedalaman masuk FVG: 0% = tepi depan (BUY: atas), 100% = tepi belakang (BUY: bawah), > 100% = lewat; negatif = tidak sampai
     const w = entry.mmFvgTop - entry.mmFvgBot;
     const extra: Partial<JournalEntry> = { mmLimitFilled: res.status !== 'expired' };
@@ -750,10 +777,9 @@ async function journalEvaluateCore(entry: JournalEntry, tr: { min: number; max: 
     const maxIterations = 20; // safety cap — cakupan realistis: M1 20x1500candle ≈ 20 hari, cukup buat sinyal scalping/intraday manapun
 
     for (let iter = 0; iter < maxIterations && cursor < now; iter++) {
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${entry.symbol}&interval=${interval}&startTime=${cursor}&endTime=${now}&limit=${limit}`;
-      const res = await fetch(url);
-      if (!res.ok) return { status: 'pending' };
-      const klines: number[][] = await res.json();
+      let klines: number[][];
+      try { klines = await getKlines(entry.symbol, interval, cursor, now, limit); }
+      catch (e) { noteEvalError(entry.id, e); return { status: 'pending' }; } // v27: gagal dicatat, bukan diam-diam
       if (!Array.isArray(klines) || klines.length === 0) break; // gak ada candle di rentang ini — normal kalau sinyal baru aja disimpen (belum cukup waktu buat 1 candle kebentuk), BUKAN tanda "data abis"
 
       for (const k of klines) {
@@ -764,8 +790,8 @@ async function journalEvaluateCore(entry: JournalEntry, tr: { min: number; max: 
         if (!entryHit && entry.validUntil !== undefined && openTime >= entry.validUntil) {
           return { status: 'expired', evaluatedAt: evalAt };
         }
-        // mm4: batal sebelum limit terisi kalau close M5 melewati ekstrem sweep (BUY < ekstrem / SELL > ekstrem)
-        if (!entryHit && entry.mmCrtVersion === 'mm4' && entry.mmSweepExt !== undefined) {
+        // mm4/mm5: batal sebelum limit terisi kalau close M5 melewati ekstrem sweep (BUY < ekstrem / SELL > ekstrem)
+        if (!entryHit && isMm4Plus(entry.mmCrtVersion) && entry.mmSweepExt !== undefined) {
           const close = Number(k[4]);
           const touchesEntry = entry.bias === 'bullish' ? low <= entry.entryPrice : high >= entry.entryPrice;
           const lewat = entry.bias === 'bullish' ? close < entry.mmSweepExt : close > entry.mmSweepExt;
@@ -851,7 +877,8 @@ async function journalEvaluateCore(entry: JournalEntry, tr: { min: number; max: 
     // entryHitAt-nya biar data timing (request user) kekumpul dari sekarang,
     // gak perlu nunggu sampe menang/kalah dulu.
     return { status: 'pending', entryHitAt: entryHitAtTs };
-  } catch {
+  } catch (e) {
+    noteEvalError(entry.id, e); // v27
     return { status: 'pending' };
   }
 }

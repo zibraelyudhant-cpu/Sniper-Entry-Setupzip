@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📐 Market Structure</title>
+<link rel="stylesheet" href="/api/msa/ui/style.css">
+<!-- shell.html = TAMBAHAN program ini (pembungkus). Isi menu = index_market_structure.html ASLI, disisipkan apa adanya. -->
+<style>
+  #msaStore { margin: 12px 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 12px; }
+  #msaStore .bar { height: 6px; background: var(--panel2); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  #msaStore .bar > div { height: 100%; background: var(--accent); width: 0; }
+</style>
+</head>
+<body>
+<div id="msaStore" class="hidden"><div id="msaStoreTxt"></div><div class="bar"><div id="msaStoreBar"></div></div></div>
+<input id="symbol" type="hidden" value="BTCUSDT">
+<datalist id="symbols"></datalist>
+<!--MSA_SECTION-->
+<div id="toast" style="display:none"></div>
+<script src="/api/msa/ui/helpers.js"></script>
+<script src="/api/msa/ui/bridge.js"></script>
+<script src="/api/msa/ui/msacard.js"></script>
+<script src="/api/msa/ui/app_market_structure.js"></script>
+</body>
+</html>

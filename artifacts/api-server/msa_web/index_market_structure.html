@@ -1,0 +1,61 @@
+<section id="tab-msa" class="tabpane">
+  <div class="msc-wrap">
+    <div class="card msc-bar">
+      <h3>🔎 Screener Market Structure <small class="hint">struktur sekarang 1 koin → pola sama di riwayat → entry / SL / TP (RR ≥ 1:3)</small></h3>
+      <div class="msc-row">
+        <div class="field"><label>Koin</label><input id="mscSym" list="symbols" placeholder="BTCUSDT" autocomplete="off"></div>
+        <div class="field"><label>TF</label><select id="mscTf"></select></div>
+        <div class="field"><label title="Kecil = struktur mikro (fractal 3), sedang = fractal 5, besar = struktur makro (fractal 10)">Ukuran swing</label><select id="mscSwing">
+          <option value="kecil">Kecil (fractal 3)</option><option value="sedang">Sedang (fractal 5)</option><option value="besar">Besar (fractal 10)</option></select></div>
+        <div class="field"><label title="Cari pola yang sama di riwayat koin mana">Riwayat</label><select id="mscScope">
+          <option value="all">Semua koin</option><option value="coin">Koin ini saja</option></select></div>
+        <div class="field"><label title="Tren TF besar (HH/HL = naik, LH/LL = turun) dipakai menyaring kejadian di riwayat — hanya kalau terbukti lebih tepat di 30% data terakhir. Otomatis: 5M→1H, 15M→4H, 1H→1D, dst.">TF besar</label><select id="mscHtf"><option value="auto">Otomatis</option><option value="off">Mati</option><option value="15m">15M</option><option value="1h">1H</option><option value="4h">4H</option><option value="1d">1D</option></select></div>
+        <button id="mscRun" class="primary">🔎 Scan sekarang</button>
+      </div>
+      <p id="mscStatus" class="hint"></p>
+    </div>
+    <div id="mscEmpty" class="card evalcard msc-empty">
+      <h3>🔎 Gambar visual entry muncul di sini</h3>
+      <p>Isi <b>koin</b> &amp; <b>TF</b> di atas, lalu klik <b>🔎 Scan sekarang</b>. Biasanya selesai dalam beberapa detik.</p>
+    </div>
+    <div id="mscOut" class="msc-out hidden"></div>
+    <details class="savedlist card"><summary><b>Cara kerja screener</b></summary><ul class="hint">
+      <li>Swing (HH / LH / HL / LL) dibaca dari candle yang <b>sudah close</b> (langsung dari Binance). Panjang pola otomatis: dicoba 6 swing terakhir, kalau di riwayat kejadiannya kurang dari 30 dipendekkan sampai 3.</li>
+      <li><b>Arah selanjutnya</b> = dari semua kejadian pola itu, berapa % yang lebih dulu bergerak +2 ATR (naik) atau −2 ATR (turun).</li>
+      <li><b>Entry / SL / TP</b> = aturan (market / limit fib / retest × SL swing / pola × RR 3, 4, 5) yang hasil backtest-nya paling bagus di pola ini, lalu diterapkan ke harga sekarang.
+        <b>✓ terbukti</b> = tetap untung di 30% data terakhir yang tidak dipakai memilih aturan.</li>
+      <li><b>Animasi</b>: candle bayangan = 1 kejadian nyata di riwayat yang paling mirip rata-rata, garis kuning = median, pita kuning = tempat 50% kejadian bergerak.</li>
+      <li>Ini peluang dari riwayat, bukan kepastian. Bukan saran keuangan.</li></ul></details>
+  </div>
+  <div class="msc-wrap pc-wrap">
+    <div class="card msc-bar">
+      <h3>🧪 Cek entry posisi <small class="hint">entry / SL / TP kamu diuji di pola market structure yang sama di riwayat → terisi berapa lama, WR, saran geser entry / SL / TP</small></h3>
+      <div class="msc-row">
+        <div class="field"><label>Koin</label><input id="pcSym" list="symbols" placeholder="BTCUSDT" autocomplete="off"></div>
+        <div class="field"><label>TF</label><select id="pcTf"></select></div>
+        <div class="field"><label>Status posisi</label><select id="pcFilled">
+          <option value="0">Belum kesentuh (limit menunggu)</option><option value="1">Sudah masuk (posisi jalan)</option></select></div>
+        <div class="field"><label>Entry</label><input id="pcEntry" type="number" step="any" placeholder="harga entry"></div>
+        <div class="field"><label>SL</label><input id="pcSl" type="number" step="any" placeholder="stop loss"></div>
+        <div class="field"><label>TP</label><input id="pcTp" type="number" step="any" placeholder="take profit"></div>
+        <div class="field"><label title="Kecil = fractal 3, sedang = 5, besar = 10">Ukuran swing</label><select id="pcSwing">
+          <option value="kecil">Kecil (fractal 3)</option><option value="sedang">Sedang (fractal 5)</option><option value="besar">Besar (fractal 10)</option></select></div>
+        <div class="field"><label title="Cari pola yang sama di riwayat koin mana. Koin ini saja = lebih cepat & khas koin itu, tapi kejadiannya lebih sedikit">Riwayat</label><select id="pcScope">
+          <option value="all">Semua koin</option><option value="coin">Koin ini saja</option></select></div>
+        <div class="field"><label title="Tren TF besar untuk menyaring kejadian di riwayat (dipakai hanya kalau terbukti lebih tepat). Otomatis: 5M→1H, 15M→4H, 1H→1D, dst.">TF besar</label><select id="pcHtf"><option value="auto">Otomatis</option><option value="off">Mati</option><option value="15m">15M</option><option value="1h">1H</option><option value="4h">4H</option><option value="1d">1D</option></select></div>
+        <button id="pcRun" class="primary">🧪 Cek entry</button>
+      </div>
+      <p id="pcInfo" class="hint">LONG = SL &lt; entry &lt; TP · SHORT = TP &lt; entry &lt; SL. Arah dibaca otomatis dari susunan harga.</p>
+      <p id="pcStatus" class="hint"></p>
+    </div>
+    <div id="pcOut" class="msc-out hidden"></div>
+    <details class="savedlist card"><summary><b>Cara kerja cek entry</b></summary><ul class="hint">
+      <li>Struktur swing sekarang dibaca seperti 🔎 Screener (candle sudah close, langsung dari Binance) → pola. Pola yang sama dicari di riwayat semua koin.</li>
+      <li>Entry / SL / TP kamu diubah ke <b>jarak ATR dari harga sekarang</b>, lalu dipasang di tiap kejadian pola itu (harga &amp; ATR saat itu) → adil antar koin &amp; harga.</li>
+      <li><b>Belum kesentuh</b>: limit ditunggu maks 96 candle; posisi maks 150 candle (lewat = ditutup di close). TP &amp; SL di candle yang sama = SL.
+        <b>Sudah masuk</b>: dicek dari sekarang, TP / SL mana yang kena duluan.</li>
+      <li><b>Hasil per sinyal</b> = rata-rata hasil dalam <b>R risiko kamu</b> (limit tidak terisi = 0), jadi menggeser SL tidak "menipu" R.</li>
+      <li><b>Saran</b>: entry / SL / TP digeser (±ATR) satu per satu, dipilih di 70% kejadian awal, dicek di 30% terakhir (✅ terbukti). Hanya ditampilkan kalau hasil per sinyal naik ≥ 0,05R.</li>
+      <li>Ini peluang dari riwayat, bukan kepastian. Bukan saran keuangan.</li></ul></details>
+  </div>
+</section>

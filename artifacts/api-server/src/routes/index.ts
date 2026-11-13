@@ -10,6 +10,8 @@ import setupFinderRouter from "./setup-finder";
 import tp3Router from "./tp3";
 import journalSyncRouter from "./journal-sync";
 import debugRouter from "./debug";
+import msaRouter from "./msa";
+import journalKlinesRouter from "./journal-klines";
 
 const router: IRouter = Router();
 
@@ -24,5 +26,7 @@ router.use(setupFinderRouter);
 router.use(tp3Router);
 router.use(journalSyncRouter);
 router.use(debugRouter);
+router.use(msaRouter); // v26: 📐 Market Structure (tab 2 Setup Finder)
+router.use(journalKlinesRouter); // v27: candle penilaian Jurnal lewat server
 
 export default router;

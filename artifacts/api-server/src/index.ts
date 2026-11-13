@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { checkPendingFollowups } from "./routes/journal-followup";
 import { emaCheck } from "./lib/smc";
+import { startMarketStructure } from "./routes/msa";
 
 // FIX BUG KRUSIAL (ketemu user — server MATI TOTAL gara-gara EPIPE dari
 // subprocess Python backtest): tanpa handler ini, SATU error async yang gak
@@ -67,3 +68,6 @@ setTimeout(() => {
     .then((r) => logger.info({ emaCheck: r }, 'EMA check BTCUSDT (lama vs baru)'))
     .catch((err) => logger.warn({ err }, 'EMA check BTCUSDT gagal'));
 }, 5_000);
+
+// v26: 📐 Market Structure — proses Python asli + gudang candle (Postgres -> .npz)
+startMarketStructure();

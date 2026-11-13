@@ -211,6 +211,7 @@ function ClassicTabLayout() {
       />
       {/* Hidden screens — file di (tabs) tapi jangan muncul di tab bar */}
       <Tabs.Screen name="_calculator-view" options={{ href: null }} />
+      <Tabs.Screen name="_setup-finder-view" options={{ href: null }} />{/* v26: isi Setup Finder lama (tab 1) */}
       {/* _backtest-view DIHAPUS (request user) */}
     </Tabs>
   );

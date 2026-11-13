@@ -17,7 +17,7 @@
 //   export type InsertPost = z.infer<typeof insertPostSchema>;
 //   export type Post = typeof postsTable.$inferSelect;
 
-import { pgTable, text, serial, real, timestamp, boolean, jsonb, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, real, timestamp, boolean, jsonb, bigint, integer, primaryKey, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -83,3 +83,22 @@ export const journalEntriesTable = pgTable("journal_entries", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type JournalEntryRow = typeof journalEntriesTable.$inferSelect;
+
+/**
+ * Gudang candle Market Structure (v26, request user 2026-11-13) — SUMBER UTAMA riwayat candle.
+ * 100 koin volume terbesar, TF 15m / 1h / 4h / 1d, candle yang sudah close saja.
+ * Satu baris = satu potongan waktu tetap (5000 candle) per koin+TF; `data` = zlib( Float64 little-endian
+ * [t..., o..., h..., l..., c..., v...] ), t = open time ms. File .npz di disk hanya salinan cepat untuk Python
+ * (data.py asli) dan dibuat ulang otomatis dari tabel ini kalau hilang.
+ */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return "bytea"; } });
+export const msaCandlesTable = pgTable("msa_candles", {
+  symbol: text("symbol").notNull(),
+  tf: text("tf").notNull(),
+  chunk: integer("chunk").notNull(),                       // floor(openTime / (5000 x durasi TF))
+  t0: bigint("t0", { mode: "number" }).notNull(),          // open time candle pertama di potongan
+  t1: bigint("t1", { mode: "number" }).notNull(),          // open time candle terakhir di potongan
+  n: integer("n").notNull(),
+  data: bytea("data").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.symbol, t.tf, t.chunk] })]);

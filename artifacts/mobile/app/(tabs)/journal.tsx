@@ -24,7 +24,7 @@ import {
   registerFollowup, fetchFollowups, aggregateFollowups, type SignalFollowupResult,
   buildDiagnosticReport, buildDailyWinRateTrend, buildLoseConditionHeatmap, type DiagnosticFinding, type FindingSeverity,
   type JournalBreakdown, type SimpleVerdict, type IndicatorComparison, type LoseConditionProfile, type TimingStats,
-  isBk6Plus, isRp11Plus, journalSyncStart,
+  isBk6Plus, isRp11Plus, journalSyncStart, journalTakeEvalErrors, isMm4Plus,
 } from './journal-helpers';
 import { simulateFilters, taComponentAnalysis, type FilterScope } from './journal-research';
 import { smallPriceDecimals } from '@/components/priceFormat';
@@ -263,15 +263,15 @@ function JournalEntryCard({
                 </Text>
                 <IndicatorRow label="Struktur H1 (filter Fib 0,705)" value={entry.mmH1Struct === 'ok' ? 'aman, belum ada close H1 melewati 0,705' : 'belum bisa dinilai (leg H1 belum terbentuk)'} colors={colors} />
                 {entry.mmH1Fib705 !== undefined && <IndicatorRow label="Fib 0,705 leg H1" value={String(entry.mmH1Fib705)} colors={colors} />}
-                {entry.mmSlMode !== undefined && <IndicatorRow label="SL (mm3)" value={entry.mmSlMode === 'sweep' ? 'Ekstrem sweep ∓ (P90 + 0,1) ATR M5 (mm4)' : entry.mmSlMode === 'sf' ? 'Anti-gocekan Setup Finder (dari entry)' : entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
-                {entry.mmCrtVersion === 'mm4' && (
+                {entry.mmSlMode !== undefined && <IndicatorRow label={`SL (${entry.mmCrtVersion ?? 'mm3'})`} value={entry.mmSlMode === 'sweep' ? 'Ekstrem sweep ∓ (P90 + 0,1) ATR M5 (mm4)' : entry.mmSlMode === 'sf' ? 'Anti-gocekan Setup Finder (dari entry)' : entry.mmSlMode === 'fib' ? 'Fib 0,71 leg sweep→displacement' : '2 × ATR M5 (leg Fib belum terbentuk)'} colors={colors} />}
+                {isMm4Plus(entry.mmCrtVersion) && (
                   <>
-                    <IndicatorRow label="Tipe setup (mm4)" value={`${entry.mmSetupType === 'failure_to_manipulate' ? 'Failure to Manipulate' : 'Reversal'} · ${entry.bias === 'bullish' ? 'BUY' : 'SELL'}`} colors={colors} />
+                    <IndicatorRow label={`Tipe setup (${entry.mmCrtVersion})`} value={`${entry.mmSetupType === 'failure_to_manipulate' ? 'Failure to Manipulate' : 'Reversal'} · ${entry.bias === 'bullish' ? 'BUY' : 'SELL'}`} colors={colors} />
                     {entry.mmH1Loc !== undefined && <IndicatorRow label="H1 premium/discount" value={`${entry.mmH1Loc}${entry.mmH1LegPosPct !== undefined ? ` (${entry.mmH1LegPosPct}% leg H1)` : ''} · Range/ATR ${entry.mmRangeAtrH1?.toFixed(2) ?? '—'}`} colors={colors} />}
                     {entry.mmScoreParts !== undefined && <IndicatorRow label={`Skor ${entry.mmScore ?? '—'}/16`} value={entry.mmScoreParts} colors={colors} />}
                     {entry.mmBtcCorr !== undefined && <IndicatorRow label="Korelasi BTC" value={`${entry.mmBtcCorr.toFixed(2)} · BTC ${entry.mmBtcDir === 'bullish' ? 'naik' : entry.mmBtcDir === 'bearish' ? 'turun' : 'datar'}`} colors={colors} />}
                     {entry.mmFvgAtr !== undefined && <IndicatorRow label="FVG / tusukan sweep" value={`${entry.mmFvgAtr.toFixed(2)} ATR · ${entry.mmSweepPenAtr?.toFixed(2) ?? '—'} ATR M5`} colors={colors} />}
-                    {entry.mmSlPct !== undefined && <IndicatorRow label="Jarak SL" value={`${entry.mmSlPct.toFixed(2)}% · ${entry.mmSlAtr?.toFixed(2) ?? '—'} ATR M5${entry.mmP90 !== undefined ? ` (P90 ${entry.mmP90.toFixed(2)})` : ' (tanpa P90)'}`} colors={colors} />}
+                    {entry.mmSlPct !== undefined && <IndicatorRow label="Jarak SL" value={`${entry.mmSlPct.toFixed(2)}% · ${entry.mmSlAtr?.toFixed(2) ?? '—'} ATR M5${entry.mmP90 !== undefined ? ` (P90 ${entry.mmP90.toFixed(2)}${entry.mmCrtVersion === 'mm5' ? ' ATR M15' : ''})` : ' (tanpa P90)'}`} colors={colors} />}
                     {entry.mmLimitFilled !== undefined && <IndicatorRow label="Limit terisi" value={entry.mmLimitFilled ? 'Ya' : entry.mmCancelReason === 'sweep_tertembus' ? 'Tidak (batal: sweep tertembus)' : 'Tidak'} colors={colors} />}
                     {entry.mmFvgDepthPct !== undefined && <IndicatorRow label="Kedalaman masuk FVG" value={`${entry.mmFvgDepthPct.toFixed(1)}% (0 = tepi depan, 100 = tepi belakang)`} colors={colors} />}
                     {entry.mmBarsToResult !== undefined && <IndicatorRow label="Lama sampai hasil" value={`${entry.mmBarsToResult} candle M5${entry.mmBarsFillToResult !== undefined ? ` (${entry.mmBarsFillToResult} sejak terisi)` : ''}`} colors={colors} />}
@@ -490,6 +490,17 @@ function checkWriteStatus() {
   }
 }
 
+// v27: kasih tahu kalau ada sinyal yang gagal dicek (dulu diam-diam tetap PENDING)
+function alertEvalErrors(errs: Map<string, string>, total: number) {
+  if (errs.size === 0) return;
+  const first = [...errs.values()][0];
+  const title = 'Sebagian gagal dicek';
+  const msg = `${errs.size} dari ${total} sinyal gagal dicek, statusnya belum diubah.\nAlasan: ${first}\n\nCoba Evaluasi lagi sebentar lagi.`;
+  // Alert.alert tidak muncul di browser (react-native-web), jadi di web pakai window.alert
+  if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(`${title}\n\n${msg}`);
+  else Alert.alert(title, msg);
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function JournalScreen() {
@@ -564,6 +575,7 @@ export default function JournalScreen() {
     checkWriteStatus();
     setEntries(updated);
     setEvaluatingId(null);
+    alertEvalErrors(journalTakeEvalErrors([entry.id]), 1); // v27
     if (entry.status === 'pending') registerFollowup(entry, patch); // fire-and-forget — analisa pasca-trade (sekali saat pertama resolve; pantau TP2 tidak didaftarkan ulang)
   }, []);
 
@@ -680,6 +692,7 @@ export default function JournalScreen() {
     checkWriteStatus();
     setEntries(updated);
     setEvaluatingAll(false);
+    alertEvalErrors(journalTakeEvalErrors(pending.map(e => e.id)), pending.length); // v27
   }, [filtered]);
 
   const stats = useMemo(() => {

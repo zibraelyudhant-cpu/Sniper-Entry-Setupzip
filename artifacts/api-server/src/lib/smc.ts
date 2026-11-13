@@ -139,11 +139,11 @@ export async function fetchKlines(
 // request kline berikutnya ditahan sampai menit berikutnya.
 const BINANCE_WEIGHT_BRAKE = 1800;
 let binanceWeight = { used: 0, minute: 0 };
-function noteBinanceWeight(res: Response): void {
+export function noteBinanceWeight(res: Response): void {
   const w = Number(res.headers.get('x-mbx-used-weight-1m'));
   if (Number.isFinite(w) && w > 0) binanceWeight = { used: w, minute: Math.floor(Date.now() / 60_000) };
 }
-async function binanceWeightGate(): Promise<void> {
+export async function binanceWeightGate(): Promise<void> {
   const m = Math.floor(Date.now() / 60_000);
   if (binanceWeight.minute === m && binanceWeight.used >= BINANCE_WEIGHT_BRAKE) {
     await new Promise(r => setTimeout(r, (m + 1) * 60_000 - Date.now() + 250));
@@ -4043,8 +4043,9 @@ function mmH1FibLong(h: number[], l: number[], c: number[]): { state: 'ok' | 'br
 //   reversal: Fib 1 = ekstrem sweep (low terendah sweepIdx..displacementIdx). failure-to-manipulate: Fib 1 = swing berlawanan terakhir sebelum sweep.
 // Leg tidak terbentuk -> null (pemanggil fallback ke SL 2 x ATR M5).
 const MM_SL_FIB = 0.71; // mm4: hanya FILTER (CE melewati Fib 0,71 leg = ditolak), bukan SL lagi
-const MM_VERSION = 'mm4'; // mm4 (2026-11-11): premium/discount dari leg H1, sweep terbaru (high & low bersamaan), label FTM terpisah, SL ekstrem sweep + P90 M5 (> 2% ditolak), filter BTC baru, batal sweep tertembus
-const MM_SL_BUF_ATR = 0.1, MM_SL_FALLBACK_ATR = 1.0, MM_SL_MAX_PCT = 2;
+const MM_VERSION = 'mm5'; // mm5 (2026-11-13, request user): M5 100 candle (jendela tetap), cari sweep cara mm1 (high dulu, boleh mundur ke swing lain), SL anti-gocekan Setup Finder + potong 4% (mm3 v19), BTC >= 0,75 berlawanan = peringatan (tidak diblokir). Sisanya = mm4.
+// mm4: mm4 (2026-11-11): premium/discount dari leg H1, sweep terbaru (high & low bersamaan), label FTM terpisah, SL ekstrem sweep + P90 M5 (> 2% ditolak), filter BTC baru, batal sweep tertembus
+const MM_M5_FETCH = 100; // mm5: 36 -> 100 candle M5 (jendela internal tetap; efeknya ke ATR M5 = RMA dengan histori lebih panjang)
 
 /** mm4: posisi close H1 TERTUTUP terakhir di leg swing fractal 3 H1 yang terakhir terbentuk (0 = low leg, 1 = high leg). */
 function mmH1LegPos(h: number[], l: number[], c: number[]): { pos: number; H: number; L: number } | null {
@@ -4073,7 +4074,7 @@ function mmH1LegPos(h: number[], l: number[], c: number[]): { pos: number; H: nu
   return { pos: (c[n - 1]! - L) / (H - L), H, L };
 }
 
-/** mm4: korelasi >= 0,50 = peringatan; >= 0,75 DIBLOKIR hanya kalau arah BTC berlawanan. Arah BTC = close terakhir vs close pertama 48 candle M15. */
+/** mm5: korelasi >= 0,50 = peringatan; >= 0,75 + arah BTC berlawanan = peringatan kuat (mm4: diblokir). Arah BTC = close terakhir vs close pertama 48 candle M15. */
 async function mmBtcFilter(symbol: string, signalBias: 'bullish' | 'bearish', coinM15Closes: number[]): Promise<BtcCorrelationFilterResult> {
   if (symbol === 'BTCUSDT') return { action: 'none', correlation: 0, btcDirection: 'ranging' };
   try {
@@ -4092,8 +4093,8 @@ async function mmBtcFilter(symbol: string, signalBias: 'bullish' | 'bearish', co
     const chg = all.length >= 2 ? all[all.length - 1]! - all[0]! : 0;
     const btcDirection: 'bullish' | 'bearish' | 'ranging' = chg > 0 ? 'bullish' : chg < 0 ? 'bearish' : 'ranging';
     const opposite = btcDirection !== 'ranging' && btcDirection !== signalBias;
-    if (correlation >= BTC_CORR_BLOCK_THRESHOLD && opposite) {
-      return { action: 'block', correlation, btcDirection, message: `BTC Correlation Filter -- korelasi ${correlation.toFixed(2)} (>= ${BTC_CORR_BLOCK_THRESHOLD}) dan BTC ${btcDirection === 'bullish' ? 'naik' : 'turun'} selama 48 candle M15 (berlawanan dengan sinyal ${signalBias}) -- diblokir` };
+    if (correlation >= BTC_CORR_BLOCK_THRESHOLD && opposite) { // mm5: tidak diblokir lagi, cuma peringatan
+      return { action: 'warn', correlation, btcDirection, message: `⚠️ PERINGATAN KUAT -- korelasi ${correlation.toFixed(2)} (>= ${BTC_CORR_BLOCK_THRESHOLD}) dan BTC ${btcDirection === 'bullish' ? 'naik' : 'turun'} selama 48 candle M15 (berlawanan dengan sinyal ${signalBias}) -- tidak diblokir (mm5)` };
     }
     if (correlation >= BTC_CORR_WARN_THRESHOLD) {
       return { action: 'warn', correlation, btcDirection, message: `⚠️ PERINGATAN -- korelasi dengan BTC ${correlation.toFixed(2)}, BTC ${btcDirection === 'bullish' ? 'naik' : btcDirection === 'bearish' ? 'turun' : 'datar'} selama 48 candle M15 (${opposite ? 'berlawanan' : 'searah'} sinyal)` };
@@ -4141,7 +4142,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     // di-rescale ikut budget baru ini, lihat komentar FASE 2 di bawah.
     const [h1, m5, tickerRes] = await Promise.all([
       fetchKlines(symbol, '1h', MM_H1_FETCH),
-      fetchKlines(symbol, '5m', 36),
+      fetchKlines(symbol, '5m', MM_M5_FETCH),
       fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`),
     ]);
     const currentPrice = tickerRes.ok
@@ -4275,41 +4276,39 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       return null;
     };
 
-    // Scan sweep TERBARU doang (fresh window 14 candle M5 ~70 menit -- re-scale request user)
+    // Jendela sweep 14 candle M5 (~70 menit)
     const freshWindow = 14;
-    // mm4: swing high DAN low dicek bersamaan; tiap swing = candle pertama yang menembusnya (dalam 14 candle terakhir).
-    // Penetrasi < 0,10 ATR = bukan sweep. Dipakai SWEEP PALING BARU apa pun hasilnya (tidak mundur ke sweep lebih lama).
-    // Sweep high & low di candle yang sama: discount -> sweep LOW, premium -> sweep HIGH.
-    type SweepEv = { i: number; level: number; side: 'high' | 'low' };
-    const events: SweepEv[] = [];
-    const scanSide = (list: { price: number; index: number }[], side: 'high' | 'low') => {
-      for (const sw of list.slice(0, 5)) {
-        for (let i = Math.max(sw.index + 1, lastClosedIdx - freshWindow); i <= lastClosedIdx; i++) {
-          const broke = side === 'high' ? m5.highs[i]! > sw.price : m5.lows[i]! < sw.price;
-          if (!broke) continue;
-          const pen = side === 'high' ? m5.highs[i]! - sw.price : sw.price - m5.lows[i]!;
-          if (atrM5 > 0 && pen / atrM5 >= 0.10) events.push({ i, level: sw.price, side });
+    // mm5 = cara mm1: swing HIGH dicek dulu (maks 5 swing dari daftar), tiap swing = candle pertama yang menembusnya
+    // dalam 14 candle terakhir; kalau setup di sweep itu tidak valid, lanjut ke swing high berikutnya.
+    // Tidak ada setup dari sisi high -> baru swing LOW dengan cara yang sama. Penetrasi >= 0,10 ATR dicek di detectAtSweep.
+    let found: SetupResult | null = null;
+    for (const sh of swingHighs.slice(0, 5)) {
+      for (let i = Math.max(sh.index + 1, lastClosedIdx - freshWindow); i <= lastClosedIdx; i++) {
+        if (m5.highs[i]! > sh.price) {
+          const r = detectAtSweep(i, sh.price, 'high');
+          if (r) { found = r; }
           break;
         }
       }
-    };
-    scanSide(swingHighs, 'high'); scanSide(swingLows, 'low');
-    let ev: SweepEv | null = null;
-    for (const e of events) {
-      if (!ev || e.i > ev.i) { ev = e; continue; }
-      if (e.i === ev.i && e.side !== ev.side) {
-        const want: 'high' | 'low' | null = h1Location === 'discount' ? 'low' : h1Location === 'premium' ? 'high' : null;
-        if (want && e.side === want) ev = e;
+      if (found) break;
+    }
+    if (!found) {
+      for (const sl of swingLows.slice(0, 5)) {
+        for (let i = Math.max(sl.index + 1, lastClosedIdx - freshWindow); i <= lastClosedIdx; i++) {
+          if (m5.lows[i]! < sl.price) {
+            const r = detectAtSweep(i, sl.price, 'low');
+            if (r) { found = r; }
+            break;
+          }
+        }
+        if (found) break;
       }
     }
-    const found: SetupResult | null = ev ? detectAtSweep(ev.i, ev.level, ev.side) : null;
 
     if (!found) {
       return {
         status: 'waiting', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', maxScore,
-        message: ev
-          ? `H1 ${h1Location} (Range/ATR14 ${rangeAtrRatio.toFixed(2)}): sweep ${ev.side === 'high' ? 'HIGH' : 'LOW'} terbaru (${ev.level.toFixed(6)}) belum membentuk reversal / failure-to-manipulate yang valid`
-          : `H1 ${h1Location} (Range/ATR14 ${rangeAtrRatio.toFixed(2)}), tapi belum ada sweep M5 (>= 0,10 ATR) dalam ${freshWindow} candle terakhir`,
+        message: `H1 ${h1Location} (Range/ATR14 ${rangeAtrRatio.toFixed(2)}), tapi belum ada sweep+reversal atau sweep+failure-to-manipulate M5 yang valid dalam ${freshWindow} candle terakhir`,
         filterResults: [`ℹ️ H1 ${h1Location}${h1Leg ? ` (${(h1Leg.pos * 100).toFixed(0)}% leg H1)` : ''}, Range/ATR14 ${rangeAtrRatio.toFixed(2)} (${h1Validity})`],
       };
     }
@@ -4360,32 +4359,26 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
     // Ekstrem sweep (reversal & FTM): BUY = low terendah, SELL = high tertinggi dari candle sweep sampai candle displacement
     let sweepExt = dirMult === 1 ? Infinity : -Infinity;
     for (let i = found.sweepIdx; i <= Math.min(found.displacementIdx, lastClosedIdx); i++) sweepExt = dirMult === 1 ? Math.min(sweepExt, m5.lows[i]!) : Math.max(sweepExt, m5.highs[i]!);
-    // SL = ekstrem -/+ (P90 gocekan M5 + 0,1) x ATR M5; P90 = rumus Setup Finder di 1000 candle M5 (diambil hanya untuk koin yang lolos setup)
+    // mm5: SL = anti-gocekan Setup Finder dari entry/CE (sama dengan mm3 sejak v19): di luar swing M15 terdekat + P90 gocekan,
+    // atau di luar tembok order book, atau cadangan ATR H1; digeser dari angka bulat; dipotong di 4% dari entry.
+    // Gagal (API/data) -> SL mm3 bawaan: Fib 0,71 leg sweep, atau 2 x ATR M5 kalau leg tidak terbentuk. Tidak ada penolakan SL > 2% lagi.
+    let stopLoss = fibLeg ? fibLeg.sl : entryPrice - 2.0 * atrM5 * dirMult;
+    let mmSlMode: 'sf' | 'fib' | 'atr' = fibLeg ? 'fib' : 'atr';
+    let slTxt = fibLeg ? 'Fib 0,71 leg sweep (SL Setup Finder gagal diambil)' : '2 × ATR M5 (SL Setup Finder gagal, leg Fib belum terbentuk)';
     let p90: number | null = null;
     try {
-      const m5L = await fetchKlines(symbol, '5m', 1000);
-      const nL = m5L.closes.length - 1; // buang candle berjalan
-      p90 = gocekP90FromOhlc(m5L.opens.slice(0, nL), m5L.highs.slice(0, nL), m5L.lows.slice(0, nL), m5L.closes.slice(0, nL));
-    } catch { p90 = null; }
-    let stopLoss = p90 !== null ? sweepExt - dirMult * (p90 + MM_SL_BUF_ATR) * atrM5 : sweepExt - dirMult * MM_SL_FALLBACK_ATR * atrM5;
-    let slRounded = false;
-    const pz = p90 ?? 1.0;
-    for (const r of sfRoundLevels(stopLoss)) {
-      if (Math.abs(stopLoss - r) <= SF_ROUND_ZONE_ATR * pz * atrM5) { stopLoss = r - dirMult * (SF_ROUND_ZONE_ATR * pz + SF_ROUND_BUF) * atrM5; slRounded = true; break; }
-    }
+      const ag = await sfAntiGocekForEntry(symbol, dirMult === 1 ? 'BUY' : 'SELL', entryPrice);
+      if (dirMult === 1 ? ag.sl < entryPrice : ag.sl > entryPrice) {
+        stopLoss = ag.sl; mmSlMode = 'sf'; p90 = ag.p90;
+        const src = ag.src === 'swing' ? 'di luar swing M15 terdekat + gocekan P90' : ag.src === 'wall' ? 'di luar tembok order book' : 'cadangan ATR H1';
+        slTxt = `anti-gocekan Setup Finder (${src}${ag.rounded ? ', digeser dari angka bulat' : ''}${ag.clipped ? ', dipotong 4% dari entry' : ''})`;
+      }
+    } catch { /* pakai SL mm3 bawaan */ }
     const risk = Math.abs(entryPrice - stopLoss);
     if (!(risk > 0) || !(dirMult === 1 ? stopLoss < entryPrice : stopLoss > entryPrice)) {
       return { status: 'no_setup', symbol, currentPrice, timestamp, mode: 'moneymagnetscalping', message: 'Risk gak valid (SL tidak di sisi yang benar dari entry)', maxScore, filterResults };
     }
     const slPct = risk / entryPrice * 100;
-    if (slPct > MM_SL_MAX_PCT) {
-      return {
-        status: 'no_setup', symbol, bias: found.direction, currentPrice, timestamp, mode: 'moneymagnetscalping', maxScore,
-        message: `Setup CRT ketemu (${found.direction}) tapi SL ${slPct.toFixed(2)}% dari entry (> ${MM_SL_MAX_PCT}%) -- ditolak`,
-        filterResults: [...filterResults, `🚫 SL ${stopLoss.toFixed(6)} = ${slPct.toFixed(2)}% dari entry (> ${MM_SL_MAX_PCT}%)`],
-        mmCrtVersion: MM_VERSION,
-      };
-    }
     const target = entryPrice + risk * 3.0 * dirMult;
     const rr = 3.0;
     // komponen RR (tetap): RR TP2 >= 3,5 +2, 3,0-3,5 +1
@@ -4403,7 +4396,7 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       };
     }
 
-    // ═══ BTC CORRELATION (mm4): >= 0,50 peringatan; >= 0,75 DIBLOKIR hanya kalau arah BTC (48 candle M15) berlawanan ═══
+    // ═══ BTC CORRELATION (mm5): >= 0,50 peringatan; >= 0,75 + arah BTC (48 candle M15) berlawanan = peringatan kuat, TIDAK diblokir ═══
     const m15ForBtcFilter = await fetchKlines(symbol, '15m', 48);
     const btcFilter = await mmBtcFilter(symbol, bias, m15ForBtcFilter.closes);
     const btcAligned = btcFilter.btcDirection === 'ranging' ? undefined : btcFilter.btcDirection === bias;
@@ -4425,8 +4418,8 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
       mmSetupType: found.type, mmH1Loc: h1Location, mmH1LegPosPct: h1Leg ? Number((h1Leg.pos * 100).toFixed(1)) : undefined,
       mmRangeAtrH1: Number(rangeAtrRatio.toFixed(3)), mmScoreParts: scoreParts,
       mmFvgAtr: Number(found.fvgAtr.toFixed(3)), mmSweepPenAtr: Number(found.penRatio.toFixed(3)),
-      mmSlPct: Number(slPct.toFixed(3)), mmSlAtr: Number((risk / atrM5).toFixed(3)), mmP90: p90 === null ? undefined : Number(p90.toFixed(3)),
-      mmSweepExt: sweepExt, mmFvgTop: found.fvgTop, mmFvgBot: found.fvgBot, mmSlMode: 'sweep' as const,
+      mmSlPct: Number(slPct.toFixed(3)), mmSlAtr: Number((risk / atrM5).toFixed(3)), mmP90: p90 === null ? undefined : Number(p90.toFixed(3)), // mm5: P90 Setup Finder (ATR M15)
+      mmSweepExt: sweepExt, mmFvgTop: found.fvgTop, mmFvgBot: found.fvgBot, mmSlMode,
     };
     if (!entryStillValid) {
       return {
@@ -4441,9 +4434,6 @@ export async function analyzeMoneyMagnetScalping(symbol: string): Promise<Scalpi
 
     const takeProfit1 = entryPrice + risk * 2.0 * dirMult;
     const takeProfit2 = target;
-    const slTxt = p90 !== null
-      ? `ekstrem sweep ${sweepExt.toFixed(6)} ${dirMult === 1 ? '−' : '+'} (P90 gocekan M5 ${p90.toFixed(2)} + ${MM_SL_BUF_ATR}) × ATR M5${slRounded ? ', digeser dari angka bulat' : ''}`
-      : `ekstrem sweep ${sweepExt.toFixed(6)} ${dirMult === 1 ? '−' : '+'} ${MM_SL_FALLBACK_ATR} × ATR M5 (P90 tidak tersedia)${slRounded ? ', digeser dari angka bulat' : ''}`;
     filterResults.push(`✅ SL ${stopLoss.toFixed(6)} (${slTxt}; ${slPct.toFixed(2)}% / ${(risk / atrM5).toFixed(2)} ATR M5); TP1 RR 1:2, TP2 RR 1:3; TP3 SNR H1 di layar Analisa`);
     if (btcFilter.action === 'warn') filterResults.push(btcFilter.message ?? '⚠️ Korelasi BTC tinggi');
 
